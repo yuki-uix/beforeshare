@@ -1,0 +1,15 @@
+{
+  "$comment": "Machine-readable changelog for the canonical schemas (§13.3 requires one alongside the machine-readable schema). Each change is classified, and tools/versioning.mjs decides from these classifications whether a version bump was legal — so a breaking change recorded under an unchanged MAJOR fails the build rather than shipping.",
+  "schemaVersion": "1.0",
+  "releases": [
+    {
+      "version": "1.0",
+      "date": "2026-09-14",
+      "changes": [
+        { "type": "additive", "target": "inspection-result.schema.json", "description": "Initial canonical inspection result." },
+        { "type": "additive", "target": "verification-result.schema.json", "description": "Initial verification result." },
+        { "type": "additive", "target": "capabilities.schema.json", "description": "Initial capability declaration." }
+      ]
+    }
+  ]
+}

@@ -15,14 +15,34 @@
     ],
     "skipped": [
       {
-        "detector": "pdf.text_layer",
+        "detector": "ocr.visible_text",
+        "reason": "blocked_by_encryption",
+        "message": "Pages could not be rendered for text recognition."
+      },
+      {
+        "detector": "pdf.actions",
         "reason": "blocked_by_encryption",
         "message": "The document is encrypted and no password was supplied."
       },
       {
-        "detector": "ocr.visible_text",
+        "detector": "pdf.embedded_files",
         "reason": "blocked_by_encryption",
-        "message": "Pages could not be rendered for text recognition."
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "pdf.form_fields",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "pdf.structure",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "pdf.text_layer",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
       }
     ],
     "failed": [
@@ -98,7 +118,11 @@
     ],
     "detectors": [
       {
-        "id": "pdf.metadata",
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      },
+      {
+        "id": "pdf.actions",
         "version": "1.0.0"
       },
       {
@@ -106,12 +130,24 @@
         "version": "1.0.0"
       },
       {
-        "id": "pdf.text_layer",
+        "id": "pdf.embedded_files",
         "version": "1.0.0"
       },
       {
-        "id": "ocr.visible_text",
-        "version": "0.4.1"
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
       }
     ]
   },

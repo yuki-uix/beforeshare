@@ -509,5 +509,29 @@ for (const f of committedCaps.formats) {
   }
 }
 
+// --- coverage must account for every applicable detector ---------------------
+// §17.1 requires coverage to be reported accurately. A detector that applies to
+// this media type and appears in none of the three arrays is a check nobody can
+// tell ran or not — which reads, to anyone consuming the result, as though it ran.
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const mediaType = doc.input.mediaType;
+  const applicable = Object.entries(REGISTRY.detectors)
+    .filter(([, d]) => d.mediaTypes.includes(mediaType))
+    .map(([id]) => id);
+  const accounted = new Set([
+    ...doc.coverage.completed,
+    ...doc.coverage.skipped.map((s) => s.detector),
+    ...doc.coverage.failed.map((f) => f.detector),
+  ]);
+  const unaccounted = applicable.filter((id) => !accounted.has(id));
+  check(`${file} accounts for every detector applicable to ${mediaType}`,
+    unaccounted.length === 0, `unaccounted: ${unaccounted.join(', ')}`);
+
+  const inapplicable = [...accounted].filter((id) => !applicable.includes(id));
+  check(`${file} reports no detector that does not apply to ${mediaType}`,
+    inapplicable.length === 0, `inapplicable: ${inapplicable.join(', ')}`);
+}
+
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

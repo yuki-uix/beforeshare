@@ -10,11 +10,14 @@
   "status": "review_required",
   "coverage": {
     "completed": [
-      "pdf.metadata",
+      "ocr.visible_text",
+      "pdf.actions",
       "pdf.annotations",
       "pdf.embedded_files",
-      "pdf.text_layer",
-      "ocr.visible_text"
+      "pdf.form_fields",
+      "pdf.metadata",
+      "pdf.structure",
+      "pdf.text_layer"
     ],
     "skipped": [],
     "failed": []
@@ -141,7 +144,11 @@
     ],
     "detectors": [
       {
-        "id": "pdf.metadata",
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      },
+      {
+        "id": "pdf.actions",
         "version": "1.0.0"
       },
       {
@@ -153,12 +160,20 @@
         "version": "1.0.0"
       },
       {
-        "id": "pdf.text_layer",
+        "id": "pdf.form_fields",
         "version": "1.0.0"
       },
       {
-        "id": "ocr.visible_text",
-        "version": "0.4.1"
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
       }
     ]
   },

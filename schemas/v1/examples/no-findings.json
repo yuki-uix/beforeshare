@@ -29,6 +29,10 @@
     "core": "0.1.0",
     "detectors": [
       {
+        "id": "image.exif",
+        "version": "1.0.0"
+      },
+      {
         "id": "image.png_text",
         "version": "1.0.0"
       },

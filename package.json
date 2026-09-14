@@ -8,7 +8,8 @@
     "validate": "node tools/validate-schemas.mjs",
     "test:masking": "node tools/test-masking.mjs",
     "test:status": "node tools/test-status.mjs",
-    "test": "npm run validate && npm run test:masking && npm run test:status"
+    "test:contracts": "node tools/test-contracts.mjs",
+    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

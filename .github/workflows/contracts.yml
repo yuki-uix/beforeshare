@@ -42,6 +42,9 @@ jobs:
       - name: Test status rules and exit codes
         run: npm run test:status
 
+      - name: Test contract boundaries
+        run: npm run test:contracts
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -166,6 +169,16 @@ jobs:
           expect_failure "an untested limit smuggling in a number" \
             "example capabilities.json" \
             "schemas/v1/examples/capabilities.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/no-findings.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.coverage.completed = r.coverage.completed.filter(d => d !== 'ocr.visible_text');
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "a detector left out of coverage entirely" \
+            "accounts for every detector applicable to" \
+            "schemas/v1/examples/no-findings.json" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

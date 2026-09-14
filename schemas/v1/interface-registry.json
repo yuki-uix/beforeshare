@@ -1,0 +1,21 @@
+{
+  "$comment": "The three interfaces §14.1 requires to produce equivalent canonical results, and whether each exists yet. Deliberately not a list of tests to un-skip later: a permanently skipped test and a permanently true assertion are the same thing — both report coverage that does not exist. An entry moves to `implemented` only by naming an adapter module that really exports produceResult, so the equivalence suite starts checking an interface the moment it claims to exist, rather than waiting for someone to remember.",
+  "schemaVersion": "1.0",
+  "interfaces": {
+    "cli": {
+      "status": "not_implemented",
+      "waitingOn": "#9",
+      "note": "beforeshare inspect --json must emit the canonical result on stdout."
+    },
+    "desktop": {
+      "status": "not_implemented",
+      "waitingOn": "#10",
+      "note": "The desktop app renders from the same canonical result it must be able to export."
+    },
+    "mcp": {
+      "status": "not_implemented",
+      "waitingOn": "#11",
+      "note": "inspect_file returns the canonical result unchanged."
+    }
+  }
+}

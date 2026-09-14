@@ -171,21 +171,21 @@ what §9.3's ban on hidden bulk actions requires — the user sees five decision
 
 §20.3 requires unknown enum values to fail visibly. `additionalProperties: false` and closed enums
 throughout; the validator pins this with negative cases. The consequence is that **adding an enum
-value is a compatibility event**, not a free extension — see the process above. How MINOR bumps are
-negotiated with pinned consumers over the long run is owned by issue #25.
+value is a compatibility event**, not a free extension — see [versioning.md](versioning.md), which
+also explains why such an addition is classified additive while still being refused by a pinned
+consumer.
 
 `status` semantics and the exit-code mapping are defined in
 [status-and-exit-codes.md](status-and-exit-codes.md); verification in
 [verification.md](verification.md); the capability declaration in
-[capabilities.md](capabilities.md).
+[capabilities.md](capabilities.md); versioning in [versioning.md](versioning.md); the §20.3
+boundaries in [contract-tests.md](contract-tests.md).
 
 ## What this PR deliberately does not decide
 
 | Question | Owner |
 |---|---|
-| Version granularity and the long-run compatibility policy | #25 |
 | Which detectors actually emit which category | E3 / E4 / E5 |
-| Cross-interface equivalence tests | #26 |
 
 `status` and `versions` appear in this schema because examples cannot be written without them. Their
 *shape* is fixed here; their *semantics* are not.
