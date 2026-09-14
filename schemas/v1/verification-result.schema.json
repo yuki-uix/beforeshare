@@ -153,16 +153,7 @@
           "description": "independent: this reader shares no parsing or serialisation code with the component that produced the output. shares_writer_implementation: it does, so its agreement proves nothing on its own."
         },
         "surface": {
-          "type": "string",
-          "enum": [
-            "raw_objects",
-            "extracted_text",
-            "rendered_page",
-            "metadata_block",
-            "annotations",
-            "attachments",
-            "image_pixels"
-          ],
+          "$ref": "common.schema.json#/$defs/surface",
           "description": "Which of the surfaces §10.1 enumerates this reader examined."
         }
       }
@@ -225,16 +216,7 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "enum": [
-              "raw_objects",
-              "extracted_text",
-              "rendered_page",
-              "metadata_block",
-              "annotations",
-              "attachments",
-              "image_pixels"
-            ]
+            "$ref": "common.schema.json#/$defs/surface"
           },
           "description": "§10.1 requires confirming selected values are absent from raw objects, extracted text, annotations, attachments and the metadata the action covered. Recording which surfaces were actually examined is what keeps a partial check from reading as a complete one."
         }
@@ -424,9 +406,9 @@
               "measured": {
                 "type": [
                   "number",
-                  "string",
-                  "null"
-                ]
+                  "string"
+                ],
+                "description": "Never null when the check ran. `required` alone is satisfied by null, which would make `preserved` an assertion with nothing behind it — the thing this object exists to prevent."
               },
               "tolerance": {
                 "type": [
@@ -442,7 +424,7 @@
     },
     "preservation": {
       "type": "object",
-      "description": "The five unintended-change checks §10.3 requires. Each is present whether or not it ran; a missing key would be indistinguishable from a check that passed.",
+      "description": "The unintended-change checks §10.3 requires. Six keys for its five bullets: the first bullet, \"page count and dimensions\", covers two failures that happen independently — pages resized but not lost, or lost but not resized — and one combined key could only report the worse of them. Each key is present whether or not the check ran; a missing key would be indistinguishable from a check that passed.",
       "required": [
         "pageCount",
         "pageDimensions",
@@ -454,22 +436,113 @@
       "additionalProperties": false,
       "properties": {
         "pageCount": {
-          "$ref": "#/$defs/measurement"
+          "allOf": [
+            {
+              "$ref": "#/$defs/measurement"
+            },
+            {
+              "$comment": "docs/contracts/verification.md maps each check to its metric. Without this, pageCount could report a readability metric and still validate.",
+              "properties": {
+                "metric": {
+                  "enum": [
+                    "page_count"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
         },
         "pageDimensions": {
-          "$ref": "#/$defs/measurement"
+          "allOf": [
+            {
+              "$ref": "#/$defs/measurement"
+            },
+            {
+              "$comment": "docs/contracts/verification.md maps each check to its metric. Without this, pageCount could report a readability metric and still validate.",
+              "properties": {
+                "metric": {
+                  "enum": [
+                    "page_dimensions_pt"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
         },
         "renderComparison": {
-          "$ref": "#/$defs/measurement"
+          "allOf": [
+            {
+              "$ref": "#/$defs/measurement"
+            },
+            {
+              "$comment": "docs/contracts/verification.md maps each check to its metric. Without this, pageCount could report a readability metric and still validate.",
+              "properties": {
+                "metric": {
+                  "enum": [
+                    "pixel_difference_ratio"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
         },
         "textOutsideApprovedRegions": {
-          "$ref": "#/$defs/measurement"
+          "allOf": [
+            {
+              "$ref": "#/$defs/measurement"
+            },
+            {
+              "$comment": "docs/contracts/verification.md maps each check to its metric. Without this, pageCount could report a readability metric and still validate.",
+              "properties": {
+                "metric": {
+                  "enum": [
+                    "text_recall_ratio"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
         },
         "imageDimensionsAndOrientation": {
-          "$ref": "#/$defs/measurement"
+          "allOf": [
+            {
+              "$ref": "#/$defs/measurement"
+            },
+            {
+              "$comment": "docs/contracts/verification.md maps each check to its metric. Without this, pageCount could report a readability metric and still validate.",
+              "properties": {
+                "metric": {
+                  "enum": [
+                    "image_dimensions_px",
+                    "orientation"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
         },
         "outputReadable": {
-          "$ref": "#/$defs/measurement"
+          "allOf": [
+            {
+              "$ref": "#/$defs/measurement"
+            },
+            {
+              "$comment": "docs/contracts/verification.md maps each check to its metric. Without this, pageCount could report a readability metric and still validate.",
+              "properties": {
+                "metric": {
+                  "enum": [
+                    "readability"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
         }
       }
     }

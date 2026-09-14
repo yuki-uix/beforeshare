@@ -47,6 +47,12 @@ mechanical, because the failure it guards against looks exactly like success fro
 objects, extracted text, rendered pages, metadata blocks, annotations, attachments, image pixels.
 Without it a check of one surface reads identically to a check of all of them.
 
+The seven surfaces are defined once, in `common.schema.json`, and referenced by everything that uses
+them: a capability's verifiable surfaces, a read path, and this list. They first existed as four
+inline copies that agreed by copy-paste. The fix was not a check that the copies match — that accepts
+the duplication and then polices it — but removing the duplication, which leaves only one failure
+mode: someone pasting a copy back. That is what the validator now looks for.
+
 ## Preservation is measured, not asserted
 
 §10.3 asks for a render comparison "within an explained tolerance". A boolean pass/fail would hide
@@ -90,12 +96,21 @@ change beyond its tolerance.
 remediation and verification; a verification whose original hash no longer matches the inspection it
 cites is verifying a different file, and the hashes are what make that detectable.
 
+`results` has one entry per entry in `requested`, **in the same order**. This is a hard requirement,
+not a convention: `summariseVerification` compares the two by index. A set comparison was the first
+implementation and it let one result answer two requests — `requested` has no `uniqueItems`, and two
+findings each asking for a metadata removal is a normal case — so a run was reported successful with
+an action never verified.
+
 `requested` is the action list the caller states was applied. Verification answers that list — it
 does not discover what happened. An action performed but not declared is not verified, and nothing in
 the result will say so, which is why the CLI and MCP contracts require the caller to pass it.
 
 ## Not decided here
 
-Which readers actually satisfy `independent`, and how the build keeps their dependency graphs
-disjoint from the writer's, belongs to E7. This schema defines what has to be recorded; it cannot by
-itself stop someone labelling a shared reader as independent.
+| Question | Owner |
+|---|---|
+| Which readers actually satisfy `independent`, and how the build keeps their dependency graphs disjoint from the writer's | E7 |
+
+This schema defines what has to be recorded; it cannot by itself stop someone labelling a shared
+reader as independent.

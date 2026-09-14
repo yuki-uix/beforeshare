@@ -87,3 +87,41 @@ in `limitations.affectedDetectors`. An unregistered id in any of those is a typo
 a check ran. The validator rejects every detector id in a committed example that is not in the
 registry, and requires every declared category to be emitted by at least one detector — a category
 nothing can produce is a taxonomy entry with no path to the user.
+
+## Nothing here is implemented
+
+Every detector in the registry declares `status: "not_implemented"` with the issue it waits on, and
+so does every action. The taxonomy exists; the adapters do not.
+
+This was not the first version. The registry originally listed twelve detectors with no status, and
+`buildCapabilities` published them — so a consumer reading the declaration would have concluded this
+build inspects PDFs, JPEGs and PNGs. The same mistake had already been caught once in this file, for
+`verifiable`, and was left standing one field away.
+
+`implemented` requires an `adapter` module, so the status cannot be advanced by editing a string.
+
+## One field answers "can this build do anything"
+
+`operational` carries `canInspect`, `canRemediate` and a sentence. Both booleans are **derived** from
+the per-entry statuses, never set by hand.
+
+It exists because a consumer of `get_capabilities` is an agent making a yes/no decision, and the
+per-entry statuses alone would make it scan two dozen entries to learn that nothing works — which is
+the same "partial reads as complete" failure the statuses were added to prevent. Today it reads:
+
+```json
+"operational": {
+  "canInspect": false,
+  "canRemediate": false,
+  "summary": "This build implements no detector and no remediation action. It can describe what it will do, not do it."
+}
+```
+
+## Not decided here
+
+| Question | Owner |
+|---|---|
+| Which detectors actually exist, and their adapters | E3 (#4), E4 (#5), E5 (#6) |
+| Which remediation actions exist | E6 (#7) |
+| Which independent verifiers exist | E7 (#8) |
+| Maximum tested sizes, on a named reference machine | E3 / E4, once an adapter can open a file |

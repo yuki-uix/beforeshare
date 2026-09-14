@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaDir = join(here, '..', 'schemas', 'v1');
@@ -41,42 +42,56 @@ export const REGISTRY = read('detector-registry.json');
  */
 export const ACTION_FACTS = {
   remove_pdf_metadata_field: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['invalidates_digital_signature'],
     confirmationRequired: false,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['metadata_block', 'raw_objects'] },
     mediaTypes: ['application/pdf'],
   },
   remove_image_metadata_field: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['alters_visual_rendering'],
     confirmationRequired: false,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['metadata_block'] },
     mediaTypes: ['image/jpeg', 'image/png'],
   },
   remove_annotations: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['invalidates_digital_signature', 'removes_interactive_behavior', 'makes_future_editing_harder'],
     confirmationRequired: true,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['annotations', 'raw_objects', 'extracted_text'] },
     mediaTypes: ['application/pdf'],
   },
   remove_embedded_files: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['invalidates_digital_signature', 'makes_future_editing_harder'],
     confirmationRequired: true,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['attachments', 'raw_objects'] },
     mediaTypes: ['application/pdf'],
   },
   disable_javascript_and_launch_actions: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['invalidates_digital_signature', 'removes_interactive_behavior'],
     confirmationRequired: false,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['raw_objects'] },
     mediaTypes: ['application/pdf'],
   },
   clear_form_values: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['invalidates_digital_signature', 'removes_interactive_behavior', 'makes_future_editing_harder'],
     confirmationRequired: true,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['raw_objects', 'extracted_text'] },
     mediaTypes: ['application/pdf'],
   },
   flatten_to_high_assurance_copy: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: [
       'invalidates_digital_signature',
       'removes_accessible_or_searchable_text',
@@ -90,6 +105,8 @@ export const ACTION_FACTS = {
     mediaTypes: ['application/pdf'],
   },
   apply_visual_redaction: {
+    status: 'not_implemented',
+    waitingOn: '#7',
     possibleSideEffects: ['removes_accessible_or_searchable_text', 'alters_visual_rendering', 'makes_future_editing_harder'],
     confirmationRequired: true,
     verifiable: { status: 'no_verifier_implemented', plannedSurfaces: ['extracted_text', 'rendered_page', 'raw_objects', 'image_pixels'] },
@@ -106,14 +123,44 @@ export const UNMEASURED = {
   reason: 'No format adapter is implemented yet, so no file size or page count has been tested on any reference machine.',
 };
 
+export { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
+
+/**
+ * A detector or action declaring a media type outside the closed set would be
+ * dropped from `formats` silently while still appearing in `versions.detectors` —
+ * present in the declaration, absent from every format that could use it. Fail
+ * instead.
+ */
+export function unsupportedMediaTypesInSources() {
+  const bad = [];
+  for (const [id, d] of Object.entries(REGISTRY.detectors)) {
+    for (const mt of d.mediaTypes) if (!SUPPORTED_MEDIA_TYPES.includes(mt)) bad.push(`detector ${id}: ${mt}`);
+  }
+  for (const [action, f] of Object.entries(ACTION_FACTS)) {
+    for (const mt of f.mediaTypes) if (!SUPPORTED_MEDIA_TYPES.includes(mt)) bad.push(`action ${action}: ${mt}`);
+  }
+  return bad;
+}
+
 export function buildCapabilities({ core = '0.1.0', app, testedLimits = {} } = {}) {
-  const mediaTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+  const bad = unsupportedMediaTypesInSources();
+  if (bad.length > 0) {
+    throw new Error(`media types outside the supported set: ${bad.join('; ')}`);
+  }
+  const mediaTypes = SUPPORTED_MEDIA_TYPES;
 
   const formats = mediaTypes.map((mediaType) => ({
     mediaType,
     detectors: Object.entries(REGISTRY.detectors)
       .filter(([, d]) => d.mediaTypes.includes(mediaType))
-      .map(([id, d]) => ({ id, version: d.version, certainty: d.certainty, emits: d.emits })),
+      .map(([id, d]) => ({
+        id,
+        version: d.version,
+        certainty: d.certainty,
+        emits: d.emits,
+        status: d.status,
+        ...(d.status === 'implemented' ? { adapter: d.adapter } : { waitingOn: d.waitingOn }),
+      })),
     actions: Object.entries(ACTION_FACTS)
       .filter(([, f]) => f.mediaTypes.includes(mediaType))
       .map(([action]) => action),
@@ -122,12 +169,28 @@ export function buildCapabilities({ core = '0.1.0', app, testedLimits = {} } = {
 
   const detectors = Object.entries(REGISTRY.detectors).map(([id, d]) => ({ id, version: d.version }));
 
+  // Derived, never hand-set. A consumer of get_capabilities makes a yes/no
+  // decision; requiring it to scan two dozen per-entry statuses to learn that
+  // nothing works is the same "partial reads as complete" failure the per-entry
+  // statuses were added to prevent.
+  const anyDetector = formats.some((f) => f.detectors.some((d) => d.status === 'implemented'));
+  const anyAction = Object.values(ACTION_FACTS).some((f) => f.status === 'implemented');
+
   const out = {
     schemaVersion: '1.0',
+    operational: {
+      canInspect: anyDetector,
+      canRemediate: anyAction,
+      summary: anyDetector || anyAction
+        ? 'Some capabilities are implemented; see each entry.'
+        : 'This build implements no detector and no remediation action. It can describe what it will do, not do it.',
+    },
     versions: { core, ...(app ? { app } : {}), detectors },
     formats,
     actions: Object.entries(ACTION_FACTS).map(([action, f]) => ({
       action,
+      status: f.status,
+      ...(f.status === 'implemented' ? {} : { waitingOn: f.waitingOn }),
       possibleSideEffects: f.possibleSideEffects,
       confirmationRequired: f.confirmationRequired,
       verifiable: f.verifiable,

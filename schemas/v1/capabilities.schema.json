@@ -6,6 +6,7 @@
   "type": "object",
   "required": [
     "schemaVersion",
+    "operational",
     "versions",
     "formats",
     "actions",
@@ -16,6 +17,29 @@
     "schemaVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "operational": {
+      "type": "object",
+      "required": [
+        "canInspect",
+        "canRemediate",
+        "summary"
+      ],
+      "additionalProperties": false,
+      "description": "Whether this build can actually do anything, derived from the per-entry statuses. A consumer of get_capabilities makes a yes/no decision; making it scan two dozen statuses to learn that nothing works is the same failure the per-entry statuses prevent.",
+      "properties": {
+        "canInspect": {
+          "type": "boolean"
+        },
+        "canRemediate": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      }
     },
     "versions": {
       "type": "object",
@@ -58,12 +82,7 @@
         "additionalProperties": false,
         "properties": {
           "mediaType": {
-            "type": "string",
-            "enum": [
-              "application/pdf",
-              "image/jpeg",
-              "image/png"
-            ]
+            "$ref": "common.schema.json#/$defs/mediaType"
           },
           "detectors": {
             "type": "array",
@@ -76,7 +95,8 @@
                 "id",
                 "version",
                 "certainty",
-                "emits"
+                "emits",
+                "status"
               ],
               "additionalProperties": false,
               "properties": {
@@ -97,8 +117,72 @@
                   "items": {
                     "$ref": "enums.schema.json#/$defs/category"
                   }
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "implemented",
+                    "not_implemented"
+                  ],
+                  "description": "Whether this build can actually run the detector. Publishing the taxonomy as current capability would tell a consumer this build inspects PDFs when no adapter exists."
+                },
+                "adapter": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "waitingOn": {
+                  "type": "string",
+                  "pattern": "^#[0-9]+$"
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "implemented"
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "adapter"
+                    ],
+                    "properties": {
+                      "adapter": {
+                        "type": "string"
+                      },
+                      "waitingOn": false
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "not_implemented"
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "waitingOn"
+                    ],
+                    "properties": {
+                      "waitingOn": {
+                        "type": "string"
+                      },
+                      "adapter": false
+                    }
+                  }
+                }
+              ]
             }
           },
           "actions": {
@@ -126,7 +210,8 @@
           "action",
           "possibleSideEffects",
           "confirmationRequired",
-          "verifiable"
+          "verifiable",
+          "status"
         ],
         "additionalProperties": false,
         "properties": {
@@ -163,32 +248,14 @@
                 "type": "array",
                 "uniqueItems": true,
                 "items": {
-                  "type": "string",
-                  "enum": [
-                    "raw_objects",
-                    "extracted_text",
-                    "rendered_page",
-                    "metadata_block",
-                    "annotations",
-                    "attachments",
-                    "image_pixels"
-                  ]
+                  "$ref": "common.schema.json#/$defs/surface"
                 }
               },
               "plannedSurfaces": {
                 "type": "array",
                 "uniqueItems": true,
                 "items": {
-                  "type": "string",
-                  "enum": [
-                    "raw_objects",
-                    "extracted_text",
-                    "rendered_page",
-                    "metadata_block",
-                    "annotations",
-                    "attachments",
-                    "image_pixels"
-                  ]
+                  "$ref": "common.schema.json#/$defs/surface"
                 }
               },
               "readers": {
@@ -257,8 +324,61 @@
                 }
               }
             ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "implemented",
+              "not_implemented"
+            ],
+            "description": "Whether this build can perform the action. Separate from `verifiable`, which is about confirming it afterwards: an action can be unimplemented and still have a planned verifier."
+          },
+          "waitingOn": {
+            "type": "string",
+            "pattern": "^#[0-9]+$"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "implemented"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "waitingOn": false
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "not_implemented"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "waitingOn"
+              ],
+              "properties": {
+                "waitingOn": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "limitations": {
@@ -285,7 +405,7 @@
             "type": "array",
             "uniqueItems": true,
             "items": {
-              "type": "string"
+              "$ref": "common.schema.json#/$defs/mediaType"
             }
           }
         }

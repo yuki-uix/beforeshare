@@ -42,11 +42,25 @@ export function summariseVerification(result) {
     return { successful: false, reason: 'no action was verified' };
   }
 
-  const requested = (result.requested ?? []).map((r) => r.action);
-  const answered = results.map((r) => r.action);
-  const unanswered = requested.filter((a) => !answered.includes(a));
-  if (unanswered.length > 0) {
-    return { successful: false, reason: `no verification result for: ${unanswered.join(', ')}` };
+  // Compared by index, not as sets. `requested` has no uniqueItems and its
+  // entries are {action, findingIds}, so the same action legitimately appears
+  // twice — two findings each asking for a metadata removal. A set comparison
+  // would then accept one result for two requests and call the run successful
+  // with an action never verified. The schema already states that `results` has
+  // one entry per requested action, ordered to match, so index comparison covers
+  // count and order at once.
+  const requested = result.requested ?? [];
+  if (results.length !== requested.length) {
+    return {
+      successful: false,
+      reason: `${requested.length} action(s) requested but ${results.length} result(s) returned`,
+    };
+  }
+  const mismatched = requested
+    .map((r, i) => (results[i].action === r.action ? null : `position ${i}: requested ${r.action}, got ${results[i].action}`))
+    .filter(Boolean);
+  if (mismatched.length > 0) {
+    return { successful: false, reason: mismatched.join('; ') };
   }
 
   const bad = results.filter((r) => !isSuccessfulOutcome(r.outcome));

@@ -13,37 +13,101 @@
     "sizeBytes": 1043200
   },
   "requested": [
-    { "action": "remove_pdf_metadata_field", "findingIds": ["finding-2"] },
-    { "action": "remove_annotations", "findingIds": ["finding-1"] }
+    {
+      "action": "remove_pdf_metadata_field",
+      "findingIds": [
+        "finding-2"
+      ]
+    },
+    {
+      "action": "remove_annotations",
+      "findingIds": [
+        "finding-1"
+      ]
+    }
   ],
   "results": [
     {
       "action": "remove_pdf_metadata_field",
-      "findingIds": ["finding-2"],
+      "findingIds": [
+        "finding-2"
+      ],
       "outcome": "verified_removed",
       "readPaths": [
-        { "reader": "verify.metadata_reader", "version": "1.0.0", "role": "independent", "surface": "metadata_block" },
-        { "reader": "verify.object_scanner", "version": "1.0.0", "role": "independent", "surface": "raw_objects" }
+        {
+          "reader": "verify.metadata_reader",
+          "version": "1.0.0",
+          "role": "independent",
+          "surface": "metadata_block"
+        },
+        {
+          "reader": "verify.object_scanner",
+          "version": "1.0.0",
+          "role": "independent",
+          "surface": "raw_objects"
+        }
       ],
-      "surfacesChecked": ["metadata_block", "raw_objects"],
+      "surfacesChecked": [
+        "metadata_block",
+        "raw_objects"
+      ],
       "message": "The author field is absent from the document information dictionary and from the raw object stream."
     },
     {
       "action": "remove_annotations",
-      "findingIds": ["finding-1"],
+      "findingIds": [
+        "finding-1"
+      ],
       "outcome": "verified_removed",
       "readPaths": [
-        { "reader": "verify.object_scanner", "version": "1.0.0", "role": "independent", "surface": "annotations" },
-        { "reader": "verify.text_extractor", "version": "1.0.0", "role": "independent", "surface": "extracted_text" },
-        { "reader": "pdf.annotations", "version": "1.0.0", "role": "shares_writer_implementation", "surface": "annotations" }
+        {
+          "reader": "verify.object_scanner",
+          "version": "1.0.0",
+          "role": "independent",
+          "surface": "annotations"
+        },
+        {
+          "reader": "verify.object_scanner",
+          "version": "1.0.0",
+          "role": "independent",
+          "surface": "raw_objects"
+        },
+        {
+          "reader": "verify.text_extractor",
+          "version": "1.0.0",
+          "role": "independent",
+          "surface": "extracted_text"
+        },
+        {
+          "reader": "pdf.annotations",
+          "version": "1.0.0",
+          "role": "shares_writer_implementation",
+          "surface": "annotations"
+        }
       ],
-      "surfacesChecked": ["annotations", "raw_objects", "extracted_text"],
+      "surfacesChecked": [
+        "annotations",
+        "raw_objects",
+        "extracted_text"
+      ],
       "message": "No annotation objects remain on page 2, and the comment text is not recoverable from extracted text."
     }
   ],
   "preservation": {
-    "pageCount": { "checked": true, "outcome": "preserved", "metric": "page_count", "measured": 3, "tolerance": 0 },
-    "pageDimensions": { "checked": true, "outcome": "preserved", "metric": "page_dimensions_pt", "measured": "595.3x841.9", "tolerance": "0.5pt" },
+    "pageCount": {
+      "checked": true,
+      "outcome": "preserved",
+      "metric": "page_count",
+      "measured": 3,
+      "tolerance": 0
+    },
+    "pageDimensions": {
+      "checked": true,
+      "outcome": "preserved",
+      "metric": "page_dimensions_pt",
+      "measured": "595.3x841.9",
+      "tolerance": "0.5pt"
+    },
     "renderComparison": {
       "checked": true,
       "outcome": "changed_within_tolerance",
@@ -52,18 +116,46 @@
       "tolerance": 0.002,
       "detail": "Differences are confined to the region where the annotation icon was drawn."
     },
-    "textOutsideApprovedRegions": { "checked": true, "outcome": "preserved", "metric": "text_recall_ratio", "measured": 1, "tolerance": 0.999 },
-    "imageDimensionsAndOrientation": { "checked": false, "outcome": "not_checked", "notCheckedReason": "The document contains no raster images." },
-    "outputReadable": { "checked": true, "outcome": "preserved", "metric": "readability", "measured": "opened by an independent parser", "tolerance": null }
+    "textOutsideApprovedRegions": {
+      "checked": true,
+      "outcome": "preserved",
+      "metric": "text_recall_ratio",
+      "measured": 1,
+      "tolerance": 0.999
+    },
+    "imageDimensionsAndOrientation": {
+      "checked": false,
+      "outcome": "not_checked",
+      "notCheckedReason": "The document contains no raster images."
+    },
+    "outputReadable": {
+      "checked": true,
+      "outcome": "preserved",
+      "metric": "readability",
+      "measured": "opened by an independent parser",
+      "tolerance": null
+    }
   },
   "versions": {
     "core": "0.1.0",
     "app": "0.1.0",
     "verifiers": [
-      { "id": "verify.metadata_reader", "version": "1.0.0" },
-      { "id": "verify.object_scanner", "version": "1.0.0" },
-      { "id": "verify.text_extractor", "version": "1.0.0" },
-      { "id": "verify.renderer", "version": "1.0.0" }
+      {
+        "id": "verify.metadata_reader",
+        "version": "1.0.0"
+      },
+      {
+        "id": "verify.object_scanner",
+        "version": "1.0.0"
+      },
+      {
+        "id": "verify.text_extractor",
+        "version": "1.0.0"
+      },
+      {
+        "id": "verify.renderer",
+        "version": "1.0.0"
+      }
     ]
   },
   "startedAt": "2026-01-01T00:02:00Z",

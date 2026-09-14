@@ -1,5 +1,10 @@
 {
   "schemaVersion": "1.0",
+  "operational": {
+    "canInspect": false,
+    "canRemediate": false,
+    "summary": "This build implements no detector and no remediation action. It can describe what it will do, not do it."
+  },
   "versions": {
     "core": "0.1.0",
     "app": "0.1.0",
@@ -70,7 +75,9 @@
             "document_subject",
             "document_keywords",
             "document_timestamp"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "pdf.annotations",
@@ -78,7 +85,9 @@
           "certainty": "deterministic",
           "emits": [
             "annotation"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "pdf.form_fields",
@@ -87,7 +96,9 @@
           "emits": [
             "form_field_name",
             "form_field_value"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "pdf.embedded_files",
@@ -95,7 +106,9 @@
           "certainty": "deterministic",
           "emits": [
             "embedded_file"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "pdf.actions",
@@ -106,7 +119,9 @@
             "launch_action",
             "external_reference",
             "local_file_reference"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "pdf.text_layer",
@@ -115,7 +130,9 @@
           "emits": [
             "hidden_text",
             "text_under_redaction"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "pdf.structure",
@@ -126,7 +143,9 @@
             "permission_state",
             "digital_signature",
             "incremental_update"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
         },
         {
           "id": "ocr.visible_text",
@@ -142,7 +161,9 @@
             "pii_username_or_path",
             "pii_credential_like",
             "pii_user_defined_term"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#6"
         }
       ],
       "actions": [
@@ -175,7 +196,9 @@
             "image_capture_timestamp",
             "image_modification_timestamp",
             "image_embedded_thumbnail"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
         },
         {
           "id": "image.xmp",
@@ -185,7 +208,9 @@
             "image_author",
             "image_software",
             "image_metadata_comment"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
         },
         {
           "id": "image.iptc",
@@ -194,7 +219,9 @@
           "emits": [
             "image_author",
             "image_metadata_comment"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
         },
         {
           "id": "ocr.visible_text",
@@ -210,7 +237,9 @@
             "pii_username_or_path",
             "pii_credential_like",
             "pii_user_defined_term"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#6"
         }
       ],
       "actions": [
@@ -238,7 +267,9 @@
             "image_capture_timestamp",
             "image_modification_timestamp",
             "image_embedded_thumbnail"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
         },
         {
           "id": "image.xmp",
@@ -248,7 +279,9 @@
             "image_author",
             "image_software",
             "image_metadata_comment"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
         },
         {
           "id": "image.png_text",
@@ -258,7 +291,9 @@
             "image_software",
             "image_author",
             "image_metadata_comment"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
         },
         {
           "id": "ocr.visible_text",
@@ -274,7 +309,9 @@
             "pii_username_or_path",
             "pii_credential_like",
             "pii_user_defined_term"
-          ]
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#6"
         }
       ],
       "actions": [
@@ -290,6 +327,8 @@
   "actions": [
     {
       "action": "remove_pdf_metadata_field",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "invalidates_digital_signature"
       ],
@@ -304,6 +343,8 @@
     },
     {
       "action": "remove_image_metadata_field",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "alters_visual_rendering"
       ],
@@ -317,6 +358,8 @@
     },
     {
       "action": "remove_annotations",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "invalidates_digital_signature",
         "removes_interactive_behavior",
@@ -334,6 +377,8 @@
     },
     {
       "action": "remove_embedded_files",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "invalidates_digital_signature",
         "makes_future_editing_harder"
@@ -349,6 +394,8 @@
     },
     {
       "action": "disable_javascript_and_launch_actions",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "invalidates_digital_signature",
         "removes_interactive_behavior"
@@ -363,6 +410,8 @@
     },
     {
       "action": "clear_form_values",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "invalidates_digital_signature",
         "removes_interactive_behavior",
@@ -379,6 +428,8 @@
     },
     {
       "action": "flatten_to_high_assurance_copy",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "invalidates_digital_signature",
         "removes_accessible_or_searchable_text",
@@ -399,6 +450,8 @@
     },
     {
       "action": "apply_visual_redaction",
+      "status": "not_implemented",
+      "waitingOn": "#7",
       "possibleSideEffects": [
         "removes_accessible_or_searchable_text",
         "alters_visual_rendering",
