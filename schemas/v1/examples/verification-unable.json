@@ -31,14 +31,10 @@
         {
           "reader": "verify.object_scanner",
           "version": "1.0.0",
-          "role": "independent",
-          "surface": "raw_objects"
+          "role": "independent"
         }
       ],
-      "surfacesChecked": [
-        "raw_objects"
-      ],
-      "message": "The sanitized copy could not be reopened by the independent parser, so the redaction could not be confirmed. Treat this file as unverified."
+      "message": "The sanitized copy could not be reopened by the independent parser, so no surface was examined and the redaction could not be confirmed. Treat this file as unverified."
     }
   ],
   "preservation": {

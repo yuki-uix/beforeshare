@@ -45,6 +45,11 @@ forbids the `reason` field, so a measured entry cannot also carry an excuse.
 
 ## Actions declare what they might cost, and whether they can be checked
 
+Each format entry lists the actions that **apply** to it with their status, rather than bare action
+names. Naming the action alone read as availability: an earlier version listed seven actions under
+`application/pdf` while none was implemented, and a consumer had to cross-reference the top-level
+`actions` array to find that out.
+
 `possibleSideEffects` is the static superset for an action across all files. The per-file subset lives
 on each finding's `remediation.sideEffects` — a PDF with no signature does not get a signature
 warning, and a warning that is usually wrong is one users learn to click past.
@@ -62,6 +67,13 @@ No verifier is implemented yet, so every action currently reads:
 ```json
 "verifiable": { "status": "no_verifier_implemented", "plannedSurfaces": ["metadata_block", "raw_objects"] }
 ```
+
+That is `remove_pdf_metadata_field`. `plannedSurfaces` differs per action and is not a shared
+default — `remove_image_metadata_field` plans only `metadata_block`, `remove_annotations` adds
+`annotations` and `extracted_text`, and `apply_visual_redaction` adds `rendered_page` and
+`image_pixels`. The authoritative list is `ACTION_FACTS` in
+[`tools/capabilities.mjs`](../../tools/capabilities.mjs); this snippet is one entry, not the shape
+they all share.
 
 The schema forbids that state from naming `surfaces` it covers, and forbids the implemented state
 from falling back to `plannedSurfaces`. Same shape as `testedLimits`, for the same reason: an

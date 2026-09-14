@@ -154,7 +154,7 @@
         },
         "surface": {
           "$ref": "common.schema.json#/$defs/surface",
-          "description": "Which of the surfaces §10.1 enumerates this reader examined."
+          "description": "Which of the surfaces §10.1 enumerates this reader examined. Absent when the reader was consulted but read nothing - an output that could not be reopened was attempted, not examined, and recording the surface anyway would let a failed attempt count as coverage."
         }
       }
     },
@@ -283,6 +283,40 @@
             "properties": {
               "unverifiableReason": {
                 "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "$comment": "Some reasons mean nothing was examined at all: a reader that could not open the output, or no reader for the action, examined no surface. Recording one anyway lets a failed attempt count as coverage - the failure surfacesChecked exists to prevent. Reasons where a surface legitimately was read (the file opened but the location was no longer addressable) are not listed here.",
+          "if": {
+            "properties": {
+              "unverifiableReason": {
+                "enum": [
+                  "output_could_not_be_reopened",
+                  "no_independent_reader_for_this_action",
+                  "action_not_covered_by_any_verifier"
+                ]
+              }
+            },
+            "required": [
+              "unverifiableReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "surfacesChecked": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "readPaths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "surface": false
+                  }
+                }
               }
             }
           }
