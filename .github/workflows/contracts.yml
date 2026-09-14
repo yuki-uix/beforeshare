@@ -17,6 +17,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow-shell-is-parseable:
+    name: embedded shell parses
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      # A merge once left this file valid as YAML while dropping the line that
+      # opened a `node -e "` block. The shell inside stopped parsing there, so the
+      # last guard and the control case never ran - and the job still reported the
+      # eight lines before it. YAML validation cannot see inside a run block, and
+      # neither can npm test. bash -n can.
+      - name: Every run block must parse as shell
+        run: |
+          python3 - <<'PY' > /tmp/blocks.json
+          import json, yaml
+          w = yaml.safe_load(open('.github/workflows/contracts.yml'))
+          out = []
+          for jname, job in w['jobs'].items():
+              for i, step in enumerate(job.get('steps', [])):
+                  if 'run' in step:
+                      out.append({'job': jname, 'step': step.get('name', f'#{i}'), 'run': step['run']})
+          json.dump(out, open('/tmp/blocks.json', 'w'))
+          PY
+          python3 - <<'PY'
+          import json, subprocess, sys, tempfile, os
+          blocks = json.load(open('/tmp/blocks.json'))
+          if not blocks:
+              print('::error::no run blocks found; this check would pass vacuously')
+              sys.exit(1)
+          failed = 0
+          for b in blocks:
+              with tempfile.NamedTemporaryFile('w', suffix='.sh', delete=False) as f:
+                  f.write(b['run'])
+                  path = f.name
+              r = subprocess.run(['bash', '-n', path], capture_output=True, text=True)
+              os.unlink(path)
+              if r.returncode != 0:
+                  failed += 1
+                  print(f"::error::{b['job']} / {b['step']}: {r.stderr.strip()}")
+              else:
+                  print(f"ok  {b['job']} / {b['step']}")
+          print(f"\n{'PASS' if failed == 0 else 'FAIL'}  {len(blocks)} run blocks, {failed} failure(s)")
+          sys.exit(1 if failed else 0)
+          PY
+
   validate:
     name: schemas and masking
     runs-on: ubuntu-latest
@@ -111,6 +157,7 @@ jobs:
             esac
 
             echo "ok  ${label}"
+            cases_run=$((cases_run + 1))
             restore "$file"
           }
 
@@ -126,6 +173,14 @@ jobs:
           }
 
           failed=0
+          cases_run=0
+
+          # The number of cases this step must run. bash -n proved necessary but
+          # not sufficient: a merge that swallowed a `node -e "` line once left the
+          # script syntactically valid while one case vanished into a quoted
+          # string, and the step reported the remaining ones as if nothing were
+          # missing. A case that silently disappears now fails the job.
+          EXPECTED_CASES=8
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -217,6 +272,13 @@ jobs:
             failed=1
           else
             echo "ok  control: unmutated tree is green"
+          fi
+
+          if [ "$cases_run" -ne "$EXPECTED_CASES" ]; then
+            echo "::error::ran ${cases_run} negative cases, expected ${EXPECTED_CASES} - one was skipped or swallowed"
+            failed=1
+          else
+            echo "ok  all ${cases_run} negative cases ran"
           fi
 
           exit "$failed"
