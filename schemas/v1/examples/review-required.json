@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "01JR7K2M4ND8QVXZ3B5T9YC6EH",
+  "input": {
+    "path": "/Users/example/Documents/resume.pdf",
+    "mediaType": "application/pdf",
+    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "sizeBytes": 1048576
+  },
+  "status": "review_required",
+  "coverage": {
+    "completed": [
+      "pdf.metadata",
+      "pdf.annotations",
+      "pdf.embedded_files",
+      "pdf.text_layer",
+      "ocr.visible_text"
+    ],
+    "skipped": [],
+    "failed": []
+  },
+  "findings": [
+    {
+      "id": "finding-1",
+      "category": "document_author",
+      "group": "document_structure",
+      "severity": "medium",
+      "certainty": "deterministic",
+      "detector": { "id": "pdf.metadata", "version": "1.0.0" },
+      "location": { "kind": "pdf_metadata", "field": "Author" },
+      "evidence": {
+        "displayValue": "y***@example.com",
+        "redacted": true,
+        "maskPolicy": "email_local_part"
+      },
+      "message": "The PDF author field contains an email address.",
+      "remediation": {
+        "supported": true,
+        "action": "remove_metadata_field",
+        "sideEffects": [],
+        "actionGroupId": "pdf-metadata-write"
+      }
+    },
+    {
+      "id": "finding-2",
+      "category": "annotation",
+      "group": "document_structure",
+      "severity": "high",
+      "certainty": "deterministic",
+      "detector": { "id": "pdf.annotations", "version": "1.0.0" },
+      "location": { "kind": "pdf_annotation", "page": 2, "objectNumber": 41, "subtype": "Text" },
+      "evidence": {
+        "displayValue": "内部审阅…***",
+        "redacted": true,
+        "maskPolicy": "text_keep_edges",
+        "truncated": true
+      },
+      "message": "Page 2 carries a reviewer comment that is not visible when the page is printed.",
+      "remediation": {
+        "supported": true,
+        "action": "remove_annotations",
+        "sideEffects": ["removes_interactive_behavior", "makes_future_editing_harder"],
+        "alternativeActions": [
+          {
+            "action": "flatten_to_high_assurance_copy",
+            "sideEffects": [
+              "removes_accessible_or_searchable_text",
+              "flattens_forms_or_annotations",
+              "alters_visual_rendering",
+              "removes_interactive_behavior",
+              "makes_future_editing_harder"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "finding-3",
+      "category": "pii_person_name",
+      "group": "personal_information",
+      "severity": "medium",
+      "certainty": "probabilistic",
+      "detector": { "id": "ocr.visible_text", "version": "0.4.1" },
+      "location": {
+        "kind": "ocr_text",
+        "page": 1,
+        "rect": { "x": 72.0, "y": 690.5, "width": 154.25, "height": 14.0, "space": "pdf_user_space" },
+        "confidence": 0.82
+      },
+      "evidence": {
+        "displayValue": "李***华",
+        "redacted": true,
+        "maskPolicy": "text_keep_edges"
+      },
+      "message": "Text on page 1 may be a person's name. This is a suggestion from visible-text analysis, not a confirmed identification.",
+      "remediation": {
+        "supported": true,
+        "action": "apply_visual_redaction",
+        "sideEffects": ["removes_accessible_or_searchable_text", "alters_visual_rendering"]
+      }
+    }
+  ],
+  "limitations": [],
+  "versions": {
+    "core": "0.1.0",
+    "app": "0.1.0",
+    "parsers": [{ "id": "pdf.parser", "version": "1.0.0" }],
+    "detectors": [
+      { "id": "pdf.metadata", "version": "1.0.0" },
+      { "id": "pdf.annotations", "version": "1.0.0" },
+      { "id": "pdf.embedded_files", "version": "1.0.0" },
+      { "id": "pdf.text_layer", "version": "1.0.0" },
+      { "id": "ocr.visible_text", "version": "0.4.1" }
+    ]
+  },
+  "startedAt": "2026-01-01T00:00:00Z",
+  "durationMs": 420
+}

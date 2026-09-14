@@ -1,0 +1,14 @@
+{
+  "name": "beforeshare-schemas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tooling for validating the BeforeShare canonical schemas. This is build tooling only and does not commit the product to a runtime - the schemas themselves are language-agnostic JSON Schema.",
+  "scripts": {
+    "validate": "node tools/validate-schemas.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

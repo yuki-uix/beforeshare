@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/remediation.schema.json",
+  "title": "Finding remediation descriptor",
+  "description": "Describes what can be done about one finding, and what it will cost. sideEffects are computed for THIS file, not declared statically for the action: removing metadata from an unsigned PDF does not invalidate a signature, and claiming it might would train users to ignore the warning. The static, per-action superset lives in the capability declaration (issue #23).",
+  "type": "object",
+  "required": [
+    "supported"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "supported": {
+      "type": "boolean"
+    },
+    "action": {
+      "$ref": "enums.schema.json#/$defs/remediationAction",
+      "description": "The recommended action. Required when supported is true."
+    },
+    "sideEffects": {
+      "type": "array",
+      "items": {
+        "$ref": "enums.schema.json#/$defs/sideEffect"
+      },
+      "uniqueItems": true,
+      "description": "Effects that apply to this file if the recommended action runs. An empty array is a positive claim that none of the six classes apply - it is not a default."
+    },
+    "alternativeActions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "sideEffects"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "enums.schema.json#/$defs/remediationAction"
+          },
+          "sideEffects": {
+            "type": "array",
+            "items": {
+              "$ref": "enums.schema.json#/$defs/sideEffect"
+            },
+            "uniqueItems": true
+          }
+        }
+      },
+      "description": "Other actions that also resolve this finding, with their own side effects. Lets the UI offer 'remove the annotation' or 'flatten the page' without the core deciding for the user."
+    },
+    "actionGroupId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Findings sharing an actionGroupId are executed as ONE operation by the remediation engine. Five author/creator/producer findings are five findings the user reviews individually, but one metadata write. This is how the contract answers deduplication without collapsing findings the user needs to see separately."
+    },
+    "unsupportedReason": {
+      "$ref": "enums.schema.json#/$defs/unsupportedReason",
+      "description": "Required when supported is false."
+    },
+    "unsupportedDetail": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Plain-language explanation shown to the user. Must not contain the detected value."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "supported": {
+            "const": true
+          }
+        },
+        "required": [
+          "supported"
+        ]
+      },
+      "then": {
+        "required": [
+          "action",
+          "sideEffects"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "enums.schema.json#/$defs/remediationAction"
+          },
+          "sideEffects": {
+            "type": "array",
+            "items": {
+              "$ref": "enums.schema.json#/$defs/sideEffect"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "supported": {
+            "const": false
+          }
+        },
+        "required": [
+          "supported"
+        ]
+      },
+      "then": {
+        "required": [
+          "unsupportedReason"
+        ],
+        "properties": {
+          "unsupportedReason": {
+            "$ref": "enums.schema.json#/$defs/unsupportedReason"
+          },
+          "action": false
+        }
+      }
+    }
+  ]
+}

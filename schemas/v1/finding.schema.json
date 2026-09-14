@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/finding.schema.json",
+  "title": "Inspection finding",
+  "type": "object",
+  "required": ["id", "category", "group", "severity", "certainty", "detector", "location", "evidence", "message", "remediation"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/findingId" },
+    "category": { "$ref": "enums.schema.json#/$defs/category" },
+    "group": {
+      "$ref": "enums.schema.json#/$defs/categoryGroup",
+      "description": "Which taxonomy the category belongs to. Carried explicitly rather than derived from a name prefix, so that regrouping a category is a visible contract change."
+    },
+    "severity": { "$ref": "enums.schema.json#/$defs/severity" },
+    "certainty": { "$ref": "enums.schema.json#/$defs/certainty" },
+    "detector": {
+      "$ref": "common.schema.json#/$defs/componentVersion",
+      "description": "Which detector produced this finding, and at which version. Required on every finding: it is what makes `certainty` auditable, and what lets a detector upgrade invalidate cached results (§14.1)."
+    },
+    "location": { "$ref": "location.schema.json" },
+    "evidence": { "$ref": "evidence.schema.json" },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Plain-language statement of what was found. Must not contain the unmasked detected value, and must not assert certainty the finding does not have: a probabilistic finding is phrased as a candidate, never as a fact (§7.3)."
+    },
+    "remediation": { "$ref": "remediation.schema.json" }
+  }
+}

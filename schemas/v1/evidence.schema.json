@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/evidence.schema.json",
+  "title": "Finding evidence",
+  "description": "There is deliberately NO property in this object capable of carrying the unmasked value. Revealing a value is an out-of-band local call keyed by (runId, findingId) and is available only to the desktop UI on explicit user action (§8.2). Because the full value cannot be represented here, it cannot leak through a serialized result into a log, a support bundle, an MCP response, or telemetry.",
+  "type": "object",
+  "required": ["displayValue", "redacted", "maskPolicy"],
+  "additionalProperties": false,
+  "properties": {
+    "displayValue": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Masked, display-safe rendering of the detected value. Capped at 64 code points: a long value is truncated before masking so that neither its content nor its exact length is disclosed."
+    },
+    "redacted": {
+      "type": "boolean",
+      "description": "True whenever displayValue is not the complete detected value. A value short enough that masking would reveal it entirely is emitted fully masked with redacted=true, never as plaintext with redacted=false."
+    },
+    "maskPolicy": {
+      "type": "string",
+      "enum": [
+        "email_local_part",
+        "digits_keep_last_4",
+        "token_keep_edges",
+        "text_keep_edges",
+        "coordinate_coarsened",
+        "fully_masked",
+        "structural_label"
+      ],
+      "description": "Which rule produced displayValue. Recorded so the UI can explain what was hidden, and so masking changes are detectable as a contract change rather than a silent behaviour change. See docs/contracts/masking.md."
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the source value exceeded the length cap before masking."
+    },
+    "occurrences": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "How many times this value occurs at this location. A count is not sensitive; the values behind it are not repeated."
+    }
+  }
+}

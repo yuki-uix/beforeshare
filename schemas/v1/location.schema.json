@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/location.schema.json",
+  "title": "Finding location",
+  "description": "A discriminated union on `kind`. There is deliberately no free-form fallback variant: a location the format can express must be expressible here, and a location the format cannot express must be omitted entirely rather than approximated (§8.2).",
+  "type": "object",
+  "required": ["kind"],
+  "unevaluatedProperties": false,
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "pdf_metadata",
+        "pdf_annotation",
+        "pdf_form_field",
+        "pdf_embedded_file",
+        "pdf_action",
+        "pdf_text_layer",
+        "exif",
+        "xmp",
+        "iptc",
+        "png_text",
+        "ocr_text",
+        "file_structure"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "pdf_metadata" } } },
+      "then": {
+        "required": ["field"],
+        "properties": { "field": { "type": "string", "minLength": 1 } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "pdf_annotation" } } },
+      "then": {
+        "required": ["page"],
+        "properties": {
+          "page": { "$ref": "common.schema.json#/$defs/pageNumber" },
+          "objectNumber": { "type": "integer", "minimum": 0 },
+          "subtype": { "type": "string" },
+          "rect": { "$ref": "common.schema.json#/$defs/rect" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "pdf_form_field" } } },
+      "then": {
+        "required": ["fieldName"],
+        "properties": {
+          "fieldName": { "type": "string", "minLength": 1 },
+          "page": { "$ref": "common.schema.json#/$defs/pageNumber" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "pdf_embedded_file" } } },
+      "then": {
+        "required": ["index"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "pdf_action" } } },
+      "then": {
+        "required": ["trigger"],
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "enum": ["document_open", "page_open", "page_close", "annotation", "form_field", "named_action"]
+          },
+          "page": { "$ref": "common.schema.json#/$defs/pageNumber" },
+          "objectNumber": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "pdf_text_layer" } } },
+      "then": {
+        "required": ["page"],
+        "properties": {
+          "page": { "$ref": "common.schema.json#/$defs/pageNumber" },
+          "rect": { "$ref": "common.schema.json#/$defs/rect" },
+          "characterRange": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": { "type": "integer", "minimum": 0 },
+              "end": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "enum": ["exif", "xmp", "iptc"] } } },
+      "then": {
+        "required": ["tagPath"],
+        "properties": {
+          "tagPath": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Dotted path within the metadata block, e.g. GPS.GPSLatitude or dc.creator."
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "png_text" } } },
+      "then": {
+        "required": ["keyword", "chunkType"],
+        "properties": {
+          "keyword": { "type": "string", "minLength": 1 },
+          "chunkType": { "type": "string", "enum": ["tEXt", "zTXt", "iTXt"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "ocr_text" } } },
+      "then": {
+        "description": "§8.2 requires page or image coordinates AND detector confidence on every OCR finding. Both are mandatory here so an OCR finding cannot be emitted without a reviewable location.",
+        "required": ["rect", "confidence"],
+        "properties": {
+          "rect": { "$ref": "common.schema.json#/$defs/rect" },
+          "confidence": { "$ref": "common.schema.json#/$defs/confidence" },
+          "page": { "$ref": "common.schema.json#/$defs/pageNumber" },
+          "imageIndex": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "file_structure" } } },
+      "then": {
+        "required": ["detail"],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "enum": ["encryption_dictionary", "permissions", "signature_dictionary", "incremental_update", "trailer"]
+          },
+          "revision": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  ]
+}

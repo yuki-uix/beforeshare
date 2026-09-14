@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "01JR7K3P8QE2RWY4C6V0ZD7FGJ",
+  "input": {
+    "path": "/Users/example/Pictures/diagram.png",
+    "mediaType": "image/png",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sizeBytes": 20480
+  },
+  "status": "no_findings",
+  "coverage": {
+    "completed": ["image.png_text", "image.xmp", "ocr.visible_text"],
+    "skipped": [
+      {
+        "detector": "image.exif",
+        "reason": "not_applicable_to_media_type",
+        "message": "This PNG carries no EXIF block."
+      }
+    ],
+    "failed": []
+  },
+  "findings": [],
+  "limitations": [],
+  "versions": {
+    "core": "0.1.0",
+    "detectors": [
+      { "id": "image.png_text", "version": "1.0.0" },
+      { "id": "image.xmp", "version": "1.0.0" },
+      { "id": "ocr.visible_text", "version": "0.4.1" }
+    ]
+  },
+  "startedAt": "2026-01-01T00:05:00Z",
+  "durationMs": 310
+}
