@@ -11,7 +11,7 @@
  * cross product of (coverage state x finding severities x run outcome) is
  * enumerated and every combination is required to produce exactly one status.
  */
-import { computeStatus, isBlocking, reducesCoverage, SUPPORTED_MEDIA_TYPES } from './status.mjs';
+import { computeStatus, isBlocking, isUnsupportedMediaType, reducesCoverage, SUPPORTED_MEDIA_TYPES } from './status.mjs';
 import { exitCodeFor, EXIT, STATUS_EXIT_MATRIX } from './exit-codes.mjs';
 import { readFileSync } from 'node:fs';
 
@@ -75,6 +75,33 @@ check('Q5 clean result: a coverage-reducing skip forbids no_findings',
 check('Q5 clean result: a user-disabled detector forbids no_findings',
   computeStatus(result({ skipped: [{ detector: 'ocr.visible_text', reason: 'disabled_by_user' }] })).status === 'partial');
 
+// --- a cancelled run is never clean ------------------------------------------
+// inspection-result.schema.json states this about its own `cancelled` field; the
+// rules are where the statement has to be true.
+check('cancelled: a cancelled run with complete coverage and no findings is not no_findings',
+  computeStatus({ ...result(), cancelled: true }).status === 'partial',
+  computeStatus({ ...result(), cancelled: true }).status);
+
+check('cancelled: cancellation does not mask a blocking finding',
+  computeStatus({ ...result({ findings: [finding('critical')] }), cancelled: true }).status === 'blocking_findings');
+
+check('cancelled: an uncancelled run is unaffected',
+  computeStatus(result()).status === 'no_findings');
+
+// --- supported media types are derived, not supplied --------------------------
+// A caller-passed flag would let each interface decide scope for itself, which is
+// the divergence §14.1 forbids.
+check('media type: an out-of-scope type is derived from the result',
+  computeStatus({ ...result(), input: { mediaType: 'image/heic' } }).status === 'unsupported');
+
+for (const mt of SUPPORTED_MEDIA_TYPES) {
+  check(`media type: ${mt} is in scope`,
+    computeStatus({ ...result(), input: { mediaType: mt } }).status === 'no_findings');
+  check(`media type: ${mt} is not flagged unsupported`, !isUnsupportedMediaType({ input: { mediaType: mt } }));
+}
+check('media type: a missing mediaType is not treated as unsupported',
+  isUnsupportedMediaType({}) === false);
+
 // --- §8.1: partial / unsupported / failed can never come out as no_findings --
 const neverClean = [
   ['a failed detector', result({ failed: [{ detector: 'pdf.annotations', errorCode: 'parser_error' }] }), {}],
@@ -82,6 +109,8 @@ const neverClean = [
   ['an unsupported media type', result({ completed: [] }), { unsupportedMediaType: true }],
   ['an unusable run', result(), { unusable: true }],
   ['no detector completing', result({ completed: [] }), {}],
+  ['a cancelled run', { ...result(), cancelled: true }, {}],
+  ['an out-of-scope media type', { ...result(), input: { mediaType: 'image/heic' } }, {}],
 ];
 for (const [label, r, run] of neverClean) {
   check(`never clean: ${label} cannot produce no_findings`,
@@ -102,13 +131,19 @@ for (const completed of [[], ['pdf.metadata']]) {
     for (const failedDetector of [false, true]) {
       for (const sev of [null, ...severities]) {
         for (const cert of certainties) {
-          for (const run of [{}, { unsupportedMediaType: true }, { unusable: true }]) {
-            const r = result({
-              completed,
-              skipped: skip ? [{ detector: 'ocr.visible_text', reason: skip }] : [],
-              failed: failedDetector ? [{ detector: 'pdf.annotations', errorCode: 'parser_error' }] : [],
-              findings: sev ? [finding(sev, cert)] : [],
-            });
+          for (const cancelled of [false, true]) {
+          for (const mediaType of ['application/pdf', 'image/heic']) {
+          for (const run of [{}, { unusable: true }]) {
+            const r = {
+              ...result({
+                completed,
+                skipped: skip ? [{ detector: 'ocr.visible_text', reason: skip }] : [],
+                failed: failedDetector ? [{ detector: 'pdf.annotations', errorCode: 'parser_error' }] : [],
+                findings: sev ? [finding(sev, cert)] : [],
+              }),
+              cancelled,
+              input: { mediaType },
+            };
             const out = computeStatus(r, run);
             combos += 1;
             if (!VALID.includes(out.status)) {
@@ -116,6 +151,8 @@ for (const completed of [[], ['pdf.metadata']]) {
             }
             if (!out.reason) check('exhaustive: every status carries a reason', false, JSON.stringify(out));
             seen.add(out.status);
+          }
+          }
           }
         }
       }

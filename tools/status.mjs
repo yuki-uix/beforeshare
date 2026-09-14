@@ -33,22 +33,33 @@ export function reducesCoverage(skipReason) {
   return row.reducesCoverage;
 }
 
+/** Derived from the result itself, never from a caller-supplied flag: whether a
+ * media type is in scope is a fact about the file, and letting each interface
+ * decide it separately is exactly the divergence §14.1 forbids. */
+export function isUnsupportedMediaType(result) {
+  const mediaType = result?.input?.mediaType;
+  if (!mediaType) return false;
+  return !SUPPORTED_MEDIA_TYPES.includes(mediaType);
+}
+
 /**
  * @param {object} result  A canonical inspection result, minus its own `status`.
- * @param {object} [run]   Out-of-band facts the result cannot carry:
- *                         { unsupportedMediaType: boolean, unusable: boolean }
+ * @param {object} [run]   The one fact a result cannot carry about itself:
+ *                         { unusable: boolean } — the run died before producing
+ *                         anything coherent. Everything else is derived.
  * @returns {{status: string, reason: string}}
  */
 export function computeStatus(result, run = {}) {
   const coverage = result.coverage ?? { completed: [], skipped: [], failed: [] };
   const findings = result.findings ?? [];
+  const unsupportedMediaType = run.unsupportedMediaType ?? isUnsupportedMediaType(result);
 
   // 1. Nothing usable was produced. The result carries no information about the
   //    file, so it must not be described in terms of what was or was not found.
   if (run.unusable) {
     return { status: 'failed', reason: 'the run could not produce a result' };
   }
-  if (coverage.completed.length === 0 && !run.unsupportedMediaType) {
+  if (coverage.completed.length === 0 && !unsupportedMediaType) {
     return {
       status: 'failed',
       reason: 'no detector completed, so the result describes nothing about the file',
@@ -57,7 +68,7 @@ export function computeStatus(result, run = {}) {
 
   // 2. BeforeShare does not handle this kind of file at all. Distinct from
   //    `failed`: nothing went wrong, the input is simply out of scope.
-  if (run.unsupportedMediaType) {
+  if (unsupportedMediaType) {
     return { status: 'unsupported', reason: 'the media type is outside the supported set' };
   }
 
@@ -65,6 +76,10 @@ export function computeStatus(result, run = {}) {
     ...coverage.skipped.filter((s) => reducesCoverage(s.reason)).map((s) => s.detector),
     ...coverage.failed.map((f) => f.detector),
   ];
+  // A cancelled run stopped before it was done, whether or not any detector got
+  // as far as recording a `cancelled` skip. inspection-result.schema.json states
+  // that a cancelled run is never `no_findings`; this is where that holds.
+  if (result.cancelled) gaps.push('(run cancelled before completion)');
   const blocking = findings.filter(isBlocking);
 
   // 3. A blocking finding outranks incomplete coverage. Incompleteness does not

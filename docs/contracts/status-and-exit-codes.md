@@ -45,7 +45,7 @@ Evaluated top to bottom; the first matching row wins.
 | 1 | the run produced nothing usable, **or** zero detectors completed | `failed` |
 | 2 | the media type is outside {PDF, JPEG, PNG} | `unsupported` |
 | 3 | any finding is **critical AND deterministic** | `blocking_findings` |
-| 4 | any detector failed, or was skipped for a coverage-reducing reason | `partial` |
+| 4 | any detector failed, was skipped for a coverage-reducing reason, **or the run was cancelled** | `partial` |
 | 5 | one or more findings | `review_required` |
 | 6 | otherwise | `no_findings` |
 
@@ -91,6 +91,12 @@ severe, still reaches the user; the product simply does not assert as fact that 
 What blocking means operationally: a loud signal that sharing should not proceed without action. It
 does **not** authorise acting automatically — §5.5 requires review before mutation and §9.3 forbids
 hidden bulk actions.
+
+**Cancellation.** A cancelled run stopped before it was done, so it can never be `no_findings` —
+whether or not any detector got as far as recording a `cancelled` skip. The `cancelled` flag on the
+result is read directly, because a run can be stopped between detectors and leave the coverage arrays
+looking complete. §12.1 makes the same demand of the CLI: cancellation must not leave something that
+looks successfully processed.
 
 **5. Zero findings with a non-empty `coverage.skipped` — can that be `no_findings`?**
 Only when every skip is benign. `not_applicable_to_media_type` is benign: a PNG has no EXIF block,
@@ -156,14 +162,27 @@ partial coverage to report. They are mutually exclusive by construction, not by 
 | `unsupported` | `3` |
 | `failed` | `5` |
 
+## Scope is derived, never supplied
+
+Whether a media type is in scope is a fact about the file, read from `input.mediaType`. It is
+deliberately not a flag the caller passes in: a flag would let the desktop app, the CLI and the MCP
+server each decide scope for themselves, which is the divergence §14.1 forbids. The only fact the
+rules accept from outside is `unusable` — a run that died before producing anything coherent, which
+by definition cannot be read off the result it failed to produce.
+
 ## How these rules are kept honest
 
 - The status of every committed example is **computed**, not declared: `npm run validate` fails if an
-  example's `status` field disagrees with what the rules produce. Each example is therefore a test
-  case for the table rather than an assertion nobody checks.
-- The test suite enumerates the cross product of coverage state, skip reason, failure, severity and
-  certainty — 840 combinations — and requires every one to produce exactly one defined status with a
-  stated reason. There are no undefined cells.
+  example's `status` field disagrees with what the rules produce.
+
+  Note what this does and does not prove. It proves the examples and the rules agree; it does **not**
+  independently verify the rules, because a wrong rule and an example written to match it would agree
+  just as well. The independent check is the named cases in `tools/test-status.mjs`, whose expected
+  statuses are written by hand from the case study's requirements rather than derived from the
+  implementation.
+- The test suite enumerates the cross product of coverage state, skip reason, detector failure,
+  severity, certainty, cancellation, media type and run outcome — 2240 combinations — and requires
+  every one to produce exactly one defined status with a stated reason. There are no undefined cells.
 - Every status value must be reachable; an unreachable value would mean a rule above it had swallowed
   its cases.
 - An unclassified skip reason throws rather than defaulting to benign.
@@ -172,3 +191,7 @@ partial coverage to report. They are mutually exclusive by construction, not by 
 
 The CLI's argument parsing, output formatting and the actual `--approve` flag names belong to #9
 (E8). This document defines what the codes mean, not how the command line spells them.
+
+One acceptance criterion from #24 moved to #9 for the same reason: verifying that a `--json` run's
+exit code does not contradict the JSON on its stdout needs a real process to observe, and there is no
+CLI yet. The semantics it will be checked against are here.
