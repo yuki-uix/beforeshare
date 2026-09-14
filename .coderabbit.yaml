@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# BeforeShare 的 CodeRabbit 配置。
+#
+# 这个仓库目前几乎没有应用代码——绝大部分是 JSON Schema、决策记录和校验工具。
+# 通用的 AI review 在这种仓库上默认会集中挑 .mjs 的边界条件，而真正会出事的地方是
+# 「schema / 文档 / 示例三者之间对不上」。path_instructions 就是用来把注意力掰过去的。
+language: zh-CN
+enable_free_tier: true
+
+tone_instructions: >-
+  直接指出问题，不要先铺垫优点。不确定时说不确定，不要用「建议考虑」包装一个你也没把握的判断。
+  如果一处改动看起来没问题，就不要为了凑数留评论。
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: false
+  poem: false
+  in_progress_fortune: false
+
+  # 本仓库的 PR 都带 Closes #X，issue 正文里是可勾选的 AC 清单。
+  # 这项让 review 去核对「AC 说要做的，代码里是不是真做了」。
+  assess_linked_issues: true
+  related_issues: true
+
+  # 公开仓库可用：拦低质量/灌水 PR。仓库开放贡献后才真正有意义。
+  slop_detection:
+    enabled: true
+
+  path_filters:
+    - "!package-lock.json"
+    - "!node_modules/**"
+
+  path_instructions:
+    - path: "schemas/**/*.json"
+      instructions: >-
+        这些是产品的权威契约，唯一的真相源是 docs/product-case-study.md。
+
+        重点核对**外部事实**，而不是 JSON 语法：
+
+        1. 枚举内容是否与文档条款逐条对得上。文档里带编号的小节（§7.3 个人信息类目、
+           §9.1 修复动作、§9.2 副作用、§10.2 验证结果值、§12.2 退出码）都是**可以数的清单**，
+           请实际去数，不要假设数量正确。此前真实出过一次：§9.1 有 8 条，枚举只有 7 个，
+           所有测试照样绿，因为测试只验证枚举闭合、不验证枚举内容。
+        2. 新增或修改枚举值时，schemas/v1/category-defaults.json 是否同步。
+        3. 是否存在能让敏感原值进入序列化结果的字段。evidence 对象在设计上
+           不允许存在任何可以装下未脱敏原值的属性。
+        4. 是否有 additionalProperties 缺失、或枚举被改成开放式——契约要求未知值可见失败。
+        5. 与 §8 示例结果的偏离是否在 docs/contracts/ 里有对应的决策记录。
+           有记录的偏离是决策，没记录的偏离是漂移。
+
+    - path: "schemas/v1/examples/*.json"
+      instructions: >-
+        示例是契约的一部分，会被当作正确用法来模仿。
+
+        逐条检查每个 finding 的 evidence.displayValue 是否**真的符合**它自己声明的
+        maskPolicy——规则表在 docs/contracts/masking.md，实现在 tools/masking.mjs。
+        此前真实出过一次：一个值标着 text_keep_edges（规则是首尾各留 1 个码点），
+        实际露了 4 个前导字符，还用了规则表里没定义的省略号记号。
+
+        同时检查 group 与 certainty 是否与 schemas/v1/category-defaults.json 一致。
+
+    - path: "tools/**/*.mjs"
+      instructions: >-
+        这些是契约的可执行部分。
+
+        最重要的一条：**测试是否手工复刻了被测逻辑，而不是调用它**。
+        如果一个测试自己算出期望值、而不是调用 tools/masking.mjs 的 mask()，
+        那么实现漂移时它照样是绿的，等于没测。请直接指出这类测试。
+
+        其次：负例（应当被拒绝的输入）是否真的会失败。一个永远不可能触发的负例
+        比没有负例更危险，因为它让人以为这一面已经覆盖。
+
+        不要纠结 Node 版本兼容性或 import 风格——这是构建工具，不是产品代码。
+
+    - path: "docs/contracts/**/*.md"
+      instructions: >-
+        这是决策记录。检查三件事：
+
+        1. 文档描述的规则与 schemas/ 和 tools/ 里的实现是否一致。
+           只写在文档里、没有出口校验的约束，实现照样会违反。
+        2. 是否有「本 PR 不决定的事」被悄悄决定了——文档末尾有一张移交表，
+           列明哪些问题归哪个 issue。
+        3. 文档里举的例子是否能被实现复算出来。
+
+    - path: "docs/product-case-study.md"
+      instructions: >-
+        这是需求源文档，不是实现。除非 PR 明确说要改需求，否则对这个文件的任何改动
+        都值得质疑——实现对不上文档时，应该改实现或写决策记录，不是改文档。
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+chat:
+  auto_reply: true
