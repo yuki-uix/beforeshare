@@ -48,7 +48,8 @@ check('Q2 conflict: incomplete coverage outranks non-blocking findings',
   })).status === 'partial');
 
 check('Q3 boundary: an unsupported media type is unsupported, not failed',
-  computeStatus(result({ completed: [] }), { unsupportedMediaType: true }).status === 'unsupported');
+  computeStatus({ ...result({ completed: [] }), input: { mediaType: 'image/heic' } }).status === 'unsupported',
+  'an out-of-scope file has no completed detectors; that must not be reported as a failed run');
 
 check('Q3 boundary: a supported type with zero completed detectors is failed',
   computeStatus(result({ completed: [] })).status === 'failed');
@@ -102,11 +103,24 @@ for (const mt of SUPPORTED_MEDIA_TYPES) {
 check('media type: a missing mediaType is not treated as unsupported',
   isUnsupportedMediaType({}) === false);
 
+// A caller must not be able to talk the rules out of what the file says. An
+// optional override is the same divergence as a required one, with a default.
+check('media type: a caller cannot override an out-of-scope file into scope',
+  computeStatus({ ...result(), input: { mediaType: 'image/heic' } }, { unsupportedMediaType: false }).status === 'unsupported');
+check('media type: a caller cannot override an in-scope file out of scope',
+  computeStatus({ ...result(), input: { mediaType: 'application/pdf' } }, { unsupportedMediaType: true }).status === 'no_findings');
+
+// The branch order must match the published decision table.
+check('table order: an out-of-scope file with zero completed detectors is unsupported, not failed',
+  computeStatus({ ...result({ completed: [] }), input: { mediaType: 'image/heic' } }).status === 'unsupported');
+check('table order: an in-scope file with zero completed detectors is failed',
+  computeStatus({ ...result({ completed: [] }), input: { mediaType: 'application/pdf' } }).status === 'failed');
+
 // --- §8.1: partial / unsupported / failed can never come out as no_findings --
 const neverClean = [
   ['a failed detector', result({ failed: [{ detector: 'pdf.annotations', errorCode: 'parser_error' }] }), {}],
   ['a coverage-reducing skip', result({ skipped: [{ detector: 'ocr.visible_text', reason: 'cancelled' }] }), {}],
-  ['an unsupported media type', result({ completed: [] }), { unsupportedMediaType: true }],
+  ['an unsupported media type', { ...result({ completed: [] }), input: { mediaType: 'image/heic' } }, {}],
   ['an unusable run', result(), { unusable: true }],
   ['no detector completing', result({ completed: [] }), {}],
   ['a cancelled run', { ...result(), cancelled: true }, {}],

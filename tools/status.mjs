@@ -44,32 +44,43 @@ export function isUnsupportedMediaType(result) {
 
 /**
  * @param {object} result  A canonical inspection result, minus its own `status`.
- * @param {object} [run]   The one fact a result cannot carry about itself:
+ * @param {object} [run]   The ONLY fact a result cannot carry about itself:
  *                         { unusable: boolean } — the run died before producing
- *                         anything coherent. Everything else is derived.
+ *                         anything coherent. Nothing else is accepted here; in
+ *                         particular there is no caller override for media-type
+ *                         scope, because an override is exactly the per-interface
+ *                         divergence deriving it was meant to prevent.
  * @returns {{status: string, reason: string}}
  */
 export function computeStatus(result, run = {}) {
   const coverage = result.coverage ?? { completed: [], skipped: [], failed: [] };
   const findings = result.findings ?? [];
-  const unsupportedMediaType = run.unsupportedMediaType ?? isUnsupportedMediaType(result);
+  const unsupportedMediaType = isUnsupportedMediaType(result);
 
-  // 1. Nothing usable was produced. The result carries no information about the
-  //    file, so it must not be described in terms of what was or was not found.
+  // The order of these branches IS the decision table in
+  // docs/contracts/status-and-exit-codes.md, row for row. Reordering one without
+  // the other produces a document that describes a different product.
+
+  // 1. The run died before producing anything coherent.
   if (run.unusable) {
     return { status: 'failed', reason: 'the run could not produce a result' };
   }
-  if (coverage.completed.length === 0 && !unsupportedMediaType) {
+
+  // 2. BeforeShare does not handle this kind of file at all. Checked BEFORE the
+  //    zero-detector case: an out-of-scope file naturally has no completed
+  //    detectors, and reporting that as `failed` would blame the run for
+  //    something that is a property of the input. Nothing went wrong here.
+  if (unsupportedMediaType) {
+    return { status: 'unsupported', reason: 'the media type is outside the supported set' };
+  }
+
+  // 3. In scope, but nothing completed. The result carries no information about
+  //    the file, so it must not be described in terms of what was or was not found.
+  if (coverage.completed.length === 0) {
     return {
       status: 'failed',
       reason: 'no detector completed, so the result describes nothing about the file',
     };
-  }
-
-  // 2. BeforeShare does not handle this kind of file at all. Distinct from
-  //    `failed`: nothing went wrong, the input is simply out of scope.
-  if (unsupportedMediaType) {
-    return { status: 'unsupported', reason: 'the media type is outside the supported set' };
   }
 
   const gaps = [
@@ -82,7 +93,7 @@ export function computeStatus(result, run = {}) {
   if (result.cancelled) gaps.push('(run cancelled before completion)');
   const blocking = findings.filter(isBlocking);
 
-  // 3. A blocking finding outranks incomplete coverage. Incompleteness does not
+  // 4. A blocking finding outranks incomplete coverage. Incompleteness does not
   //    make a critical, deterministic finding less true, and the incompleteness
   //    itself is not lost: `coverage` and `limitations` are required fields and
   //    the exit code still reports it (see docs/contracts/status-and-exit-codes.md).
@@ -93,7 +104,7 @@ export function computeStatus(result, run = {}) {
     };
   }
 
-  // 4. Incomplete coverage outranks ordinary findings. `partial` is the only
+  // 5. Incomplete coverage outranks ordinary findings. `partial` is the only
   //    value that says "this list is not exhaustive", and that caveat has to
   //    survive: a user who fixes the three listed findings under a
   //    `review_required` headline would reasonably believe they were done.
@@ -101,12 +112,12 @@ export function computeStatus(result, run = {}) {
     return { status: 'partial', reason: `checks did not run: ${gaps.join(', ')}` };
   }
 
-  // 5. Complete coverage, findings present.
+  // 6. Complete coverage, findings present.
   if (findings.length > 0) {
     return { status: 'review_required', reason: `${findings.length} finding(s) to review` };
   }
 
-  // 6. Complete coverage, nothing found. The only state that may be presented as
+  // 7. Complete coverage, nothing found. The only state that may be presented as
   //    clean — and only because every branch above has been ruled out.
   return { status: 'no_findings', reason: 'all applicable checks completed with nothing to report' };
 }

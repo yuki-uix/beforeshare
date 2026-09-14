@@ -42,12 +42,20 @@ Evaluated top to bottom; the first matching row wins.
 
 | # | Condition | Status |
 |---|---|---|
-| 1 | the run produced nothing usable, **or** zero detectors completed | `failed` |
+| 1 | the run died before producing anything coherent | `failed` |
 | 2 | the media type is outside {PDF, JPEG, PNG} | `unsupported` |
-| 3 | any finding is **critical AND deterministic** | `blocking_findings` |
-| 4 | any detector failed, was skipped for a coverage-reducing reason, **or the run was cancelled** | `partial` |
-| 5 | one or more findings | `review_required` |
-| 6 | otherwise | `no_findings` |
+| 3 | zero detectors completed | `failed` |
+| 4 | any finding is **critical AND deterministic** | `blocking_findings` |
+| 5 | any detector failed, was skipped for a coverage-reducing reason, **or the run was cancelled** | `partial` |
+| 6 | one or more findings | `review_required` |
+| 7 | otherwise | `no_findings` |
+
+Row 2 sits above row 3 deliberately. An out-of-scope file naturally has no completed detectors, so a
+table that tested "zero detectors completed" first would report `failed` for it — blaming the run for
+something that is a property of the input. Nothing went wrong when BeforeShare is handed a HEIC.
+
+The branch order in [`tools/status.mjs`](../../tools/status.mjs) is this table, row for row.
+Reordering one without the other produces a document that describes a different product.
 
 ### The five open questions, answered
 
@@ -164,11 +172,13 @@ partial coverage to report. They are mutually exclusive by construction, not by 
 
 ## Scope is derived, never supplied
 
-Whether a media type is in scope is a fact about the file, read from `input.mediaType`. It is
-deliberately not a flag the caller passes in: a flag would let the desktop app, the CLI and the MCP
-server each decide scope for themselves, which is the divergence §14.1 forbids. The only fact the
-rules accept from outside is `unusable` — a run that died before producing anything coherent, which
-by definition cannot be read off the result it failed to produce.
+Whether a media type is in scope is a fact about the file, read from `input.mediaType`. There is no
+caller override — not even an optional one. An optional override is not a weaker version of the
+problem it was meant to solve; it is the same problem with a default, and the three interfaces can
+still disagree by passing different flags.
+
+The only fact the rules accept from outside is `unusable` — a run that died before producing anything
+coherent, which by definition cannot be read off the result it failed to produce.
 
 ## How these rules are kept honest
 
