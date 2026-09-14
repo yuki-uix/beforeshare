@@ -163,32 +163,14 @@
                 "type": "array",
                 "uniqueItems": true,
                 "items": {
-                  "type": "string",
-                  "enum": [
-                    "raw_objects",
-                    "extracted_text",
-                    "rendered_page",
-                    "metadata_block",
-                    "annotations",
-                    "attachments",
-                    "image_pixels"
-                  ]
+                  "$ref": "common.schema.json#/$defs/surface"
                 }
               },
               "plannedSurfaces": {
                 "type": "array",
                 "uniqueItems": true,
                 "items": {
-                  "type": "string",
-                  "enum": [
-                    "raw_objects",
-                    "extracted_text",
-                    "rendered_page",
-                    "metadata_block",
-                    "annotations",
-                    "attachments",
-                    "image_pixels"
-                  ]
+                  "$ref": "common.schema.json#/$defs/surface"
                 }
               },
               "readers": {

@@ -153,16 +153,7 @@
           "description": "independent: this reader shares no parsing or serialisation code with the component that produced the output. shares_writer_implementation: it does, so its agreement proves nothing on its own."
         },
         "surface": {
-          "type": "string",
-          "enum": [
-            "raw_objects",
-            "extracted_text",
-            "rendered_page",
-            "metadata_block",
-            "annotations",
-            "attachments",
-            "image_pixels"
-          ],
+          "$ref": "common.schema.json#/$defs/surface",
           "description": "Which of the surfaces §10.1 enumerates this reader examined."
         }
       }
@@ -225,16 +216,7 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "enum": [
-              "raw_objects",
-              "extracted_text",
-              "rendered_page",
-              "metadata_block",
-              "annotations",
-              "attachments",
-              "image_pixels"
-            ]
+            "$ref": "common.schema.json#/$defs/surface"
           },
           "description": "§10.1 requires confirming selected values are absent from raw objects, extracted text, annotations, attachments and the metadata the action covered. Recording which surfaces were actually examined is what keeps a partial check from reading as a complete one."
         }

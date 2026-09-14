@@ -31,11 +31,19 @@
     },
     "componentVersion": {
       "type": "object",
-      "required": ["id", "version"],
+      "required": [
+        "id",
+        "version"
+      ],
       "additionalProperties": false,
       "properties": {
-        "id": { "$ref": "#/$defs/detectorId" },
-        "version": { "type": "string", "minLength": 1 }
+        "id": {
+          "$ref": "#/$defs/detectorId"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "pageNumber": {
@@ -46,16 +54,35 @@
     "rect": {
       "type": "object",
       "description": "Axis-aligned rectangle in the coordinate space named by the enclosing location.",
-      "required": ["x", "y", "width", "height", "space"],
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height",
+        "space"
+      ],
       "additionalProperties": false,
       "properties": {
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "width": { "type": "number", "minimum": 0 },
-        "height": { "type": "number", "minimum": 0 },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0
+        },
         "space": {
           "type": "string",
-          "enum": ["pdf_user_space", "image_pixels"],
+          "enum": [
+            "pdf_user_space",
+            "image_pixels"
+          ],
           "description": "pdf_user_space has its origin at the bottom-left of the page; image_pixels at the top-left of the image."
         }
       }
@@ -65,6 +92,19 @@
       "minimum": 0,
       "maximum": 1,
       "description": "Detector-reported confidence. Only meaningful on probabilistic findings; its calibration is reported separately per §17.2."
+    },
+    "surface": {
+      "type": "string",
+      "enum": [
+        "raw_objects",
+        "extracted_text",
+        "rendered_page",
+        "metadata_block",
+        "annotations",
+        "attachments",
+        "image_pixels"
+      ],
+      "description": "A place a reader can look inside a file. Defined once and referenced everywhere it is used: a capability declaring a surface it can verify, a verification read path naming the surface it examined, and an action result listing the surfaces it checked all have to mean the same seven things. Four inline copies agreed by copy-paste until this existed, which is not a guarantee."
     }
   }
 }

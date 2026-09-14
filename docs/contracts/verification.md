@@ -47,6 +47,12 @@ mechanical, because the failure it guards against looks exactly like success fro
 objects, extracted text, rendered pages, metadata blocks, annotations, attachments, image pixels.
 Without it a check of one surface reads identically to a check of all of them.
 
+The seven surfaces are defined once, in `common.schema.json`, and referenced by everything that uses
+them: a capability's verifiable surfaces, a read path, and this list. They first existed as four
+inline copies that agreed by copy-paste. The fix was not a check that the copies match — that accepts
+the duplication and then polices it — but removing the duplication, which leaves only one failure
+mode: someone pasting a copy back. That is what the validator now looks for.
+
 ## Preservation is measured, not asserted
 
 §10.3 asks for a render comparison "within an explained tolerance". A boolean pass/fail would hide

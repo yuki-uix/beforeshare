@@ -509,5 +509,30 @@ for (const f of committedCaps.formats) {
   }
 }
 
+// --- the surface vocabulary has exactly one definition -----------------------
+// An earlier version of this check compared four inline copies for equality.
+// That is the wrong shape: it accepts the duplication and then polices it. The
+// enum now lives once in common.schema.json and everything $refs it, so
+// divergence is structurally impossible. What remains is a check that nobody
+// reintroduces a copy — the only failure mode left.
+{
+  const canonical = JSON.stringify([...read(join(schemaDir, 'common.schema.json')).$defs.surface.enum].sort());
+  const inlineCopies = [];
+  const walk = (node, path, file) => {
+    if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}/${i}`, file));
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node.enum) && JSON.stringify([...node.enum].sort()) === canonical) {
+      if (file !== 'common.schema.json') inlineCopies.push(`${file}${path}`);
+    }
+    for (const [k, v] of Object.entries(node)) walk(v, `${path}/${k}`, file);
+  };
+  for (const file of readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json'))) {
+    walk(read(join(schemaDir, file)), '', file);
+  }
+  check('the surface vocabulary is defined once and referenced everywhere else',
+    inlineCopies.length === 0,
+    `inline copies found at: ${inlineCopies.join(', ')}`);
+}
+
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
