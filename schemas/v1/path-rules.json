@@ -1,0 +1,47 @@
+{
+  "$comment": "The rules every file access passes through (§13.4). Data rather than prose so that the reference implementation, the conformance vectors and the documentation all read the same table — and so that adding a rejection reason forces a vector to exist for it. The identity rules are macOS facts, not preferences: APFS is case-insensitive by default and the filesystem stores NFD while applications commonly produce NFC, so two different strings routinely name one file.",
+  "schemaVersion": "1.0",
+  "rejectionReasons": {
+    "not_absolute": {
+      "stage": "before_access",
+      "rationale": "A relative path resolves against a working directory the caller does not control. Every path entering the gate is absolute or refused."
+    },
+    "symlink_escape": {
+      "stage": "before_access",
+      "rationale": "§13.4 requires symlinks to be resolved and checked before access. A link anywhere along the path — including a directory component, and including a link whose target is relative — can leave the authorised area."
+    },
+    "traversal": {
+      "stage": "before_access",
+      "rationale": "A `..` segment can leave the authorised area. Checked after normalisation, because `a/b/../../..` only shows its reach once collapsed."
+    },
+    "outside_authorised_roots": {
+      "stage": "before_access",
+      "rationale": "§13.4 forbids requesting unrestricted filesystem access. The gate holds the set of roots the host authorised; a resolved path outside all of them is refused even if it is otherwise well formed."
+    },
+    "output_is_input": {
+      "stage": "before_write",
+      "rationale": "§12.1 rejects an output path resolving to the original input. Compared after full resolution and identity normalisation, so a different spelling of the same file is still refused."
+    },
+    "output_is_directory": {
+      "stage": "before_write",
+      "rationale": "Writing to a path that names an existing directory is a caller error worth naming rather than letting the filesystem report it late."
+    },
+    "empty_or_null_byte": {
+      "stage": "before_access",
+      "rationale": "A NUL byte truncates the path in many C APIs, so the string checked and the string opened can differ."
+    },
+    "symlink_loop": {
+      "stage": "before_access",
+      "rationale": "A cycle of links has no target. realpath reports ELOOP; a resolver that simply stops after N hops would hand back an intermediate path and call it resolved."
+    },
+    "unresolvable": {
+      "stage": "before_access",
+      "rationale": "The filesystem could not resolve the path for a reason other than absence — a permissions failure on a directory component, for instance. Absence is normal for an output path and is not this."
+    }
+  },
+  "identity": {
+    "caseInsensitive": true,
+    "unicodeNormalization": "NFC",
+    "$comment": "Two paths name the same file when their fully resolved forms match after Unicode normalisation and case folding. Both are required on macOS: APFS is case-insensitive by default, and the same filename is routinely spelled NFC by an application and NFD by the filesystem. Comparing raw strings would let `Report.pdf` and `report.pdf`, or an NFC and NFD spelling of an accented name, pass as different files — which is exactly how an output path sneaks onto its input."
+  }
+}

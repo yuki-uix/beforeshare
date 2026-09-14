@@ -17,6 +17,7 @@ import { computeStatus, reducesCoverage } from './status.mjs';
 import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSources } from './capabilities.mjs';
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
+import { REJECTION_REASONS } from './path-gate.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 import { BREAKING_KINDS, ADDITIVE_KINDS, CHANGE_TYPES } from './versioning.mjs';
 
@@ -764,6 +765,10 @@ const enumAt = (file, path) => path.split('.').reduce((n, k) => n[k], read(join(
 
 const MIRRORS = {
   POLICIES: { value: POLICIES, schema: ['evidence.schema.json', 'properties.maskPolicy.enum'] },
+  REJECTION_REASONS: {
+    value: REJECTION_REASONS,
+    standalone: 'the gate\'s own vocabulary; path-rules.json is data, and the validator checks the two against each other directly',
+  },
   SUPPORTED_MEDIA_TYPES: {
     value: SUPPORTED_MEDIA_TYPES,
     schema: ['common.schema.json', '$defs.mediaType.enum'],
@@ -955,6 +960,24 @@ for (const file of examples) {
     check(`${file} every handoff row names an owner`, ownerless.length === 0,
       ownerless.map((l) => l.trim().slice(0, 60)).join(' / '));
   }
+}
+
+// --- the path rule table and its implementation stay in step ----------------
+{
+  const pathRules = read(join(schemaDir, 'path-rules.json'));
+  const declared = Object.keys(pathRules.rejectionReasons);
+  check('the gate exposes exactly the declared rejection reasons',
+    JSON.stringify([...REJECTION_REASONS].sort()) === JSON.stringify([...declared].sort()),
+    `gate: ${REJECTION_REASONS.join(', ')} vs table: ${declared.join(', ')}`);
+  for (const [name, r] of Object.entries(pathRules.rejectionReasons)) {
+    check(`rejection reason ${name} names when it applies and why`,
+      ['before_access', 'before_write'].includes(r.stage) && typeof r.rationale === 'string' && r.rationale.length > 20,
+      JSON.stringify(r));
+  }
+  // §13.4 requires resolution BEFORE access. A reason that only applies after
+  // the file is open would be describing a check that runs too late.
+  check('every reason applies before the filesystem is touched',
+    declared.every((n) => pathRules.rejectionReasons[n].stage.startsWith('before_')));
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${Object.keys(manifest).length} examples (${examples.length} inspection), ${negatives.length}+${verifyNegatives.length}+${capNegatives.length} negative cases (inspection/verification/capability), ${enumCats.length} categories, ${failures} failure(s)`);

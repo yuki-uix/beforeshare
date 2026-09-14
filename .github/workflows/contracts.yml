@@ -91,6 +91,9 @@ jobs:
       - name: Test contract boundaries
         run: npm run test:contracts
 
+      - name: Test the path safety gate
+        run: npm run test:path-gate
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -187,7 +190,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=11
+          EXPECTED_CASES=13
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -301,6 +304,28 @@ jobs:
           expect_failure "a detector reported in two coverage states at once" \
             "reports each detector in exactly one coverage state" \
             "schemas/v1/examples/no-findings.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('if (IDENTITY.caseInsensitive) key = key.toLowerCase();','');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a gate that compares paths case-sensitively" \
+            "an output differing only in case is refused" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('!issued.has(value)','false');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a gate whose brand check always passes" \
+            "a hand-built path object cannot be read" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
