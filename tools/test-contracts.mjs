@@ -167,6 +167,17 @@ if (isMain) {
     }));
     const baseline = fixture();
     const outputs = await Promise.all(adapters.map(async ([name, fn]) => [name, await fn(baseline.input.path)]));
+
+    // Each output is validated on its own before any comparison. Comparing two
+    // serialisations shows they agree, not that either is a canonical result:
+    // with one interface registered the comparison loop below never runs, and
+    // with two returning the same invalid object it passes. The first interface
+    // to land is exactly the single-adapter case.
+    for (const [name, out] of outputs) {
+      check(`${name} produces a result that validates against the schema`,
+        validateInspection(out), JSON.stringify(validateInspection.errors));
+    }
+
     const [firstName, firstOut] = outputs[0];
     for (const [name, out] of outputs.slice(1)) {
       check(`${name} produces the same canonical result as ${firstName}`,

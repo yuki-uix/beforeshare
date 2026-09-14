@@ -130,6 +130,7 @@ const negatives = [
   ['an empty parser list is rejected',
     clone((r) => { r.versions.parsers = []; })],
 
+
   ['a non-UTC timestamp is rejected',
     clone((r) => { r.startedAt = '2026-01-01T00:00:00+08:00'; })],
 
@@ -621,6 +622,27 @@ const registeredParsers = new Set(Object.keys(REGISTRY.parsers ?? {}));
 
 const ID_CHECKERS = {
   'inspection-result.schema.json': (file, doc) => {
+    // A detector is in exactly one state. The three arrays are each uniqueItems,
+    // which says nothing about overlap between them - a detector could be
+    // reported as having completed AND been skipped, and every consumer would
+    // have to pick one to believe.
+    //
+    // Checked here rather than as a schema negative case: JSON Schema cannot
+    // express an intersection across sibling arrays, so the negative-case
+    // harness, which runs documents through ajv, is the wrong place to pin it.
+    // The CI guard job covers it instead.
+    const states = { completed: doc.coverage.completed, skipped: doc.coverage.skipped.map((x) => x.detector), failed: doc.coverage.failed.map((x) => x.detector) };
+    const seen = new Map();
+    const overlaps = [];
+    for (const [state, ids] of Object.entries(states)) {
+      for (const id of ids) {
+        if (seen.has(id)) overlaps.push(`${id} in both ${seen.get(id)} and ${state}`);
+        else seen.set(id, state);
+      }
+    }
+    check(`${file} reports each detector in exactly one coverage state`, overlaps.length === 0,
+      overlaps.join('; '));
+
     const used = new Set([
       ...doc.coverage.completed,
       ...doc.coverage.skipped.map((x) => x.detector),
@@ -902,7 +924,13 @@ for (const file of examples) {
 // most, and the part most easily lost when the document grows.
 {
   const docsDir = join(schemaDir, '..', '..', 'docs', 'contracts');
-  const docs = readdirSync(docsDir).filter((f) => f.endsWith('.md'));
+  // Recursive: readdirSync sees direct children only, so a document in a
+  // subdirectory would have skipped the handoff rule entirely while the check
+  // reported itself as covering the contract documents.
+  const collectDocs = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? collectDocs(join(dir, e.name), `${prefix}${e.name}/`)
+      : e.name.endsWith('.md') ? [`${prefix}${e.name}`] : []);
+  const docs = collectDocs(docsDir);
   check('contract documents were found to check', docs.length > 0);
   for (const file of docs) {
     const text = readFileSync(join(docsDir, file), 'utf8');
@@ -911,8 +939,21 @@ for (const file of examples) {
       'every contract document must end with "## Not decided here"');
     if (!hasHeading) continue;
     const section = text.slice(text.indexOf('## Not decided here'));
-    check(`${file} handoff names an owner`, /\|\s*Owner\s*\|/.test(section) || /#\d+|E\d+/.test(section),
-      'the section must name the issue or epic each open question belongs to');
+    // Per row, not per table. Requiring only that an Owner column exists let a
+    // row with an empty owner cell pass - a question listed as open with nobody
+    // holding it, which is the state the table is meant to make impossible.
+    const rows = section.split('\n')
+      .filter((l) => l.trim().startsWith('|') && !/^\|[\s:|-]+\|$/.test(l.trim()))
+      .slice(1); // drop the header row
+    check(`${file} handoff lists at least one question`, rows.length > 0,
+      'the section must name what is open, not just exist');
+    const ownerless = rows.filter((l) => {
+      const cells = l.split('|').map((c) => c.trim()).filter((c, i, a) => i > 0 && i < a.length - 1);
+      const owner = cells[cells.length - 1] ?? '';
+      return !/#\d+|E\d+/.test(owner);
+    });
+    check(`${file} every handoff row names an owner`, ownerless.length === 0,
+      ownerless.map((l) => l.trim().slice(0, 60)).join(' / '));
   }
 }
 

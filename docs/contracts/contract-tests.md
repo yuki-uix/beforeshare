@@ -37,6 +37,11 @@ the build today — which a CI mutation verifies rather than assumes: the guard 
 `implemented`, removes its `waitingOn`, and requires `npm run test:contracts` to fail with
 `interface cli names an adapter`.
 
+Every implemented interface's output is validated against the schema before any comparison. Comparing
+two serialisations shows they agree, not that either is a canonical result — and with a single
+interface registered the comparison has nothing to compare, which is precisely the state when the
+first one lands.
+
 When zero interfaces are implemented the suite prints a `note` line saying so, rather than a passing
 assertion. A note is honest about there being nothing to compare; an `ok` would not be.
 
