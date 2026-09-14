@@ -199,9 +199,10 @@ coherent, which by definition cannot be read off the result it failed to produce
 
 ## Not decided here
 
-The CLI's argument parsing, output formatting and the actual `--approve` flag names belong to #9
-(E8). This document defines what the codes mean, not how the command line spells them.
+| Question | Owner |
+|---|---|
+| The CLI's argument parsing, output formatting, and the actual `--approve` flag names | #9 |
+| Whether a `--json` run's exit code contradicts the JSON on its stdout | #9 — moved from #24, because observing it needs a real process |
 
-One acceptance criterion from #24 moved to #9 for the same reason: verifying that a `--json` run's
-exit code does not contradict the JSON on its stdout needs a real process to observe, and there is no
-CLI yet. The semantics it will be checked against are here.
+This document defines what the codes mean, not how the command line spells them. The semantics the
+CLI will be checked against are here.

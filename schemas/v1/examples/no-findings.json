@@ -29,6 +29,10 @@
     "core": "0.1.0",
     "detectors": [
       {
+        "id": "image.exif",
+        "version": "1.0.0"
+      },
+      {
         "id": "image.png_text",
         "version": "1.0.0"
       },
@@ -39,6 +43,12 @@
       {
         "id": "ocr.visible_text",
         "version": "0.4.1"
+      }
+    ],
+    "parsers": [
+      {
+        "id": "image.png_parser",
+        "version": "1.0.0"
       }
     ]
   },

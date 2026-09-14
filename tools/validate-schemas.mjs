@@ -18,6 +18,7 @@ import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSourc
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
+import { BREAKING_KINDS, ADDITIVE_KINDS, CHANGE_TYPES } from './versioning.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const schemaDir = join(root, 'schemas', 'v1');
@@ -122,6 +123,13 @@ const negatives = [
 
   ['a finding without a detector is rejected (§14.1 version visibility)',
     clone((r) => { delete r.findings[0].detector; })],
+
+  ['a result without parser versions is rejected (§14.1 version visibility)',
+    clone((r) => { delete r.versions.parsers; })],
+
+  ['an empty parser list is rejected',
+    clone((r) => { r.versions.parsers = []; })],
+
 
   ['a non-UTC timestamp is rejected',
     clone((r) => { r.startedAt = '2026-01-01T00:00:00+08:00'; })],
@@ -610,9 +618,31 @@ const knownReaders = new Set([
   ...Object.keys(REGISTRY.detectors),
 ]);
 const registeredDetectors = new Set(Object.keys(REGISTRY.detectors));
+const registeredParsers = new Set(Object.keys(REGISTRY.parsers ?? {}));
 
 const ID_CHECKERS = {
   'inspection-result.schema.json': (file, doc) => {
+    // A detector is in exactly one state. The three arrays are each uniqueItems,
+    // which says nothing about overlap between them - a detector could be
+    // reported as having completed AND been skipped, and every consumer would
+    // have to pick one to believe.
+    //
+    // Checked here rather than as a schema negative case: JSON Schema cannot
+    // express an intersection across sibling arrays, so the negative-case
+    // harness, which runs documents through ajv, is the wrong place to pin it.
+    // The CI guard job covers it instead.
+    const states = { completed: doc.coverage.completed, skipped: doc.coverage.skipped.map((x) => x.detector), failed: doc.coverage.failed.map((x) => x.detector) };
+    const seen = new Map();
+    const overlaps = [];
+    for (const [state, ids] of Object.entries(states)) {
+      for (const id of ids) {
+        if (seen.has(id)) overlaps.push(`${id} in both ${seen.get(id)} and ${state}`);
+        else seen.set(id, state);
+      }
+    }
+    check(`${file} reports each detector in exactly one coverage state`, overlaps.length === 0,
+      overlaps.join('; '));
+
     const used = new Set([
       ...doc.coverage.completed,
       ...doc.coverage.skipped.map((x) => x.detector),
@@ -623,6 +653,26 @@ const ID_CHECKERS = {
     ]);
     const unknown = [...used].filter((id) => !registeredDetectors.has(id));
     check(`${file} uses only registered detector ids`, unknown.length === 0, unknown.join(', '));
+
+    // Parsers get the same treatment: §14.1 names them alongside detectors, so a
+    // result citing a parser nobody registered is the same unverifiable claim.
+    const parsers = (doc.versions.parsers ?? []).map((p) => p.id);
+    const unknownParsers = parsers.filter((id) => !registeredParsers.has(id));
+    check(`${file} uses only registered parser ids`, unknownParsers.length === 0, unknownParsers.join(', '));
+
+    // Parsers are a subset of what applies, not the whole set. Detectors have
+    // completed/skipped/failed, so demanding every applicable one be accounted
+    // for is answerable; parsers have one list, so demanding every applicable one
+    // be named would make a result claim it used a component it never invoked -
+    // a PDF whose OCR was skipped never touched the renderer. This rule was
+    // copied from the detector check without that difference surviving the copy.
+    const mediaType = doc.input.mediaType;
+    const applicableParsers = Object.entries(REGISTRY.parsers ?? {})
+      .filter(([, p]) => p.mediaTypes.includes(mediaType))
+      .map(([id]) => id);
+    const inapplicable = parsers.filter((id) => registeredParsers.has(id) && !applicableParsers.includes(id));
+    check(`${file} names no parser that does not apply to ${mediaType}`, inapplicable.length === 0,
+      inapplicable.join(', '));
   },
 
   'verification-result.schema.json': (file, doc) => {
@@ -722,6 +772,13 @@ const MIRRORS = {
     value: VERIFICATION_OUTCOMES,
     schema: ['verification-result.schema.json', '$defs.actionResult.properties.outcome.enum'],
   },
+  // Verified mechanically, not asserted: none of the three equals any enum in the
+  // schemas, which is what the standalone check below confirms. They classify
+  // changes to the contract rather than describing a value inside one.
+  BREAKING_KINDS: { value: BREAKING_KINDS, standalone: 'classifies a kind of schema change; no value in any document carries it' },
+  ADDITIVE_KINDS: { value: ADDITIVE_KINDS, standalone: 'as BREAKING_KINDS' },
+  CHANGE_TYPES: { value: CHANGE_TYPES, standalone: 'the changelog vocabulary; CHANGELOG.json is data, not a schema, so there is no enum to mirror' },
+
   SUCCESSFUL_OUTCOMES: {
     value: SUCCESSFUL_OUTCOMES,
     // Registered as a mirror, not standalone. It is a subset of the outcome enum,
@@ -807,5 +864,99 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
     impostors.map((e) => `${e.file}:${e.name} = ${JSON.stringify(e.value)}`).join('; '));
 }
 
+// --- coverage must account for every applicable detector ---------------------
+// §17.1 requires coverage to be reported accurately. A detector that applies to
+// this media type and appears in none of the three arrays is a check nobody can
+// tell ran or not — which reads, to anyone consuming the result, as though it ran.
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const mediaType = doc.input.mediaType;
+  const applicable = Object.entries(REGISTRY.detectors)
+    .filter(([, d]) => d.mediaTypes.includes(mediaType))
+    .map(([id]) => id);
+  const accounted = new Set([
+    ...doc.coverage.completed,
+    ...doc.coverage.skipped.map((s) => s.detector),
+    ...doc.coverage.failed.map((f) => f.detector),
+  ]);
+  const unaccounted = applicable.filter((id) => !accounted.has(id));
+  check(`${file} accounts for every detector applicable to ${mediaType}`,
+    unaccounted.length === 0, `unaccounted: ${unaccounted.join(', ')}`);
+
+  const inapplicable = [...accounted].filter((id) => !applicable.includes(id));
+  check(`${file} reports no detector that does not apply to ${mediaType}`,
+    inapplicable.length === 0, `inapplicable: ${inapplicable.join(', ')}`);
+}
+
+// --- every suppressed check must be explained --------------------------------
+// A limitation names the detectors it affected; that is what stops a suppressed
+// check from going unmentioned (§5.8). Benign skips are exempt: requiring a
+// limitation for "this PNG has no EXIF block" would bury the real ones in noise.
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const needsExplaining = [
+    ...doc.coverage.skipped.filter((s) => reducesCoverage(s.reason)).map((s) => s.detector),
+    ...doc.coverage.failed.map((f) => f.detector),
+  ];
+  const explained = new Set((doc.limitations ?? []).flatMap((l) => l.affectedDetectors));
+  const unexplained = needsExplaining.filter((d) => !explained.has(d));
+  check(`${file} explains every check that did not run`, unexplained.length === 0,
+    `no limitation names: ${unexplained.join(', ')}`);
+
+  // Only coverage_incomplete limitations are claims that something did not run.
+  // evidence_degraded and the rest legitimately describe a detector that did run
+  // — a media-type mismatch degrades what the metadata reader's output means
+  // without stopping it — so they are not held to this rule.
+  const claimsNotRun = new Set(
+    (doc.limitations ?? [])
+      .filter((l) => l.impact === 'coverage_incomplete')
+      .flatMap((l) => l.affectedDetectors),
+  );
+  const ranAnyway = [...claimsNotRun].filter((d) => doc.coverage.completed.includes(d));
+  check(`${file} claims no completed check was skipped`, ranAnyway.length === 0,
+    `coverage_incomplete limitation names detectors that completed: ${ranAnyway.join(', ')}`);
+}
+
+// --- every contract document ends with a handoff table -----------------------
+// The repository's own review configuration requires one, and two documents had
+// drifted to different headings instead - a rule stated in configuration and
+// enforced nowhere. What a document does NOT decide is the part a reader needs
+// most, and the part most easily lost when the document grows.
+{
+  const docsDir = join(schemaDir, '..', '..', 'docs', 'contracts');
+  // Recursive: readdirSync sees direct children only, so a document in a
+  // subdirectory would have skipped the handoff rule entirely while the check
+  // reported itself as covering the contract documents.
+  const collectDocs = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? collectDocs(join(dir, e.name), `${prefix}${e.name}/`)
+      : e.name.endsWith('.md') ? [`${prefix}${e.name}`] : []);
+  const docs = collectDocs(docsDir);
+  check('contract documents were found to check', docs.length > 0);
+  for (const file of docs) {
+    const text = readFileSync(join(docsDir, file), 'utf8');
+    const hasHeading = text.includes('## Not decided here');
+    check(`${file} has a handoff section`, hasHeading,
+      'every contract document must end with "## Not decided here"');
+    if (!hasHeading) continue;
+    const section = text.slice(text.indexOf('## Not decided here'));
+    // Per row, not per table. Requiring only that an Owner column exists let a
+    // row with an empty owner cell pass - a question listed as open with nobody
+    // holding it, which is the state the table is meant to make impossible.
+    const rows = section.split('\n')
+      .filter((l) => l.trim().startsWith('|') && !/^\|[\s:|-]+\|$/.test(l.trim()))
+      .slice(1); // drop the header row
+    check(`${file} handoff lists at least one question`, rows.length > 0,
+      'the section must name what is open, not just exist');
+    const ownerless = rows.filter((l) => {
+      const cells = l.split('|').map((c) => c.trim()).filter((c, i, a) => i > 0 && i < a.length - 1);
+      const owner = cells[cells.length - 1] ?? '';
+      return !/#\d+|E\d+/.test(owner);
+    });
+    check(`${file} every handoff row names an owner`, ownerless.length === 0,
+      ownerless.map((l) => l.trim().slice(0, 60)).join(' / '));
+  }
+}
+
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${Object.keys(manifest).length} examples (${examples.length} inspection), ${negatives.length}+${verifyNegatives.length}+${capNegatives.length} negative cases (inspection/verification/capability), ${enumCats.length} categories, ${failures} failure(s)`);
+
 process.exit(failures === 0 ? 0 : 1);

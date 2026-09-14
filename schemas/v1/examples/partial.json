@@ -15,14 +15,34 @@
     ],
     "skipped": [
       {
-        "detector": "pdf.text_layer",
+        "detector": "ocr.visible_text",
+        "reason": "blocked_by_encryption",
+        "message": "Pages could not be rendered for text recognition."
+      },
+      {
+        "detector": "pdf.actions",
         "reason": "blocked_by_encryption",
         "message": "The document is encrypted and no password was supplied."
       },
       {
-        "detector": "ocr.visible_text",
+        "detector": "pdf.embedded_files",
         "reason": "blocked_by_encryption",
-        "message": "Pages could not be rendered for text recognition."
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "pdf.form_fields",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "pdf.structure",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "pdf.text_layer",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
       }
     ],
     "failed": [
@@ -66,10 +86,14 @@
       "code": "encrypted_content_not_inspected",
       "impact": "coverage_incomplete",
       "affectedDetectors": [
-        "pdf.text_layer",
-        "ocr.visible_text"
+        "ocr.visible_text",
+        "pdf.actions",
+        "pdf.embedded_files",
+        "pdf.form_fields",
+        "pdf.structure",
+        "pdf.text_layer"
       ],
-      "message": "Hidden text and visible text were not inspected because the document is encrypted."
+      "message": "Hidden text, visible text, embedded files, form fields, document actions and structural flags were not inspected because the document is encrypted."
     },
     {
       "code": "damaged_cross_reference_table",
@@ -98,7 +122,11 @@
     ],
     "detectors": [
       {
-        "id": "pdf.metadata",
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      },
+      {
+        "id": "pdf.actions",
         "version": "1.0.0"
       },
       {
@@ -106,12 +134,24 @@
         "version": "1.0.0"
       },
       {
-        "id": "pdf.text_layer",
+        "id": "pdf.embedded_files",
         "version": "1.0.0"
       },
       {
-        "id": "ocr.visible_text",
-        "version": "0.4.1"
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
       }
     ]
   },

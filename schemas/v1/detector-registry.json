@@ -219,5 +219,32 @@
     }
   },
   "$verifiersComment": "Independent readers for the verification stage (§10.1). Every entry is not_implemented: none is written. They are registered rather than omitted so that a result may reference a known id, while a capability claiming `independent_reader_available` still has to name a verifier whose status is `implemented` — which none is. Registering an id is not claiming it works.",
-  "$detectorsComment": "Each detector declares whether it exists. Nothing does: the registry describes the taxonomy the adapters will implement, and publishing it as current capability would tell consumers this build can inspect PDFs. `implemented` requires an `adapter` module that really exists, so the status cannot be advanced by editing a string."
+  "$detectorsComment": "Each detector declares whether it exists. Nothing does: the registry describes the taxonomy the adapters will implement, and publishing it as current capability would tell consumers this build can inspect PDFs. `implemented` requires an `adapter` module that really exists, so the status cannot be advanced by editing a string.",
+  "parsers": {
+    "pdf.parser": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "status": "not_implemented",
+      "waitingOn": "#4"
+    },
+    "image.png_parser": {
+      "mediaTypes": [
+        "image/png"
+      ],
+      "version": "1.0.0",
+      "status": "not_implemented",
+      "waitingOn": "#5"
+    },
+    "image.jpeg_parser": {
+      "mediaTypes": [
+        "image/jpeg"
+      ],
+      "version": "1.0.0",
+      "status": "not_implemented",
+      "waitingOn": "#5"
+    }
+  },
+  "$parsersComment": "The readers that parse each format, registered alongside the detectors that consume them. §14.1 requires parser versions to be visible in results, which means a result naming a parser must name one that exists. Every entry is not_implemented for the same reason the detectors are."
 }

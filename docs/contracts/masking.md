@@ -75,9 +75,12 @@ with `npm run test:masking`. The tests call the implementation rather than recom
 output themselves — a test that recreates the rule stays green when the implementation drifts away
 from it.
 
-## Not covered here
+## Not decided here
 
-How the user reveals a full value in the local UI, and what that path is allowed to touch, is part of
-the desktop work (E9) and the logging boundary (E13). The rule the schema enforces is narrower and
-absolute: **the full value has no representation in a serialised result**, so no amount of
-mishandling downstream can turn a result into a disclosure.
+| Question | Owner |
+|---|---|
+| How the user reveals a full value in the local UI, and what that path may touch | E9 (#10) |
+| Keeping revealed values out of logs, telemetry and support bundles | E13 (#14) |
+
+The rule the schema enforces is narrower and absolute: **the full value has no representation in a
+serialised result**, so no amount of mishandling downstream can turn a result into a disclosure.

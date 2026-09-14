@@ -4,18 +4,36 @@
   "title": "BeforeShare inspection result",
   "description": "The canonical result of one inspection run. The desktop application, the CLI and the local MCP server all return this exact structure (§14.1); none of them may add, drop or reinterpret a field.",
   "type": "object",
-  "required": ["schemaVersion", "runId", "input", "status", "coverage", "findings", "limitations", "versions", "startedAt", "durationMs"],
+  "required": [
+    "schemaVersion",
+    "runId",
+    "input",
+    "status",
+    "coverage",
+    "findings",
+    "limitations",
+    "versions",
+    "startedAt",
+    "durationMs"
+  ],
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "description": "MAJOR.MINOR. See docs/contracts/inspection-result.md for what counts as a breaking change. Compatibility policy is finalised by issue #25."
+      "description": "MAJOR.MINOR. See docs/contracts/versioning.md for what counts as a breaking change and for the consumer compatibility rule."
     },
-    "runId": { "$ref": "common.schema.json#/$defs/runId" },
+    "runId": {
+      "$ref": "common.schema.json#/$defs/runId"
+    },
     "input": {
       "type": "object",
-      "required": ["path", "mediaType", "sha256", "sizeBytes"],
+      "required": [
+        "path",
+        "mediaType",
+        "sha256",
+        "sizeBytes"
+      ],
       "additionalProperties": false,
       "properties": {
         "path": {
@@ -31,33 +49,56 @@
           "type": "string",
           "description": "The type the filename extension claimed, present ONLY when it disagrees with mediaType. A disagreement also raises a media_type_mismatch limitation - it is never resolved silently."
         },
-        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
-        "sizeBytes": { "type": "integer", "minimum": 0 }
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
-    "status": { "$ref": "enums.schema.json#/$defs/status" },
+    "status": {
+      "$ref": "enums.schema.json#/$defs/status"
+    },
     "coverage": {
       "type": "object",
       "description": "What was actually checked. §17.1 requires 100% accurate coverage reporting and 0 checks mislabelled as completed, so skipped and failed entries carry a reason rather than being bare identifiers: a detector that did not run must say why it did not run.",
-      "required": ["completed", "skipped", "failed"],
+      "required": [
+        "completed",
+        "skipped",
+        "failed"
+      ],
       "additionalProperties": false,
       "properties": {
         "completed": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "common.schema.json#/$defs/detectorId" }
+          "items": {
+            "$ref": "common.schema.json#/$defs/detectorId"
+          }
         },
         "skipped": {
           "type": "array",
           "uniqueItems": true,
           "items": {
             "type": "object",
-            "required": ["detector", "reason"],
+            "required": [
+              "detector",
+              "reason"
+            ],
             "additionalProperties": false,
             "properties": {
-              "detector": { "$ref": "common.schema.json#/$defs/detectorId" },
-              "reason": { "$ref": "enums.schema.json#/$defs/coverageSkipReason" },
-              "message": { "type": "string", "maxLength": 500 }
+              "detector": {
+                "$ref": "common.schema.json#/$defs/detectorId"
+              },
+              "reason": {
+                "$ref": "enums.schema.json#/$defs/coverageSkipReason"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 500
+              }
             }
           }
         },
@@ -66,12 +107,22 @@
           "uniqueItems": true,
           "items": {
             "type": "object",
-            "required": ["detector", "errorCode"],
+            "required": [
+              "detector",
+              "errorCode"
+            ],
             "additionalProperties": false,
             "properties": {
-              "detector": { "$ref": "common.schema.json#/$defs/detectorId" },
-              "errorCode": { "$ref": "enums.schema.json#/$defs/detectorFailureCode" },
-              "message": { "type": "string", "maxLength": 500 }
+              "detector": {
+                "$ref": "common.schema.json#/$defs/detectorId"
+              },
+              "errorCode": {
+                "$ref": "enums.schema.json#/$defs/detectorFailureCode"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 500
+              }
             }
           }
         }
@@ -79,7 +130,9 @@
     },
     "findings": {
       "type": "array",
-      "items": { "$ref": "finding.schema.json" },
+      "items": {
+        "$ref": "finding.schema.json"
+      },
       "description": "Ordered deterministically: severity descending (critical, high, medium, low), then category ascending, then the canonical serialisation of location ascending, then id ascending. The order is part of the contract because §17.5 requires byte-identical output for repeated inspection of the same file at the same detector versions."
     },
     "limitations": {
@@ -87,18 +140,33 @@
       "description": "What narrows the meaning of this result. A limitation is not a warning banner: each one names the detectors it affected, which is what prevents `no_findings` from being emitted while a suppressed check goes unmentioned (§5.8).",
       "items": {
         "type": "object",
-        "required": ["code", "impact", "affectedDetectors", "message"],
+        "required": [
+          "code",
+          "impact",
+          "affectedDetectors",
+          "message"
+        ],
         "additionalProperties": false,
         "properties": {
-          "code": { "$ref": "enums.schema.json#/$defs/limitationCode" },
-          "impact": { "$ref": "enums.schema.json#/$defs/limitationImpact" },
+          "code": {
+            "$ref": "enums.schema.json#/$defs/limitationCode"
+          },
+          "impact": {
+            "$ref": "enums.schema.json#/$defs/limitationImpact"
+          },
           "affectedDetectors": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": { "$ref": "common.schema.json#/$defs/detectorId" }
+            "items": {
+              "$ref": "common.schema.json#/$defs/detectorId"
+            }
           },
-          "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
           "scope": {
             "type": "object",
             "additionalProperties": false,
@@ -106,12 +174,17 @@
               "pages": {
                 "type": "array",
                 "uniqueItems": true,
-                "items": { "$ref": "common.schema.json#/$defs/pageNumber" }
+                "items": {
+                  "$ref": "common.schema.json#/$defs/pageNumber"
+                }
               },
               "imageIndexes": {
                 "type": "array",
                 "uniqueItems": true,
-                "items": { "type": "integer", "minimum": 0 }
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               }
             }
           }
@@ -120,27 +193,48 @@
     },
     "versions": {
       "type": "object",
-      "description": "Which code produced this result (§14.1). Granularity and the compatibility policy around it are finalised by issue #25; the shape is fixed here because every example and every test needs it.",
-      "required": ["core", "detectors"],
+      "description": "Which code produced this result (§14.1). Versions are per detector rather than one aggregate build number, because the question a version answers is whether this build would produce this result again — and a single number says no whenever anything changed anywhere. See docs/contracts/versioning.md.",
+      "required": [
+        "core",
+        "parsers",
+        "detectors"
+      ],
       "additionalProperties": false,
       "properties": {
-        "core": { "type": "string", "minLength": 1 },
-        "app": { "type": "string", "minLength": 1 },
+        "core": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1
+        },
         "parsers": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "$ref": "common.schema.json#/$defs/componentVersion" }
+          "items": {
+            "$ref": "common.schema.json#/$defs/componentVersion"
+          },
+          "minItems": 1,
+          "description": "The parsers that read the file. §14.1 requires parser AND detector versions to be visible in results; this was optional, so a result could omit the layer most likely to change what was found."
         },
         "detectors": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "$ref": "common.schema.json#/$defs/componentVersion" }
+          "items": {
+            "$ref": "common.schema.json#/$defs/componentVersion"
+          }
         }
       }
     },
-    "startedAt": { "$ref": "common.schema.json#/$defs/timestamp" },
-    "durationMs": { "type": "integer", "minimum": 0 },
+    "startedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
     "cancelled": {
       "type": "boolean",
       "description": "True when the run ended because the user cancelled. A cancelled run is never `no_findings`; it is `partial` or `failed` per the rules in issue #18."
