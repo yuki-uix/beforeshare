@@ -1,0 +1,534 @@
+{
+  "schemaVersion": "1.0",
+  "operational": {
+    "canInspect": false,
+    "canRemediate": false,
+    "summary": "This build implements no detector and no remediation action. It can describe what it will do, not do it."
+  },
+  "versions": {
+    "core": "0.1.0",
+    "app": "0.1.0",
+    "detectors": [
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "image.exif",
+        "version": "1.0.0"
+      },
+      {
+        "id": "image.xmp",
+        "version": "1.0.0"
+      },
+      {
+        "id": "image.iptc",
+        "version": "1.0.0"
+      },
+      {
+        "id": "image.png_text",
+        "version": "1.0.0"
+      },
+      {
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      }
+    ]
+  },
+  "formats": [
+    {
+      "mediaType": "application/pdf",
+      "detectors": [
+        {
+          "id": "pdf.metadata",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "document_author",
+            "document_creator",
+            "document_producer",
+            "document_title",
+            "document_subject",
+            "document_keywords",
+            "document_timestamp"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "pdf.annotations",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "annotation"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "pdf.form_fields",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "form_field_name",
+            "form_field_value"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "pdf.embedded_files",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "embedded_file"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "pdf.actions",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "document_javascript",
+            "launch_action",
+            "external_reference",
+            "local_file_reference"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "pdf.text_layer",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "hidden_text",
+            "text_under_redaction"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "pdf.structure",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "encryption_state",
+            "permission_state",
+            "digital_signature",
+            "incremental_update"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#4"
+        },
+        {
+          "id": "ocr.visible_text",
+          "version": "0.4.1",
+          "certainty": "probabilistic",
+          "emits": [
+            "pii_email_address",
+            "pii_phone_number",
+            "pii_postal_address",
+            "pii_geographic_coordinates",
+            "pii_government_or_account_id",
+            "pii_person_name",
+            "pii_username_or_path",
+            "pii_credential_like",
+            "pii_user_defined_term"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#6"
+        }
+      ],
+      "actions": [
+        {
+          "action": "remove_pdf_metadata_field",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "remove_annotations",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "remove_embedded_files",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "disable_javascript_and_launch_actions",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "clear_form_values",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "flatten_to_high_assurance_copy",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "apply_visual_redaction",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        }
+      ],
+      "testedLimits": {
+        "status": "not_established",
+        "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+      }
+    },
+    {
+      "mediaType": "image/jpeg",
+      "detectors": [
+        {
+          "id": "image.exif",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "image_gps_coordinates",
+            "image_device_make",
+            "image_device_model",
+            "image_software",
+            "image_author",
+            "image_capture_timestamp",
+            "image_modification_timestamp",
+            "image_embedded_thumbnail"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
+        },
+        {
+          "id": "image.xmp",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "image_author",
+            "image_software",
+            "image_metadata_comment"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
+        },
+        {
+          "id": "image.iptc",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "image_author",
+            "image_metadata_comment"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
+        },
+        {
+          "id": "ocr.visible_text",
+          "version": "0.4.1",
+          "certainty": "probabilistic",
+          "emits": [
+            "pii_email_address",
+            "pii_phone_number",
+            "pii_postal_address",
+            "pii_geographic_coordinates",
+            "pii_government_or_account_id",
+            "pii_person_name",
+            "pii_username_or_path",
+            "pii_credential_like",
+            "pii_user_defined_term"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#6"
+        }
+      ],
+      "actions": [
+        {
+          "action": "remove_image_metadata_field",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "apply_visual_redaction",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        }
+      ],
+      "testedLimits": {
+        "status": "not_established",
+        "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+      }
+    },
+    {
+      "mediaType": "image/png",
+      "detectors": [
+        {
+          "id": "image.exif",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "image_gps_coordinates",
+            "image_device_make",
+            "image_device_model",
+            "image_software",
+            "image_author",
+            "image_capture_timestamp",
+            "image_modification_timestamp",
+            "image_embedded_thumbnail"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
+        },
+        {
+          "id": "image.xmp",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "image_author",
+            "image_software",
+            "image_metadata_comment"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
+        },
+        {
+          "id": "image.png_text",
+          "version": "1.0.0",
+          "certainty": "deterministic",
+          "emits": [
+            "image_software",
+            "image_author",
+            "image_metadata_comment"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#5"
+        },
+        {
+          "id": "ocr.visible_text",
+          "version": "0.4.1",
+          "certainty": "probabilistic",
+          "emits": [
+            "pii_email_address",
+            "pii_phone_number",
+            "pii_postal_address",
+            "pii_geographic_coordinates",
+            "pii_government_or_account_id",
+            "pii_person_name",
+            "pii_username_or_path",
+            "pii_credential_like",
+            "pii_user_defined_term"
+          ],
+          "status": "not_implemented",
+          "waitingOn": "#6"
+        }
+      ],
+      "actions": [
+        {
+          "action": "remove_image_metadata_field",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "apply_visual_redaction",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        }
+      ],
+      "testedLimits": {
+        "status": "not_established",
+        "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+      }
+    }
+  ],
+  "actions": [
+    {
+      "action": "remove_pdf_metadata_field",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "invalidates_digital_signature"
+      ],
+      "confirmationRequired": false,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "metadata_block",
+          "raw_objects"
+        ]
+      }
+    },
+    {
+      "action": "remove_image_metadata_field",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "alters_visual_rendering"
+      ],
+      "confirmationRequired": false,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "metadata_block"
+        ]
+      }
+    },
+    {
+      "action": "remove_annotations",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "invalidates_digital_signature",
+        "removes_interactive_behavior",
+        "makes_future_editing_harder"
+      ],
+      "confirmationRequired": true,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "annotations",
+          "raw_objects",
+          "extracted_text"
+        ]
+      }
+    },
+    {
+      "action": "remove_embedded_files",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "invalidates_digital_signature",
+        "makes_future_editing_harder"
+      ],
+      "confirmationRequired": true,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "attachments",
+          "raw_objects"
+        ]
+      }
+    },
+    {
+      "action": "disable_javascript_and_launch_actions",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "invalidates_digital_signature",
+        "removes_interactive_behavior"
+      ],
+      "confirmationRequired": false,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "raw_objects"
+        ]
+      }
+    },
+    {
+      "action": "clear_form_values",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "invalidates_digital_signature",
+        "removes_interactive_behavior",
+        "makes_future_editing_harder"
+      ],
+      "confirmationRequired": true,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "raw_objects",
+          "extracted_text"
+        ]
+      }
+    },
+    {
+      "action": "flatten_to_high_assurance_copy",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "invalidates_digital_signature",
+        "removes_accessible_or_searchable_text",
+        "flattens_forms_or_annotations",
+        "alters_visual_rendering",
+        "removes_interactive_behavior",
+        "makes_future_editing_harder"
+      ],
+      "confirmationRequired": true,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "extracted_text",
+          "rendered_page",
+          "raw_objects"
+        ]
+      }
+    },
+    {
+      "action": "apply_visual_redaction",
+      "status": "not_implemented",
+      "waitingOn": "#7",
+      "possibleSideEffects": [
+        "removes_accessible_or_searchable_text",
+        "alters_visual_rendering",
+        "makes_future_editing_harder"
+      ],
+      "confirmationRequired": true,
+      "verifiable": {
+        "status": "no_verifier_implemented",
+        "plannedSurfaces": [
+          "extracted_text",
+          "rendered_page",
+          "raw_objects",
+          "image_pixels"
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    {
+      "code": "signature_present_remediation_restricted",
+      "message": "Any change to a signed PDF invalidates its signature. BeforeShare reports the signature but does not re-sign.",
+      "mediaTypes": [
+        "application/pdf"
+      ]
+    },
+    {
+      "code": "language_not_covered_by_ocr",
+      "message": "Visible-text recognition is evaluated for English and Simplified Chinese. Other scripts are not claimed.",
+      "mediaTypes": [
+        "application/pdf",
+        "image/jpeg",
+        "image/png"
+      ]
+    }
+  ]
+}

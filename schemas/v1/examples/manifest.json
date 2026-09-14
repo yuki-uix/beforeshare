@@ -1,0 +1,25 @@
+{
+  "$comment": "Which schema each example must validate against, plus any expectation a checker needs. An example file not listed here fails the build, and a listed file that does not exist fails too. Verification examples additionally declare whether the run summarises as successful, so adding one forces that decision instead of leaving it outside a hand-written list the way the first version did.",
+  "examples": {
+    "review-required.json": {
+      "schema": "inspection-result.schema.json"
+    },
+    "no-findings.json": {
+      "schema": "inspection-result.schema.json"
+    },
+    "partial.json": {
+      "schema": "inspection-result.schema.json"
+    },
+    "verification-verified.json": {
+      "schema": "verification-result.schema.json",
+      "expectSuccessful": true
+    },
+    "verification-unable.json": {
+      "schema": "verification-result.schema.json",
+      "expectSuccessful": false
+    },
+    "capabilities.json": {
+      "schema": "capabilities.schema.json"
+    }
+  }
+}

@@ -17,6 +17,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow-shell-is-parseable:
+    name: embedded shell parses
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      # A merge once left this file valid as YAML while dropping the line that
+      # opened a `node -e "` block. The shell inside stopped parsing there, so the
+      # last guard and the control case never ran - and the job still reported the
+      # eight lines before it. YAML validation cannot see inside a run block, and
+      # neither can npm test. bash -n can.
+      - name: Every run block must parse as shell
+        run: |
+          python3 - <<'PY' > /tmp/blocks.json
+          import json, yaml
+          w = yaml.safe_load(open('.github/workflows/contracts.yml'))
+          out = []
+          for jname, job in w['jobs'].items():
+              for i, step in enumerate(job.get('steps', [])):
+                  if 'run' in step:
+                      out.append({'job': jname, 'step': step.get('name', f'#{i}'), 'run': step['run']})
+          json.dump(out, open('/tmp/blocks.json', 'w'))
+          PY
+          python3 - <<'PY'
+          import json, subprocess, sys, tempfile, os
+          blocks = json.load(open('/tmp/blocks.json'))
+          if not blocks:
+              print('::error::no run blocks found; this check would pass vacuously')
+              sys.exit(1)
+          failed = 0
+          for b in blocks:
+              with tempfile.NamedTemporaryFile('w', suffix='.sh', delete=False) as f:
+                  f.write(b['run'])
+                  path = f.name
+              r = subprocess.run(['bash', '-n', path], capture_output=True, text=True)
+              os.unlink(path)
+              if r.returncode != 0:
+                  failed += 1
+                  print(f"::error::{b['job']} / {b['step']}: {r.stderr.strip()}")
+              else:
+                  print(f"ok  {b['job']} / {b['step']}")
+          print(f"\n{'PASS' if failed == 0 else 'FAIL'}  {len(blocks)} run blocks, {failed} failure(s)")
+          sys.exit(1 if failed else 0)
+          PY
+
   validate:
     name: schemas and masking
     runs-on: ubuntu-latest
@@ -77,23 +123,64 @@ jobs:
 
             if [ "$status" -eq 0 ]; then
               echo "::error::${label}: the suite passed; this guard no longer checks anything"
-              git checkout -- "$file"
+              restore "$file"
               return 1
             fi
 
-            if ! printf '%s' "$out" | grep -qF "$expected"; then
-              echo "::error::${label}: the suite failed, but not for the expected reason."
-              echo "::error::expected to find: ${expected}"
-              printf '%s\n' "$out" | tail -20
-              git checkout -- "$file"
-              return 1
-            fi
+            # Match only FAIL lines. Searching the whole output let an expected
+            # string match a passing line - "example capabilities.json" appears in
+            # `ok example capabilities.json (...)` - so the case reported the right
+            # reason while proving only that something failed. That is the same
+            # false green this job exists to prevent, reintroduced through a
+            # too-general match.
+            #
+            # The FAIL lines are captured, then matched with shell pattern
+            # matching rather than a pipe into grep -q. Under pipefail, grep -q
+            # exits on its first match, its upstream takes SIGPIPE, and the
+            # pipeline reports failure even though the string was found. It only
+            # shows up once the suite prints enough lines for the pipe to still be
+            # filling: measured fine at ~370 lines and broken at 5000, so it would
+            # have started failing as the suite grew. `case` runs in the shell
+            # itself and has no pipe to break.
+            local failures
+            failures=$(printf '%s\n' "$out" | grep '^FAIL' || true)
+
+            case "$failures" in
+              *"$expected"*) ;;
+              *)
+                echo "::error::${label}: the suite failed, but not for the expected reason."
+                echo "::error::expected to find: ${expected}"
+                printf '%s\n' "$out" | tail -20
+                restore "$file"
+                return 1
+                ;;
+            esac
 
             echo "ok  ${label}"
-            git checkout -- "$file"
+            cases_run=$((cases_run + 1))
+            restore "$file"
+          }
+
+          # git checkout fails silently on a path git does not track. A mutation
+          # that is never undone poisons every later case AND the control, which
+          # is how this script first went wrong locally. Restoration is verified.
+          restore() {
+            local f="$1"
+            if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
+              echo "::error::could not restore ${f} after mutating it; later cases are unreliable"
+              exit 1
+            fi
           }
 
           failed=0
+          cases_run=0
+
+          # The number of cases this step must run. bash -n proved necessary but
+          # not sufficient: a merge that swallowed a `node -e "` line once left the
+          # script syntactically valid while one case vanished into a quoted
+          # string, and the step reported the remaining ones as if nothing were
+          # missing. A case that silently disappears now fails the job.
+          EXPECTED_CASES=8
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -136,6 +223,47 @@ jobs:
             "declares the status the rules produce" \
             "schemas/v1/examples/partial.json" || failed=1
 
+          node -e "
+            const fs=require('fs'), p='schemas/v1/detector-registry.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.detectors['pdf.invented_for_ci']={mediaTypes:['application/pdf'],version:'1.0.0',emits:['annotation'],certainty:'deterministic'};
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "detector added without regenerating capabilities" \
+            "matches the one generated from the registry" \
+            "schemas/v1/detector-registry.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/capabilities.json';
+            const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            c.formats[0].testedLimits.maxTestedSizeBytes=104857600;
+            fs.writeFileSync(p, JSON.stringify(c,null,2));
+          "
+          expect_failure "an untested limit smuggling in a number" \
+            "application/pdf declares its untested limits explicitly" \
+            "schemas/v1/examples/capabilities.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/capabilities.json';
+            const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            const d=c.formats[0].detectors[0];
+            d.status='implemented'; delete d.waitingOn;
+            fs.writeFileSync(p, JSON.stringify(c,null,2));
+          "
+          expect_failure "a detector claiming to exist without an adapter" \
+            "application/pdf detector pdf.metadata declares its implementation state" \
+            "schemas/v1/examples/capabilities.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/verification-unable.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.results[0].readPaths[0].reader='verify.does_not_exist';
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "a verification example naming an unregistered reader" \
+            "names only registered readers" \
+            "schemas/v1/examples/verification-unable.json" || failed=1
+
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
           # above.
@@ -144,6 +272,13 @@ jobs:
             failed=1
           else
             echo "ok  control: unmutated tree is green"
+          fi
+
+          if [ "$cases_run" -ne "$EXPECTED_CASES" ]; then
+            echo "::error::ran ${cases_run} negative cases, expected ${EXPECTED_CASES} - one was skipped or swallowed"
+            failed=1
+          else
+            echo "ok  all ${cases_run} negative cases ran"
           fi
 
           exit "$failed"

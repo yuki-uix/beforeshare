@@ -104,7 +104,7 @@ of the three interfaces to decide which half to believe.
 
 Removing metadata from an unsigned PDF cannot invalidate a signature. A static per-action warning
 list would show that warning anyway, and a warning that is usually wrong is a warning users learn to
-click past. The static superset per action belongs in the capability declaration (issue #23); this
+click past. The static superset per action lives in the capability declaration (see [capabilities.md](capabilities.md)); this
 field states what applies to *this* file.
 
 An empty `sideEffects` array is therefore a positive claim that none of the six classes in §9.2
@@ -174,15 +174,15 @@ throughout; the validator pins this with negative cases. The consequence is that
 value is a compatibility event**, not a free extension — see the process above. How MINOR bumps are
 negotiated with pinned consumers over the long run is owned by issue #25.
 
-`status` semantics and the exit-code mapping are now defined in
-[status-and-exit-codes.md](status-and-exit-codes.md).
+`status` semantics and the exit-code mapping are defined in
+[status-and-exit-codes.md](status-and-exit-codes.md); verification in
+[verification.md](verification.md); the capability declaration in
+[capabilities.md](capabilities.md).
 
 ## What this PR deliberately does not decide
 
 | Question | Owner |
 |---|---|
-| The verification result schema | #22 |
-| The capability declaration, and the static per-action side-effect superset | #23 |
 | Version granularity and the long-run compatibility policy | #25 |
 | Which detectors actually emit which category | E3 / E4 / E5 |
 | Cross-interface equivalence tests | #26 |
