@@ -104,6 +104,19 @@ if (isMain) {
   try { createGate({ fs: stubFs(), authorisedRoots: [ROOT, '/'] }); } catch { rootSlashAmong = true; }
   check('the filesystem root cannot hide among other roots', rootSlashAmong);
 
+  // A relative root constructs a gate that refuses everything, and the refusal
+  // names the path rather than the misconfigured root.
+  let relRoot = false;
+  try { createGate({ fs: stubFs(), authorisedRoots: ['Documents'] }); } catch { relRoot = true; }
+  check('a relative authorised root is refused at construction', relRoot);
+
+  check('an authorised root is matched after normalisation',
+    createGate({ fs: stubFs(), authorisedRoots: ['/Users/u/caf\u00e9'] })
+      .forRead('/Users/u/cafe\u0301/a.pdf').path === '/Users/u/cafe\u0301/a.pdf');
+  check('an authorised root is matched case-insensitively',
+    createGate({ fs: stubFs(), authorisedRoots: [ROOT] }).forRead('/USERS/U/DOCUMENTS/a.pdf').path
+      === '/USERS/U/DOCUMENTS/a.pdf');
+
   check('a root spelled with a trailing slash behaves the same',
     createGate({ fs: stubFs(), authorisedRoots: [`${ROOT}/`] }).forRead(`${ROOT}/a.pdf`).path === `${ROOT}/a.pdf`);
   check('doubled separators collapse',

@@ -95,6 +95,13 @@ export function createGate({ fs, authorisedRoots }) {
     // with no roots would authorise everything, so it is not constructible.
     throw new Error('a gate requires at least one authorised root');
   }
+  // A relative root is a configuration error that would otherwise fail silently:
+  // the gate constructs, and then every path is refused as outside it. The error
+  // would point at the path rather than at the root that is actually wrong.
+  const relative = authorisedRoots.filter((r) => typeof r !== 'string' || !r.startsWith('/'));
+  if (relative.length > 0) {
+    throw new Error(`authorised roots must be absolute: ${relative.join(', ')}`);
+  }
   const normalisedRoots = authorisedRoots.map((r) => normalizeSegments(r).path);
   // Nor by naming the filesystem root. An empty list and ['/'] authorise exactly
   // the same thing; refusing only the first would leave the rule satisfiable by

@@ -59,6 +59,15 @@ normalisation-different, and reached through `..` or a symlink.
 Every stage is `before_*`, and the validator enforces that: a reason that could only be detected
 after opening the file would be describing a check that runs too late to satisfy §13.4.
 
+A root is matched the same way any other path is — after normalisation and case folding — so an NFC
+root authorises an NFD path naming the same directory, and a differently-cased spelling of the root
+is the same root.
+
+A relative root is refused at construction. Accepting one produces a gate that builds and then
+refuses everything, with each refusal naming the path rather than the root that is actually
+misconfigured — a failure that reads as "this file is not allowed" when it means "the configuration
+is wrong".
+
 A gate with no authorised roots is not constructible, and neither is one rooted at `/`. Those two
 authorise exactly the same thing, so refusing only the empty list would have left §13.4 satisfiable
 by spelling — which it was, until a review found it.
