@@ -81,13 +81,34 @@ jobs:
               return 1
             fi
 
-            if ! printf '%s' "$out" | grep -qF "$expected"; then
-              echo "::error::${label}: the suite failed, but not for the expected reason."
-              echo "::error::expected to find: ${expected}"
-              printf '%s\n' "$out" | tail -20
-              restore "$file"
-              return 1
-            fi
+            # Match only FAIL lines. Searching the whole output let an expected
+            # string match a passing line - "example capabilities.json" appears in
+            # `ok example capabilities.json (...)` - so the case reported the right
+            # reason while proving only that something failed. That is the same
+            # false green this job exists to prevent, reintroduced through a
+            # too-general match.
+            #
+            # The FAIL lines are captured, then matched with shell pattern
+            # matching rather than a pipe into grep -q. Under pipefail, grep -q
+            # exits on its first match, its upstream takes SIGPIPE, and the
+            # pipeline reports failure even though the string was found. It only
+            # shows up once the suite prints enough lines for the pipe to still be
+            # filling: measured fine at ~370 lines and broken at 5000, so it would
+            # have started failing as the suite grew. `case` runs in the shell
+            # itself and has no pipe to break.
+            local failures
+            failures=$(printf '%s\n' "$out" | grep '^FAIL' || true)
+
+            case "$failures" in
+              *"$expected"*) ;;
+              *)
+                echo "::error::${label}: the suite failed, but not for the expected reason."
+                echo "::error::expected to find: ${expected}"
+                printf '%s\n' "$out" | tail -20
+                restore "$file"
+                return 1
+                ;;
+            esac
 
             echo "ok  ${label}"
             restore "$file"
@@ -164,19 +185,19 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(c,null,2));
           "
           expect_failure "an untested limit smuggling in a number" \
-            "example capabilities.json" \
+            "application/pdf declares its untested limits explicitly" \
             "schemas/v1/examples/capabilities.json" || failed=1
 
           node -e "
-            const fs=require('fs'), p='schemas/v1/detector-registry.json';
-            const r=JSON.parse(fs.readFileSync(p,'utf8'));
-            r.detectors['pdf.metadata'].status='implemented';
-            delete r.detectors['pdf.metadata'].waitingOn;
-            fs.writeFileSync(p, JSON.stringify(r,null,2));
+            const fs=require('fs'), p='schemas/v1/examples/capabilities.json';
+            const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            const d=c.formats[0].detectors[0];
+            d.status='implemented'; delete d.waitingOn;
+            fs.writeFileSync(p, JSON.stringify(c,null,2));
           "
           expect_failure "a detector claiming to exist without an adapter" \
-            "example capabilities.json" \
-            "schemas/v1/detector-registry.json" || failed=1
+            "application/pdf detector pdf.metadata declares its implementation state" \
+            "schemas/v1/examples/capabilities.json" || failed=1
 
           node -e "
             const fs=require('fs'), p='schemas/v1/examples/verification-unable.json';

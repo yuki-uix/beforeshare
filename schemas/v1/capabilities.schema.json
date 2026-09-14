@@ -343,6 +343,23 @@
             "if": {
               "properties": {
                 "status": {
+                  "const": "implemented"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "waitingOn": false
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
                   "const": "not_implemented"
                 }
               },

@@ -197,6 +197,12 @@ const verifyNegatives = [
 
   ['a file reference without a hash is rejected (§14.1 stage binding)',
     vClone((r) => { delete r.sanitized.sha256; })],
+
+  ['a measurement that ran cannot report a null value',
+    vClone((r) => { r.preservation.pageCount.measured = null; })],
+
+  ['a preservation key cannot borrow another key\'s metric',
+    vClone((r) => { r.preservation.pageCount.metric = 'readability'; })],
 ];
 
 for (const [name, doc] of verifyNegatives) {
@@ -257,6 +263,9 @@ const capNegatives = [
 
   ['a limitation cannot name a media type outside the supported set',
     cClone((c) => { c.limitations[0].mediaTypes = ['image/heic']; })],
+
+  ['an implemented action cannot still be waiting on an issue',
+    cClone((c) => { c.actions[0] = { ...c.actions[0], status: 'implemented', waitingOn: '#7' }; })],
 
   ['an action without confirmationRequired is rejected',
     cClone((c) => { delete c.actions[0].confirmationRequired; })],
@@ -767,5 +776,5 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
     unregistered.map((e) => `${e.file}:${e.name}`).join(', '));
 }
 
-console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
+console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${Object.keys(manifest).length} examples (${examples.length} inspection), ${negatives.length}+${verifyNegatives.length}+${capNegatives.length} negative cases (inspection/verification/capability), ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
