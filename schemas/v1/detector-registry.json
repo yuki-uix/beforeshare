@@ -1,0 +1,166 @@
+{
+  "$comment": "The single source of truth for which detectors exist. Capability declarations are GENERATED from this file (tools/capabilities.mjs), never hand-written, and tools/validate-schemas.mjs rejects any detector id used in a result that is absent here. §14.1 requires each format adapter to declare exact capabilities; a hand-maintained capability list would drift from the detectors actually registered, and the drift would look like a correct declaration.",
+  "schemaVersion": "1.0",
+  "detectors": {
+    "pdf.metadata": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "document_author",
+        "document_creator",
+        "document_producer",
+        "document_title",
+        "document_subject",
+        "document_keywords",
+        "document_timestamp"
+      ],
+      "certainty": "deterministic"
+    },
+    "pdf.annotations": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "annotation"
+      ],
+      "certainty": "deterministic"
+    },
+    "pdf.form_fields": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "form_field_name",
+        "form_field_value"
+      ],
+      "certainty": "deterministic"
+    },
+    "pdf.embedded_files": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "embedded_file"
+      ],
+      "certainty": "deterministic"
+    },
+    "pdf.actions": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "document_javascript",
+        "launch_action",
+        "external_reference",
+        "local_file_reference"
+      ],
+      "certainty": "deterministic"
+    },
+    "pdf.text_layer": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "hidden_text",
+        "text_under_redaction"
+      ],
+      "certainty": "deterministic"
+    },
+    "pdf.structure": {
+      "mediaTypes": [
+        "application/pdf"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "encryption_state",
+        "permission_state",
+        "digital_signature",
+        "incremental_update"
+      ],
+      "certainty": "deterministic"
+    },
+    "image.exif": {
+      "mediaTypes": [
+        "image/jpeg",
+        "image/png"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "image_gps_coordinates",
+        "image_device_make",
+        "image_device_model",
+        "image_software",
+        "image_author",
+        "image_capture_timestamp",
+        "image_modification_timestamp",
+        "image_embedded_thumbnail"
+      ],
+      "certainty": "deterministic"
+    },
+    "image.xmp": {
+      "mediaTypes": [
+        "image/jpeg",
+        "image/png"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "image_author",
+        "image_software",
+        "image_metadata_comment"
+      ],
+      "certainty": "deterministic"
+    },
+    "image.iptc": {
+      "mediaTypes": [
+        "image/jpeg"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "image_author",
+        "image_metadata_comment"
+      ],
+      "certainty": "deterministic"
+    },
+    "image.png_text": {
+      "mediaTypes": [
+        "image/png"
+      ],
+      "version": "1.0.0",
+      "emits": [
+        "image_software",
+        "image_author",
+        "image_metadata_comment"
+      ],
+      "certainty": "deterministic"
+    },
+    "ocr.visible_text": {
+      "mediaTypes": [
+        "application/pdf",
+        "image/jpeg",
+        "image/png"
+      ],
+      "version": "0.4.1",
+      "emits": [
+        "pii_email_address",
+        "pii_phone_number",
+        "pii_postal_address",
+        "pii_geographic_coordinates",
+        "pii_government_or_account_id",
+        "pii_person_name",
+        "pii_username_or_path",
+        "pii_credential_like",
+        "pii_user_defined_term"
+      ],
+      "certainty": "probabilistic"
+    }
+  },
+  "verifiers": {},
+  "$verifiersComment": "Independent readers available to the verification stage (§10.1). Deliberately empty: none is implemented. A capability entry claiming `independent_reader_available` must name readers registered here, so the claim cannot be made by editing a status string — it requires a verifier to exist. When one lands it is added here with the surfaces it reads and the writer-side components it shares no code with."
+}

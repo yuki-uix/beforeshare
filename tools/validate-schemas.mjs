@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { computeStatus, reducesCoverage } from './status.mjs';
+import { buildCapabilities, REGISTRY, ACTION_FACTS } from './capabilities.mjs';
+import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const schemaDir = join(root, 'schemas', 'v1');
@@ -20,7 +22,11 @@ const exampleDir = join(schemaDir, 'examples');
 
 const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
 
-const ajv = new Ajv2020({ strict: true, allErrors: true });
+// allowUnionTypes is the one strict-mode relaxation: a preservation measurement
+// is legitimately a number for a ratio and a string for an orientation, and
+// collapsing both into `string` would lose the ability to compare against a
+// numeric tolerance. Everything else stays strict.
+const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
 addFormats(ajv);
 
 for (const file of readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json'))) {
@@ -28,6 +34,7 @@ for (const file of readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json
 }
 
 const validate = ajv.getSchema('inspection-result.schema.json');
+const manifest = read(join(exampleDir, 'manifest.json')).examples;
 
 let failures = 0;
 const fail = (msg, errors) => {
@@ -42,14 +49,26 @@ const check = (name, cond, detail) => {
 };
 
 // --- positive: every committed example must validate -------------------------
-const examples = readdirSync(exampleDir).filter((f) => f.endsWith('.json')).sort();
-if (examples.length === 0) fail('no examples found - the example set must not be empty');
+const onDisk = readdirSync(exampleDir).filter((f) => f.endsWith('.json') && f !== 'manifest.json').sort();
+if (onDisk.length === 0) fail('no examples found - the example set must not be empty');
 
-for (const file of examples) {
-  const ok = validate(read(join(exampleDir, file)));
-  if (ok) console.log(`ok    example ${file}`);
-  else fail(`example ${file}`, validate.errors);
+const unregistered = onDisk.filter((f) => !manifest[f]);
+const missingFiles = Object.keys(manifest).filter((f) => !onDisk.includes(f));
+check('every example file is registered in the manifest', unregistered.length === 0, unregistered.join(', '));
+check('every manifest entry has a file', missingFiles.length === 0, missingFiles.join(', '));
+
+for (const file of onDisk) {
+  const schemaName = manifest[file];
+  if (!schemaName) continue;
+  const v = ajv.getSchema(schemaName);
+  if (!v) { fail(`example ${file}: no compiled schema named ${schemaName}`); continue; }
+  const ok = v(read(join(exampleDir, file)));
+  if (ok) console.log(`ok    example ${file} (${schemaName})`);
+  else fail(`example ${file}`, v.errors);
 }
+
+/** Examples that are inspection results — the checks below only apply to those. */
+const examples = onDisk.filter((f) => manifest[f] === 'inspection-result.schema.json');
 
 // --- negative: each case pins one rule that must stay enforced ----------------
 const base = read(join(exampleDir, 'review-required.json'));
@@ -134,6 +153,106 @@ for (const [name, doc] of negatives) {
   if (validate(doc)) fail(`negative case was ACCEPTED: ${name}`);
   else console.log(`ok    rejected: ${name}`);
 }
+
+// --- negative cases for the verification contract ----------------------------
+const verifyValidate = ajv.getSchema('verification-result.schema.json');
+const vBase = read(join(exampleDir, 'verification-verified.json'));
+const vClone = (mutate) => { const c = structuredClone(vBase); mutate(c); return c; };
+
+const verifyNegatives = [
+  ['a successful outcome without an independent reader is rejected (§10.1)',
+    vClone((r) => { r.results[0].readPaths = [{ reader: 'pdf.metadata', version: '1.0.0', role: 'shares_writer_implementation', surface: 'metadata_block' }]; })],
+
+  ['a successful outcome cannot carry an unverifiableReason',
+    vClone((r) => { r.results[0].unverifiableReason = 'reader_error'; })],
+
+  ['a successful outcome must name the surfaces it checked',
+    vClone((r) => { delete r.results[0].surfacesChecked; })],
+
+  ['unable_to_verify without a reason is rejected',
+    vClone((r) => { r.results[0].outcome = 'unable_to_verify'; delete r.results[0].surfacesChecked; })],
+
+  ['an unknown verification outcome is rejected',
+    vClone((r) => { r.results[0].outcome = 'probably_gone'; })],
+
+  ['a measurement that ran must state its tolerance (§10.3)',
+    vClone((r) => { delete r.preservation.renderComparison.tolerance; })],
+
+  ['a measurement that did not run must say why',
+    vClone((r) => { r.preservation.pageCount = { checked: false, outcome: 'not_checked' }; })],
+
+  ['a not_checked measurement cannot claim an outcome',
+    vClone((r) => { r.preservation.pageCount = { checked: false, outcome: 'preserved', notCheckedReason: 'x' }; })],
+
+  ['a preservation key cannot be omitted',
+    vClone((r) => { delete r.preservation.outputReadable; })],
+
+  ['verification without any requested action is rejected',
+    vClone((r) => { r.requested = []; })],
+
+  ['a file reference without a hash is rejected (§14.1 stage binding)',
+    vClone((r) => { delete r.sanitized.sha256; })],
+];
+
+for (const [name, doc] of verifyNegatives) {
+  if (verifyValidate(doc)) fail(`negative case was ACCEPTED: ${name}`);
+  else console.log(`ok    rejected: ${name}`);
+}
+
+// --- negative cases for the capability contract ------------------------------
+const capValidate = ajv.getSchema('capabilities.schema.json');
+const cBase = read(join(exampleDir, 'capabilities.json'));
+const cClone = (mutate) => { const c = structuredClone(cBase); mutate(c); return c; };
+
+const capNegatives = [
+  ['not_established limits cannot carry a size (§13.1)',
+    cClone((c) => { c.formats[0].testedLimits = { status: 'not_established', reason: 'x', maxTestedSizeBytes: 104857600 }; })],
+
+  ['not_established limits must give a reason',
+    cClone((c) => { c.formats[0].testedLimits = { status: 'not_established' }; })],
+
+  ['measured limits must name a reference machine',
+    cClone((c) => { c.formats[0].testedLimits = { status: 'measured', maxTestedSizeBytes: 1 }; })],
+
+  ['measured limits cannot also carry a not-established reason',
+    cClone((c) => { c.formats[0].testedLimits = { status: 'measured', maxTestedSizeBytes: 1, referenceMachine: 'm', measuredAt: '2026-01-01T00:00:00Z', reason: 'x' }; })],
+
+  ['a format with no detectors is not expressible (§14.1)',
+    cClone((c) => { c.formats[0].detectors = []; })],
+
+  ['a generic supported flag is not expressible (§14.1)',
+    cClone((c) => { c.formats[0].supported = true; })],
+
+  ['a detector that emits nothing is rejected',
+    cClone((c) => { c.formats[0].detectors[0].emits = []; })],
+
+  ['an action without its verifiability declared is rejected',
+    cClone((c) => { delete c.actions[0].verifiable; })],
+
+  ['an unimplemented verifier cannot claim the surfaces it covers',
+    cClone((c) => { c.actions[0].verifiable = { status: 'no_verifier_implemented', plannedSurfaces: ['raw_objects'], surfaces: ['raw_objects'] }; })],
+
+  ['an available verifier must name its surfaces',
+    cClone((c) => { c.actions[0].verifiable = { status: 'independent_reader_available' }; })],
+
+  ['an available verifier cannot fall back to plannedSurfaces',
+    cClone((c) => { c.actions[0].verifiable = { status: 'independent_reader_available', plannedSurfaces: ['raw_objects'] }; })],
+
+  ['an unknown verifiability status is rejected',
+    cClone((c) => { c.actions[0].verifiable = { status: 'probably_verifiable', surfaces: ['raw_objects'] }; })],
+
+  ['an action without confirmationRequired is rejected',
+    cClone((c) => { delete c.actions[0].confirmationRequired; })],
+
+  ['an unknown media type is rejected',
+    cClone((c) => { c.formats[0].mediaType = 'image/heic'; })],
+];
+
+for (const [name, doc] of capNegatives) {
+  if (capValidate(doc)) fail(`negative case was ACCEPTED: ${name}`);
+  else console.log(`ok    rejected: ${name}`);
+}
+
 
 // --- category defaults must stay in lockstep with the enum -------------------
 // The enum is the source of truth for which categories exist. This check is what
@@ -256,5 +375,139 @@ check('the blocking rule references declared enum values',
   && enums.$defs.certainty.enum.includes(statusInputs.blockingRule.certainty),
   JSON.stringify(statusInputs.blockingRule));
 
-console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
+// --- the capability declaration is generated, never hand-maintained ----------
+// This is the check that gives §14.1's "declare exact capabilities" any force.
+// Adding a detector to the registry changes the generated declaration; if the
+// committed example is not regenerated, the build fails rather than publishing a
+// capability list that no longer describes the build.
+const committedCaps = read(join(exampleDir, 'capabilities.json'));
+const generatedCaps = buildCapabilities({ core: committedCaps.versions.core, app: committedCaps.versions.app });
+check('the committed capability declaration matches the one generated from the registry',
+  JSON.stringify(generatedCaps) === JSON.stringify(committedCaps),
+  'run: node -e "import(\'./tools/capabilities.mjs\').then(async m => (await import(\'node:fs\')).writeFileSync(\'schemas/v1/examples/capabilities.json\', JSON.stringify(m.buildCapabilities({app:\'0.1.0\'}),null,2)+\'\\n\'))"');
+
+// --- no detector id may appear anywhere without being registered -------------
+// Detector ids are written by hand into coverage arrays, findings and version
+// lists. An unregistered id there is a typo that silently claims a check ran.
+const registered = new Set(Object.keys(REGISTRY.detectors));
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const used = new Set([
+    ...doc.coverage.completed,
+    ...doc.coverage.skipped.map((s) => s.detector),
+    ...doc.coverage.failed.map((f) => f.detector),
+    ...(doc.findings ?? []).map((f) => f.detector.id),
+    ...(doc.versions.detectors ?? []).map((d) => d.id),
+    ...(doc.limitations ?? []).flatMap((l) => l.affectedDetectors),
+  ]);
+  const unknown = [...used].filter((id) => !registered.has(id));
+  check(`${file} uses only registered detector ids`, unknown.length === 0, unknown.join(', '));
+}
+
+// --- every registered detector emits only declared categories ----------------
+const allCategories = enums.$defs.category.enum;
+for (const [id, d] of Object.entries(REGISTRY.detectors)) {
+  const bad = d.emits.filter((c) => !allCategories.includes(c));
+  check(`registry detector ${id} emits only declared categories`, bad.length === 0, bad.join(', '));
+  check(`registry detector ${id} declares a known certainty`,
+    enums.$defs.certainty.enum.includes(d.certainty));
+}
+
+// --- every category is emitted by some detector ------------------------------
+// A category nothing can produce is a taxonomy entry with no path to the user.
+const emitted = new Set(Object.values(REGISTRY.detectors).flatMap((d) => d.emits));
+const orphanCategories = allCategories.filter((c) => !emitted.has(c));
+check('every category has at least one detector that emits it', orphanCategories.length === 0,
+  orphanCategories.join(', '));
+
+// --- every action has per-action facts, and every fact has an action ---------
+const actionEnum = enums.$defs.remediationAction.enum;
+const factActions = Object.keys(ACTION_FACTS);
+check('every remediation action has capability facts',
+  actionEnum.every((a) => factActions.includes(a)),
+  actionEnum.filter((a) => !factActions.includes(a)).join(', '));
+check('no capability facts without a declared action',
+  factActions.every((a) => actionEnum.includes(a)),
+  factActions.filter((a) => !actionEnum.includes(a)).join(', '));
+
+// --- verifiability is a state, not an optimistic boolean ---------------------
+// An earlier draft declared every action independently verifiable while no
+// verifier existed, which made the assertion vacuously true. The state now has
+// to match reality: a build claiming a reader must name the surfaces it reads,
+// and one without a reader may only describe what it would read.
+for (const entry of committedCaps.actions) {
+  const v = entry.verifiable;
+  if (v.status === 'independent_reader_available') {
+    check(`action ${entry.action} names the surfaces its verifier reads`,
+      Array.isArray(v.surfaces) && v.surfaces.length > 0 && v.plannedSurfaces === undefined,
+      JSON.stringify(v));
+    // The claim has to point at something. Without this the status is a string
+    // anyone can flip, which is how the first version of this guard passed while
+    // no verifier existed.
+    const registeredVerifiers = Object.keys(REGISTRY.verifiers ?? {});
+    const missing = (v.readers ?? []).filter((r) => !registeredVerifiers.includes(r));
+    check(`action ${entry.action} names only registered verifiers`, missing.length === 0,
+      `not in detector-registry.json verifiers: ${missing.join(', ')}`);
+  } else {
+    check(`action ${entry.action} declares its missing verifier explicitly`,
+      v.status === 'no_verifier_implemented'
+      && Array.isArray(v.plannedSurfaces) && v.plannedSurfaces.length > 0
+      && v.surfaces === undefined,
+      JSON.stringify(v));
+  }
+}
+
+// --- the verification success set is defined in code, not in prose -----------
+// §10.2 names two successful outcomes and forbids collapsing unable_to_verify
+// into success. Without an executable definition there is nothing to check that
+// claim against.
+check('exactly two outcomes are successful', SUCCESSFUL_OUTCOMES.length === 2);
+check('unable_to_verify is not successful', isSuccessfulOutcome('unable_to_verify') === false);
+check('still_present is not successful', isSuccessfulOutcome('still_present') === false);
+check('failed is not successful', isSuccessfulOutcome('failed') === false);
+check('the success set is a subset of the declared outcomes',
+  SUCCESSFUL_OUTCOMES.every((o) => VERIFICATION_OUTCOMES.includes(o)));
+check('the outcome list matches the schema enum',
+  JSON.stringify(VERIFICATION_OUTCOMES)
+    === JSON.stringify(read(join(schemaDir, 'verification-result.schema.json')).$defs.actionResult.properties.outcome.enum));
+
+let outcomeThrew = false;
+try { isSuccessfulOutcome('probably_gone'); } catch { outcomeThrew = true; }
+check('an unknown outcome throws instead of defaulting to failure', outcomeThrew);
+
+for (const [file, expected] of [['verification-verified.json', true], ['verification-unable.json', false]]) {
+  const doc = read(join(exampleDir, file));
+  const s = summariseVerification(doc);
+  check(`${file} summarises as ${expected ? 'successful' : 'not successful'}`, s.successful === expected, s.reason);
+}
+
+// A run that verified one action and could not verify another is not a success.
+const mixed = structuredClone(read(join(exampleDir, 'verification-verified.json')));
+mixed.results[1].outcome = 'unable_to_verify';
+mixed.results[1].unverifiableReason = 'reader_error';
+delete mixed.results[1].surfacesChecked;
+check('a partially verified run is not summarised as successful',
+  summariseVerification(mixed).successful === false);
+
+// Content that changed beyond tolerance fails the run whatever the removals did.
+const damaged = structuredClone(read(join(exampleDir, 'verification-verified.json')));
+damaged.preservation.pageCount.outcome = 'changed_beyond_tolerance';
+check('content changed beyond tolerance fails the run',
+  summariseVerification(damaged).successful === false);
+
+// --- untested limits must say so, and must not carry numbers -----------------
+for (const f of committedCaps.formats) {
+  const t = f.testedLimits;
+  if (t.status === 'not_established') {
+    check(`${f.mediaType} declares its untested limits explicitly`,
+      typeof t.reason === 'string' && t.reason.length > 0
+      && t.maxTestedSizeBytes === undefined && t.maxTestedPageCount === undefined,
+      JSON.stringify(t));
+  } else {
+    check(`${f.mediaType} measured limits name a reference machine`,
+      typeof t.referenceMachine === 'string' && typeof t.maxTestedSizeBytes === 'number');
+  }
+}
+
+console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

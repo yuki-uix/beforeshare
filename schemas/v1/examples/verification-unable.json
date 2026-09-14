@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "01JR7M6W3XH5ZC7F9Y4DG0KMNP",
+  "original": {
+    "path": "/Users/example/Documents/contract.pdf",
+    "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+    "sizeBytes": 8388608
+  },
+  "sanitized": {
+    "path": "/Users/example/Documents/contract (sanitized).pdf",
+    "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+    "sizeBytes": 8390000
+  },
+  "requested": [
+    {
+      "action": "apply_visual_redaction",
+      "findingIds": [
+        "finding-1"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "action": "apply_visual_redaction",
+      "findingIds": [
+        "finding-1"
+      ],
+      "outcome": "unable_to_verify",
+      "unverifiableReason": "output_could_not_be_reopened",
+      "readPaths": [
+        {
+          "reader": "verify.object_scanner",
+          "version": "1.0.0",
+          "role": "independent",
+          "surface": "raw_objects"
+        }
+      ],
+      "surfacesChecked": [
+        "raw_objects"
+      ],
+      "message": "The sanitized copy could not be reopened by the independent parser, so the redaction could not be confirmed. Treat this file as unverified."
+    }
+  ],
+  "preservation": {
+    "pageCount": {
+      "checked": false,
+      "outcome": "not_checked",
+      "notCheckedReason": "The output could not be reopened."
+    },
+    "pageDimensions": {
+      "checked": false,
+      "outcome": "not_checked",
+      "notCheckedReason": "The output could not be reopened."
+    },
+    "renderComparison": {
+      "checked": false,
+      "outcome": "not_checked",
+      "notCheckedReason": "The output could not be rendered."
+    },
+    "textOutsideApprovedRegions": {
+      "checked": false,
+      "outcome": "not_checked",
+      "notCheckedReason": "The output could not be reopened."
+    },
+    "imageDimensionsAndOrientation": {
+      "checked": false,
+      "outcome": "not_checked",
+      "notCheckedReason": "The output could not be reopened."
+    },
+    "outputReadable": {
+      "checked": true,
+      "outcome": "changed_beyond_tolerance",
+      "metric": "readability",
+      "measured": "independent parser reported a damaged cross-reference table",
+      "tolerance": null
+    }
+  },
+  "versions": {
+    "core": "0.1.0",
+    "verifiers": [
+      {
+        "id": "verify.object_scanner",
+        "version": "1.0.0"
+      }
+    ]
+  },
+  "startedAt": "2026-01-01T00:20:00Z",
+  "durationMs": 640
+}

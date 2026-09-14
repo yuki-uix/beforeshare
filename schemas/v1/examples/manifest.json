@@ -1,0 +1,11 @@
+{
+  "$comment": "Which schema each example must validate against. An example file that is not listed here fails the build, and a listed file that does not exist fails too. Without this the validator would have to guess from filenames, and an example added under a name the guess did not match would be silently unchecked.",
+  "examples": {
+    "review-required.json": "inspection-result.schema.json",
+    "no-findings.json": "inspection-result.schema.json",
+    "partial.json": "inspection-result.schema.json",
+    "verification-verified.json": "verification-result.schema.json",
+    "verification-unable.json": "verification-result.schema.json",
+    "capabilities.json": "capabilities.schema.json"
+  }
+}

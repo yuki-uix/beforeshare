@@ -77,7 +77,7 @@ jobs:
 
             if [ "$status" -eq 0 ]; then
               echo "::error::${label}: the suite passed; this guard no longer checks anything"
-              git checkout -- "$file"
+              restore "$file"
               return 1
             fi
 
@@ -85,12 +85,23 @@ jobs:
               echo "::error::${label}: the suite failed, but not for the expected reason."
               echo "::error::expected to find: ${expected}"
               printf '%s\n' "$out" | tail -20
-              git checkout -- "$file"
+              restore "$file"
               return 1
             fi
 
             echo "ok  ${label}"
-            git checkout -- "$file"
+            restore "$file"
+          }
+
+          # git checkout fails silently on a path git does not track. A mutation
+          # that is never undone poisons every later case AND the control, which
+          # is how this script first went wrong locally. Restoration is verified.
+          restore() {
+            local f="$1"
+            if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
+              echo "::error::could not restore ${f} after mutating it; later cases are unreliable"
+              exit 1
+            fi
           }
 
           failed=0
@@ -135,6 +146,26 @@ jobs:
           expect_failure "example declaring a status the rules do not produce" \
             "declares the status the rules produce" \
             "schemas/v1/examples/partial.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/detector-registry.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.detectors['pdf.invented_for_ci']={mediaTypes:['application/pdf'],version:'1.0.0',emits:['annotation'],certainty:'deterministic'};
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "detector added without regenerating capabilities" \
+            "matches the one generated from the registry" \
+            "schemas/v1/detector-registry.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/capabilities.json';
+            const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            c.formats[0].testedLimits.maxTestedSizeBytes=104857600;
+            fs.writeFileSync(p, JSON.stringify(c,null,2));
+          "
+          expect_failure "an untested limit smuggling in a number" \
+            "example capabilities.json" \
+            "schemas/v1/examples/capabilities.json" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

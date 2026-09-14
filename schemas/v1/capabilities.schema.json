@@ -1,0 +1,394 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/capabilities.schema.json",
+  "title": "BeforeShare capability declaration",
+  "description": "What this build can actually do, per format. §14.1 forbids a generic `supported` flag: each format adapter must declare exact capabilities, so there is deliberately no boolean anywhere in this schema that could stand in for one. The declaration is generated from schemas/v1/detector-registry.json rather than hand-written.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "versions",
+    "formats",
+    "actions",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "versions": {
+      "type": "object",
+      "required": [
+        "core",
+        "detectors"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detectors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/componentVersion"
+          }
+        }
+      }
+    },
+    "formats": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "mediaType",
+          "detectors",
+          "actions",
+          "testedLimits"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "mediaType": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/jpeg",
+              "image/png"
+            ]
+          },
+          "detectors": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "Exactly the detectors registered for this media type. An empty list is not expressible: a format with no detectors is not a supported format, and saying so with a flag is what §14.1 rules out.",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "version",
+                "certainty",
+                "emits"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "common.schema.json#/$defs/detectorId"
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "certainty": {
+                  "$ref": "enums.schema.json#/$defs/certainty"
+                },
+                "emits": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "enums.schema.json#/$defs/category"
+                  }
+                }
+              }
+            }
+          },
+          "actions": {
+            "type": "array",
+            "uniqueItems": true,
+            "description": "Remediation actions available for this format. An empty array is meaningful and allowed: inspection without remediation is a real state.",
+            "items": {
+              "$ref": "enums.schema.json#/$defs/remediationAction"
+            }
+          },
+          "testedLimits": {
+            "$ref": "#/$defs/testedLimits"
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Per-action facts that do not vary by file: the static superset of side effects an action may cause, and whether it needs explicit confirmation. The per-file subset lives on each finding's remediation descriptor.",
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "possibleSideEffects",
+          "confirmationRequired",
+          "verifiable"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "enums.schema.json#/$defs/remediationAction"
+          },
+          "possibleSideEffects": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "enums.schema.json#/$defs/sideEffect"
+            }
+          },
+          "confirmationRequired": {
+            "type": "boolean",
+            "description": "§9.1 marks several actions as requiring explicit confirmation. This is where exit code 8 and the MCP approval gate read that fact from."
+          },
+          "verifiable": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "additionalProperties": false,
+            "description": "Whether THIS BUILD has an independent reader for the action — not whether one is possible in principle. A single boolean carrying both claims lets a design intention be published as a fact, so the unimplemented state is explicit and may not name the surfaces a reader would cover.",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "independent_reader_available",
+                  "no_verifier_implemented"
+                ]
+              },
+              "surfaces": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "raw_objects",
+                    "extracted_text",
+                    "rendered_page",
+                    "metadata_block",
+                    "annotations",
+                    "attachments",
+                    "image_pixels"
+                  ]
+                }
+              },
+              "plannedSurfaces": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "raw_objects",
+                    "extracted_text",
+                    "rendered_page",
+                    "metadata_block",
+                    "annotations",
+                    "attachments",
+                    "image_pixels"
+                  ]
+                }
+              },
+              "readers": {
+                "type": "array",
+                "uniqueItems": true,
+                "minItems": 1,
+                "items": {
+                  "$ref": "common.schema.json#/$defs/detectorId"
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "independent_reader_available"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "surfaces",
+                    "readers"
+                  ],
+                  "properties": {
+                    "surfaces": {
+                      "type": "array",
+                      "minItems": 1
+                    },
+                    "plannedSurfaces": false,
+                    "readers": {
+                      "type": "array",
+                      "minItems": 1
+                    }
+                  }
+                }
+              },
+              {
+                "$comment": "An unimplemented verifier may describe what it would read, but must not claim surfaces it covers.",
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "no_verifier_implemented"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "plannedSurfaces"
+                  ],
+                  "properties": {
+                    "plannedSurfaces": {
+                      "type": "array",
+                      "minItems": 1
+                    },
+                    "surfaces": false,
+                    "readers": false
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Known limitations of this build, stated up front rather than discovered at runtime.",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "enums.schema.json#/$defs/limitationCode"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "mediaTypes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "testedLimits": {
+      "type": "object",
+      "description": "§13.1 requires the maximum tested size to be published. A build that has not measured it must say so: `not_established` is a first-class state, and the schema forbids it from carrying numbers. The alternative — a plausible default, or the field left out — would publish an untested limit as if it were a measurement, which is the kind of unearned safety claim §5.3 rules out.",
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "measured",
+            "not_established"
+          ]
+        },
+        "maxTestedSizeBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxTestedPageCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "referenceMachine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "measuredAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "measured"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "maxTestedSizeBytes",
+              "referenceMachine",
+              "measuredAt"
+            ],
+            "properties": {
+              "maxTestedSizeBytes": {
+                "type": "integer"
+              },
+              "referenceMachine": {
+                "type": "string"
+              },
+              "measuredAt": {
+                "type": "string"
+              },
+              "reason": false
+            }
+          }
+        },
+        {
+          "$comment": "not_established cannot carry a number. A limit nobody measured must not be readable as one that was.",
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not_established"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "maxTestedSizeBytes": false,
+              "maxTestedPageCount": false,
+              "referenceMachine": false,
+              "measuredAt": false
+            }
+          }
+        }
+      ]
+    }
+  }
+}

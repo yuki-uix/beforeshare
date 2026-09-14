@@ -1,0 +1,477 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/verification-result.schema.json",
+  "title": "BeforeShare verification result",
+  "description": "The canonical result of verifying a sanitized copy against its original. §10 treats verification as a product feature rather than a success toast, so this schema is built to make the failure modes expressible: an outcome that could not be checked has its own value, the read paths used are recorded, and content preservation is measured rather than asserted.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "runId",
+    "original",
+    "sanitized",
+    "requested",
+    "results",
+    "preservation",
+    "versions",
+    "startedAt",
+    "durationMs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "runId": {
+      "$ref": "common.schema.json#/$defs/runId"
+    },
+    "inspectionRunId": {
+      "$ref": "common.schema.json#/$defs/runId",
+      "description": "The inspection whose findings were acted on. Present when the sanitize step came from a reviewed inspection rather than an explicit action list."
+    },
+    "original": {
+      "$ref": "#/$defs/fileRef"
+    },
+    "sanitized": {
+      "$ref": "#/$defs/fileRef"
+    },
+    "requested": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The actions the caller says were applied. Verification answers this list; it does not discover what happened. An action performed but not listed here is not verified, and the CLI and MCP contracts require the caller to state it (§13.1).",
+      "items": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "$ref": "enums.schema.json#/$defs/remediationAction"
+          },
+          "findingIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "common.schema.json#/$defs/findingId"
+            }
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per requested action. Ordered to match `requested`.",
+      "items": {
+        "$ref": "#/$defs/actionResult"
+      }
+    },
+    "preservation": {
+      "$ref": "#/$defs/preservation"
+    },
+    "versions": {
+      "type": "object",
+      "required": [
+        "core",
+        "verifiers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "core": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verifiers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/componentVersion"
+          }
+        }
+      }
+    },
+    "startedAt": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "fileRef": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "Hashes bind the three stages (§14.1). A verification whose original hash no longer matches the inspection it cites is verifying a different file."
+    },
+    "readPath": {
+      "type": "object",
+      "description": "One reader consulted during verification. `role` is the point of the object: §10.1 says using the same function to write and then assert its own internal state is insufficient, so the result has to be able to show which readers were independent of the writer.",
+      "required": [
+        "reader",
+        "version",
+        "role"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reader": {
+          "$ref": "common.schema.json#/$defs/detectorId"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "independent",
+            "shares_writer_implementation"
+          ],
+          "description": "independent: this reader shares no parsing or serialisation code with the component that produced the output. shares_writer_implementation: it does, so its agreement proves nothing on its own."
+        },
+        "surface": {
+          "type": "string",
+          "enum": [
+            "raw_objects",
+            "extracted_text",
+            "rendered_page",
+            "metadata_block",
+            "annotations",
+            "attachments",
+            "image_pixels"
+          ],
+          "description": "Which of the surfaces §10.1 enumerates this reader examined."
+        }
+      }
+    },
+    "actionResult": {
+      "type": "object",
+      "required": [
+        "action",
+        "outcome",
+        "readPaths",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "enums.schema.json#/$defs/remediationAction"
+        },
+        "findingIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/findingId"
+          }
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "verified_removed",
+            "verified_transformed",
+            "still_present",
+            "unable_to_verify",
+            "failed"
+          ],
+          "description": "Only verified_removed and verified_transformed are successful (§10.2). unable_to_verify must never be presented as success."
+        },
+        "readPaths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/readPath"
+          }
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "unverifiableReason": {
+          "type": "string",
+          "enum": [
+            "no_independent_reader_for_this_action",
+            "output_could_not_be_reopened",
+            "target_location_not_addressable_after_change",
+            "reader_error",
+            "action_not_covered_by_any_verifier"
+          ],
+          "description": "Required when the outcome is unable_to_verify. 'We could not check' is information the user needs, not an internal detail."
+        },
+        "surfacesChecked": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "raw_objects",
+              "extracted_text",
+              "rendered_page",
+              "metadata_block",
+              "annotations",
+              "attachments",
+              "image_pixels"
+            ]
+          },
+          "description": "§10.1 requires confirming selected values are absent from raw objects, extracted text, annotations, attachments and the metadata the action covered. Recording which surfaces were actually examined is what keeps a partial check from reading as a complete one."
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "A successful outcome requires at least one reader that does not share the writer's implementation. This is §10.1's central demand, expressed where it cannot be forgotten.",
+          "if": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "verified_removed",
+                  "verified_transformed"
+                ]
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "required": [
+              "readPaths",
+              "surfacesChecked"
+            ],
+            "properties": {
+              "readPaths": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "const": "independent"
+                    }
+                  },
+                  "required": [
+                    "role"
+                  ]
+                }
+              },
+              "surfacesChecked": {
+                "type": "array",
+                "minItems": 1
+              },
+              "unverifiableReason": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "unable_to_verify"
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "required": [
+              "unverifiableReason"
+            ],
+            "properties": {
+              "unverifiableReason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "measurement": {
+      "type": "object",
+      "description": "A preservation check. §10.3 asks for a render comparison 'within an explained tolerance', so tolerance is a number with a named metric rather than a boolean verdict: a pass/fail flag hides what was actually measured and cannot be argued with.",
+      "required": [
+        "checked",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "type": "boolean"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "preserved",
+            "changed_within_tolerance",
+            "changed_beyond_tolerance",
+            "not_checked"
+          ]
+        },
+        "metric": {
+          "type": "string",
+          "enum": [
+            "page_count",
+            "page_dimensions_pt",
+            "pixel_difference_ratio",
+            "text_recall_ratio",
+            "image_dimensions_px",
+            "orientation",
+            "readability"
+          ]
+        },
+        "measured": {
+          "type": [
+            "number",
+            "string",
+            "null"
+          ]
+        },
+        "tolerance": {
+          "type": [
+            "number",
+            "string",
+            "null"
+          ],
+          "description": "The threshold `measured` was judged against. Null only when the metric is not numeric."
+        },
+        "notCheckedReason": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "checked": {
+                "const": false
+              }
+            },
+            "required": [
+              "checked"
+            ]
+          },
+          "then": {
+            "required": [
+              "notCheckedReason"
+            ],
+            "properties": {
+              "outcome": {
+                "const": "not_checked"
+              },
+              "notCheckedReason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "$comment": "A check that ran must say what it measured and against what. Otherwise 'preserved' is an assertion with nothing behind it.",
+          "if": {
+            "properties": {
+              "checked": {
+                "const": true
+              }
+            },
+            "required": [
+              "checked"
+            ]
+          },
+          "then": {
+            "required": [
+              "metric",
+              "measured",
+              "tolerance"
+            ],
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "preserved",
+                  "changed_within_tolerance",
+                  "changed_beyond_tolerance"
+                ]
+              },
+              "notCheckedReason": false,
+              "metric": {
+                "type": "string"
+              },
+              "measured": {
+                "type": [
+                  "number",
+                  "string",
+                  "null"
+                ]
+              },
+              "tolerance": {
+                "type": [
+                  "number",
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preservation": {
+      "type": "object",
+      "description": "The five unintended-change checks §10.3 requires. Each is present whether or not it ran; a missing key would be indistinguishable from a check that passed.",
+      "required": [
+        "pageCount",
+        "pageDimensions",
+        "renderComparison",
+        "textOutsideApprovedRegions",
+        "imageDimensionsAndOrientation",
+        "outputReadable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pageCount": {
+          "$ref": "#/$defs/measurement"
+        },
+        "pageDimensions": {
+          "$ref": "#/$defs/measurement"
+        },
+        "renderComparison": {
+          "$ref": "#/$defs/measurement"
+        },
+        "textOutsideApprovedRegions": {
+          "$ref": "#/$defs/measurement"
+        },
+        "imageDimensionsAndOrientation": {
+          "$ref": "#/$defs/measurement"
+        },
+        "outputReadable": {
+          "$ref": "#/$defs/measurement"
+        }
+      }
+    }
+  }
+}
