@@ -163,7 +163,11 @@ export function buildCapabilities({ core = '0.1.0', app, testedLimits = {} } = {
       })),
     actions: Object.entries(ACTION_FACTS)
       .filter(([, f]) => f.mediaTypes.includes(mediaType))
-      .map(([action]) => action),
+      .map(([action, f]) => ({
+        action,
+        status: f.status,
+        ...(f.status === 'implemented' ? {} : { waitingOn: f.waitingOn }),
+      })),
     testedLimits: testedLimits[mediaType] ?? UNMEASURED,
   }));
 

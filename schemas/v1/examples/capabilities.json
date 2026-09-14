@@ -167,13 +167,41 @@
         }
       ],
       "actions": [
-        "remove_pdf_metadata_field",
-        "remove_annotations",
-        "remove_embedded_files",
-        "disable_javascript_and_launch_actions",
-        "clear_form_values",
-        "flatten_to_high_assurance_copy",
-        "apply_visual_redaction"
+        {
+          "action": "remove_pdf_metadata_field",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "remove_annotations",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "remove_embedded_files",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "disable_javascript_and_launch_actions",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "clear_form_values",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "flatten_to_high_assurance_copy",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "apply_visual_redaction",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        }
       ],
       "testedLimits": {
         "status": "not_established",
@@ -243,8 +271,16 @@
         }
       ],
       "actions": [
-        "remove_image_metadata_field",
-        "apply_visual_redaction"
+        {
+          "action": "remove_image_metadata_field",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "apply_visual_redaction",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        }
       ],
       "testedLimits": {
         "status": "not_established",
@@ -315,8 +351,16 @@
         }
       ],
       "actions": [
-        "remove_image_metadata_field",
-        "apply_visual_redaction"
+        {
+          "action": "remove_image_metadata_field",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        },
+        {
+          "action": "apply_visual_redaction",
+          "status": "not_implemented",
+          "waitingOn": "#7"
+        }
       ],
       "testedLimits": {
         "status": "not_established",

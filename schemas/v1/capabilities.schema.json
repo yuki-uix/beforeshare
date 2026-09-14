@@ -188,9 +188,71 @@
           "actions": {
             "type": "array",
             "uniqueItems": true,
-            "description": "Remediation actions available for this format. An empty array is meaningful and allowed: inspection without remediation is a real state.",
+            "description": "Remediation actions that APPLY to this format, each with whether this build can perform it. Naming the action alone would read as availability: an earlier version listed seven actions for PDF while none was implemented, and a consumer had to cross-reference the top-level actions array to discover that. An empty array is meaningful and allowed - inspection without remediation is a real state.",
             "items": {
-              "$ref": "enums.schema.json#/$defs/remediationAction"
+              "type": "object",
+              "required": [
+                "action",
+                "status"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "$ref": "enums.schema.json#/$defs/remediationAction"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "implemented",
+                    "not_implemented"
+                  ]
+                },
+                "waitingOn": {
+                  "type": "string",
+                  "pattern": "^#[0-9]+$"
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "not_implemented"
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "waitingOn"
+                    ],
+                    "properties": {
+                      "waitingOn": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "status": {
+                        "const": "implemented"
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "waitingOn": false
+                    }
+                  }
+                }
+              ]
             }
           },
           "testedLimits": {

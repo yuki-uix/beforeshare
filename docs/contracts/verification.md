@@ -43,6 +43,12 @@ Every result lists its `readPaths`, and each one declares a `role`:
 This is the one place §10.1's demand becomes mechanical rather than aspirational — and it has to be
 mechanical, because the failure it guards against looks exactly like success from the inside.
 
+Three `unverifiableReason` values mean nothing was examined at all — the output could not be
+reopened, no independent reader exists for the action, or no verifier covers it. The schema forbids
+those results from naming a surface, in `surfacesChecked` or on a read path. An example here recorded
+`raw_objects` beside a message saying the file could not be opened, which is a failed attempt
+counted as coverage.
+
 `surfacesChecked` records which of the surfaces §10.1 enumerates were actually examined — raw
 objects, extracted text, rendered pages, metadata blocks, annotations, attachments, image pixels.
 Without it a check of one surface reads identically to a check of all of them.

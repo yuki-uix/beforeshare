@@ -175,6 +175,18 @@ const verifyNegatives = [
   ['a successful outcome must name the surfaces it checked',
     vClone((r) => { delete r.results[0].surfacesChecked; })],
 
+  ['a reader that could not open the output cannot claim a surface',
+    vClone((r) => {
+      r.results[0] = { ...r.results[0], outcome: 'unable_to_verify', unverifiableReason: 'output_could_not_be_reopened',
+        surfacesChecked: ['raw_objects'] };
+    })],
+
+  ['a run with no reader for the action cannot claim a read surface',
+    vClone((r) => {
+      r.results[0] = { ...r.results[0], outcome: 'unable_to_verify', unverifiableReason: 'no_independent_reader_for_this_action',
+        surfacesChecked: [], readPaths: [{ reader: 'verify.object_scanner', version: '1.0.0', role: 'independent', surface: 'raw_objects' }] };
+    })],
+
   ['unable_to_verify without a reason is rejected',
     vClone((r) => { r.results[0].outcome = 'unable_to_verify'; delete r.results[0].surfacesChecked; })],
 
@@ -267,6 +279,12 @@ const capNegatives = [
 
   ['an implemented action cannot still be waiting on an issue',
     cClone((c) => { c.actions[0] = { ...c.actions[0], status: 'implemented', waitingOn: '#7' }; })],
+
+  ['a format action must declare its status, not just its name',
+    cClone((c) => { c.formats[0].actions[0] = 'remove_pdf_metadata_field'; })],
+
+  ['an unimplemented format action must say what it waits on',
+    cClone((c) => { c.formats[0].actions[0] = { action: 'remove_pdf_metadata_field', status: 'not_implemented' }; })],
 
   ['an action without confirmationRequired is rejected',
     cClone((c) => { delete c.actions[0].confirmationRequired; })],
@@ -775,13 +793,26 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
     if (href === import.meta.url) continue;
     const mod = await import(href);
     for (const [name, value] of Object.entries(mod)) {
-      if (Array.isArray(value)) found.push({ file, name });
+      if (Array.isArray(value)) found.push({ file, name, value });
     }
   }
   check('exported arrays were found to check', found.length > 0);
+
+  // Matched by name AND value. Keying on the name alone let a second module
+  // export something called SUPPORTED_MEDIA_TYPES holding entirely different
+  // values and be treated as registered, with its contents never compared to
+  // anything - a green light for a list nobody checked.
   const unregistered = found.filter((e) => !(e.name in MIRRORS));
   check('every exported array is registered in MIRRORS', unregistered.length === 0,
     unregistered.map((e) => `${e.file}:${e.name}`).join(', '));
+
+  const impostors = found.filter((e) => {
+    const spec = MIRRORS[e.name];
+    return spec !== undefined && JSON.stringify(spec.value) !== JSON.stringify(e.value);
+  });
+  check('no exported array shares a registered name while holding different values',
+    impostors.length === 0,
+    impostors.map((e) => `${e.file}:${e.name} = ${JSON.stringify(e.value)}`).join('; '));
 }
 
 // --- coverage must account for every applicable detector ---------------------
