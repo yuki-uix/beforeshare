@@ -1,0 +1,97 @@
+/**
+ * Reference implementation of the status decision table in
+ * docs/contracts/status-and-exit-codes.md.
+ *
+ * §8.1 lists six status values and does not say how to choose between them. This
+ * is that choice, in one place, so the desktop app, the CLI and the MCP server
+ * cannot each invent their own (§14.1).
+ *
+ * The function returns the status AND the reason it was chosen. The reason is not
+ * decoration: "why does this file say partial" is a question users ask, and a
+ * status computed without a traceable cause is one nobody can argue with when it
+ * is wrong.
+ */
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const INPUTS = JSON.parse(readFileSync(join(here, '..', 'schemas', 'v1', 'status-inputs.json'), 'utf8'));
+
+export const SUPPORTED_MEDIA_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+
+/** A finding blocks only when it is both critical and deterministic. */
+export function isBlocking(finding) {
+  return finding.severity === INPUTS.blockingRule.severity
+    && finding.certainty === INPUTS.blockingRule.certainty;
+}
+
+/** Skips that mean "this detector had nothing to do here" do not reduce coverage. */
+export function reducesCoverage(skipReason) {
+  const row = INPUTS.skipReasons[skipReason];
+  if (!row) throw new Error(`unclassified skip reason: ${skipReason}`);
+  return row.reducesCoverage;
+}
+
+/**
+ * @param {object} result  A canonical inspection result, minus its own `status`.
+ * @param {object} [run]   Out-of-band facts the result cannot carry:
+ *                         { unsupportedMediaType: boolean, unusable: boolean }
+ * @returns {{status: string, reason: string}}
+ */
+export function computeStatus(result, run = {}) {
+  const coverage = result.coverage ?? { completed: [], skipped: [], failed: [] };
+  const findings = result.findings ?? [];
+
+  // 1. Nothing usable was produced. The result carries no information about the
+  //    file, so it must not be described in terms of what was or was not found.
+  if (run.unusable) {
+    return { status: 'failed', reason: 'the run could not produce a result' };
+  }
+  if (coverage.completed.length === 0 && !run.unsupportedMediaType) {
+    return {
+      status: 'failed',
+      reason: 'no detector completed, so the result describes nothing about the file',
+    };
+  }
+
+  // 2. BeforeShare does not handle this kind of file at all. Distinct from
+  //    `failed`: nothing went wrong, the input is simply out of scope.
+  if (run.unsupportedMediaType) {
+    return { status: 'unsupported', reason: 'the media type is outside the supported set' };
+  }
+
+  const gaps = [
+    ...coverage.skipped.filter((s) => reducesCoverage(s.reason)).map((s) => s.detector),
+    ...coverage.failed.map((f) => f.detector),
+  ];
+  const blocking = findings.filter(isBlocking);
+
+  // 3. A blocking finding outranks incomplete coverage. Incompleteness does not
+  //    make a critical, deterministic finding less true, and the incompleteness
+  //    itself is not lost: `coverage` and `limitations` are required fields and
+  //    the exit code still reports it (see docs/contracts/status-and-exit-codes.md).
+  if (blocking.length > 0) {
+    return {
+      status: 'blocking_findings',
+      reason: `${blocking.length} critical deterministic finding(s): ${blocking.map((f) => f.category).join(', ')}`,
+    };
+  }
+
+  // 4. Incomplete coverage outranks ordinary findings. `partial` is the only
+  //    value that says "this list is not exhaustive", and that caveat has to
+  //    survive: a user who fixes the three listed findings under a
+  //    `review_required` headline would reasonably believe they were done.
+  if (gaps.length > 0) {
+    return { status: 'partial', reason: `checks did not run: ${gaps.join(', ')}` };
+  }
+
+  // 5. Complete coverage, findings present.
+  if (findings.length > 0) {
+    return { status: 'review_required', reason: `${findings.length} finding(s) to review` };
+  }
+
+  // 6. Complete coverage, nothing found. The only state that may be presented as
+  //    clean — and only because every branch above has been ruled out.
+  return { status: 'no_findings', reason: 'all applicable checks completed with nothing to report' };
+}

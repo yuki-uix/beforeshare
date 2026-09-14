@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { computeStatus, reducesCoverage } from './status.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const schemaDir = join(root, 'schemas', 'v1');
@@ -223,6 +224,37 @@ for (const file of examples) {
       `${f.category} is ${f.severity}, default is ${row.defaultSeverity}`);
   }
 }
+
+// --- the declared status of every example must be the computed one -----------
+// This is what keeps the decision table honest. A status written by hand into an
+// example is an assertion nobody checks; run through the rules, each example
+// becomes a test case for them, and a rule change that breaks an example shows up
+// here instead of in a reviewer's memory.
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const computed = computeStatus(doc);
+  check(`${file} declares the status the rules produce`, computed.status === doc.status,
+    `declared ${doc.status}, rules give ${computed.status} (${computed.reason})`);
+}
+
+// --- every skip reason must be classified ------------------------------------
+// Same shape as the category defaults check: adding a coverageSkipReason forces a
+// decision about whether it reduces coverage, rather than letting it default to
+// "harmless" and quietly widen what counts as a clean result.
+const skipReasons = enums.$defs.coverageSkipReason.enum;
+for (const reason of skipReasons) {
+  let classified = true;
+  try { reducesCoverage(reason); } catch { classified = false; }
+  check(`skip reason ${reason} is classified in status-inputs.json`, classified);
+}
+const statusInputs = read(join(schemaDir, 'status-inputs.json'));
+const orphanReasons = Object.keys(statusInputs.skipReasons).filter((r) => !skipReasons.includes(r));
+check('no skip-reason classification without an enum value', orphanReasons.length === 0,
+  `orphan: ${orphanReasons.join(', ')}`);
+check('the blocking rule references declared enum values',
+  enums.$defs.severity.enum.includes(statusInputs.blockingRule.severity)
+  && enums.$defs.certainty.enum.includes(statusInputs.blockingRule.certainty),
+  JSON.stringify(statusInputs.blockingRule));
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

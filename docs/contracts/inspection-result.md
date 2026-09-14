@@ -69,10 +69,10 @@ findings block — but whether blocking is a severity level, a separate flag, or
 not stated.
 
 Decision: **blocking is derived, not stored.** Storing it would let two code paths disagree about
-whether the same finding blocks. The derivation rule itself belongs to the status decision table and
-is owned by issue #18. The starting position handed to that issue: a finding blocks only when it is
-`critical` **and** `deterministic` — a probabilistic finding must never block on its own, because
-§7.3 forbids presenting ambiguous categories as facts without user review.
+whether the same finding blocks. The derivation rule lives with the status decision table: a finding
+blocks only when it is `critical` **and** `deterministic` — a probabilistic finding never blocks on
+its own, because §7.3 forbids presenting ambiguous categories as facts without user review. See
+[status-and-exit-codes.md](status-and-exit-codes.md).
 
 ### `certainty` is per finding, not per category
 
@@ -134,7 +134,7 @@ as drift.
 
 [`schemas/v1/category-defaults.json`](../../schemas/v1/category-defaults.json) gives every category a
 `defaultCertainty`, a `defaultSeverity`, and a `certaintyMayVary` flag. It is not a JSON Schema — it
-is the table detectors read, and the table the status rules (#18) will read.
+is the table detectors read, and one of the tables the status rules read.
 
 The point of the file is the check around it: `npm run validate` fails when the table and the
 `category` enum disagree in either direction. **Adding a category therefore forces a decision about
@@ -174,12 +174,13 @@ throughout; the validator pins this with negative cases. The consequence is that
 value is a compatibility event**, not a free extension — see the process above. How MINOR bumps are
 negotiated with pinned consumers over the long run is owned by issue #25.
 
+`status` semantics and the exit-code mapping are now defined in
+[status-and-exit-codes.md](status-and-exit-codes.md).
+
 ## What this PR deliberately does not decide
 
 | Question | Owner |
 |---|---|
-| How `status` is computed from coverage + findings | #18 |
-| Which exit code each status maps to | #24 |
 | The verification result schema | #22 |
 | The capability declaration, and the static per-action side-effect superset | #23 |
 | Version granularity and the long-run compatibility policy | #25 |

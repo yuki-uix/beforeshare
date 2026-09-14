@@ -1,0 +1,37 @@
+{
+  "$comment": "The inputs the status decision table reads. Not a JSON Schema: it is the table tools/status.mjs consults, and the table tools/validate-schemas.mjs checks for drift against the enums. Every coverageSkipReason must be classified here, so adding a skip reason forces a decision about whether it reduces coverage.",
+  "schemaVersion": "1.0",
+
+  "blockingRule": {
+    "severity": "critical",
+    "certainty": "deterministic",
+    "$comment": "A finding blocks only when it is BOTH critical and deterministic. Probabilistic findings never block on their own: §7.3 forbids presenting ambiguous categories as facts without user review, and §17.1 requires zero clean control files to be assigned a blocking deterministic finding. A probabilistic critical finding is still shown, still severe, and still reaches the user — it just does not let the product assert, as fact, that sharing must stop."
+  },
+
+  "skipReasons": {
+    "not_applicable_to_media_type": {
+      "reducesCoverage": false,
+      "rationale": "The detector correctly did not apply. A PNG has no EXIF block; reporting that as incomplete coverage would make every clean image partial and train users to ignore the state."
+    },
+    "disabled_by_user": {
+      "reducesCoverage": true,
+      "rationale": "The user chose not to run it, but the check still did not happen. §5.3 forbids silent safety claims, so the result may not present itself as complete."
+    },
+    "blocked_by_encryption": {
+      "reducesCoverage": true,
+      "rationale": "Content exists that could not be read."
+    },
+    "input_too_large": {
+      "reducesCoverage": true,
+      "rationale": "Content exists that was not read."
+    },
+    "dependency_unavailable": {
+      "reducesCoverage": true,
+      "rationale": "The check could have run and did not."
+    },
+    "cancelled": {
+      "reducesCoverage": true,
+      "rationale": "The user stopped the run. §12.1 additionally requires that cancellation never leave something that looks successfully processed."
+    }
+  }
+}

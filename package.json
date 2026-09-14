@@ -7,7 +7,8 @@
   "scripts": {
     "validate": "node tools/validate-schemas.mjs",
     "test:masking": "node tools/test-masking.mjs",
-    "test": "npm run validate && npm run test:masking"
+    "test:status": "node tools/test-status.mjs",
+    "test": "npm run validate && npm run test:masking && npm run test:status"
   },
   "devDependencies": {
     "ajv": "^8.17.1",
