@@ -109,6 +109,24 @@ const negatives = [
 
   ['a location kind with the wrong payload is rejected',
     clone((r) => { r.findings[0].location = { kind: 'pdf_metadata', page: 3 }; })],
+
+  ['a masking policy other than structural_label cannot claim redacted:false',
+    clone((r) => { r.findings[1].evidence.redacted = false; })],
+
+  ['structural_label cannot claim redacted:true',
+    clone((r) => { r.findings[1].evidence = { displayValue: 'AES-256', redacted: true, maskPolicy: 'structural_label' }; })],
+
+  ['a supported remediation cannot also carry an unsupportedReason',
+    clone((r) => { r.findings[0].remediation.unsupportedReason = 'not_implemented'; })],
+
+  ['an unsupported remediation cannot carry sideEffects',
+    clone((r) => { r.findings[0].remediation = { supported: false, unsupportedReason: 'not_implemented', sideEffects: [] }; })],
+
+  ['an unsupported remediation cannot carry an actionGroupId',
+    clone((r) => { r.findings[0].remediation = { supported: false, unsupportedReason: 'not_implemented', actionGroupId: 'g1' }; })],
+
+  ['an unsupported remediation cannot carry alternativeActions',
+    clone((r) => { r.findings[0].remediation = { supported: false, unsupportedReason: 'not_implemented', alternativeActions: [{ action: 'remove_annotations', sideEffects: [] }] }; })],
 ];
 
 for (const [name, doc] of negatives) {
@@ -154,6 +172,42 @@ for (const file of examples) {
       check(`${file}:${f.id} may deviate from default certainty`, row.certaintyMayVary === true,
         `${f.category} defaults to ${row.defaultCertainty} and is not marked certaintyMayVary`);
     }
+  }
+}
+
+// --- committed examples must obey the ordering contract ----------------------
+// Array order is observable output and §17.5 requires it to be deterministic, so
+// it is checked rather than merely documented. An unordered example teaches the
+// wrong thing to anyone copying it.
+const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+const canonicalLocation = (loc) => JSON.stringify(loc, Object.keys(loc).sort());
+const sortKey = (f) => [SEVERITY_RANK[f.severity], f.category, canonicalLocation(f.location), f.id];
+const lte = (a, b) => {
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] < b[i]) return true;
+    if (a[i] > b[i]) return false;
+  }
+  return true;
+};
+
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const keys = (doc.findings ?? []).map(sortKey);
+  let ordered = true;
+  for (let i = 1; i < keys.length; i += 1) if (!lte(keys[i - 1], keys[i])) ordered = false;
+  check(`${file} findings follow the documented ordering`, ordered,
+    (doc.findings ?? []).map((f) => `${f.id}:${f.severity}`).join(' -> '));
+}
+
+// --- severity may be raised with a reason, never silently lowered ------------
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  for (const f of doc.findings ?? []) {
+    const row = defaults.categories[f.category];
+    if (!row) continue;
+    check(`${file}:${f.id} severity is not below the category default`,
+      SEVERITY_RANK[f.severity] <= SEVERITY_RANK[row.defaultSeverity],
+      `${f.category} is ${f.severity}, default is ${row.defaultSeverity}`);
   }
 }
 

@@ -4,7 +4,11 @@
   "title": "Finding evidence",
   "description": "There is deliberately NO property in this object capable of carrying the unmasked value. Revealing a value is an out-of-band local call keyed by (runId, findingId) and is available only to the desktop UI on explicit user action (§8.2). Because the full value cannot be represented here, it cannot leak through a serialized result into a log, a support bundle, an MCP response, or telemetry.",
   "type": "object",
-  "required": ["displayValue", "redacted", "maskPolicy"],
+  "required": [
+    "displayValue",
+    "redacted",
+    "maskPolicy"
+  ],
   "additionalProperties": false,
   "properties": {
     "displayValue": {
@@ -38,5 +42,34 @@
       "minimum": 1,
       "description": "How many times this value occurs at this location. A count is not sensitive; the values behind it are not repeated."
     }
-  }
+  },
+  "allOf": [
+    {
+      "$comment": "structural_label is the only policy that may leave a value unredacted; every other policy must set redacted:true.",
+      "if": {
+        "properties": {
+          "maskPolicy": {
+            "const": "structural_label"
+          }
+        },
+        "required": [
+          "maskPolicy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "redacted": {
+            "const": false
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "redacted": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
 }

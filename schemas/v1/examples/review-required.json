@@ -22,33 +22,6 @@
   "findings": [
     {
       "id": "finding-1",
-      "category": "document_author",
-      "group": "document_structure",
-      "severity": "medium",
-      "certainty": "deterministic",
-      "detector": {
-        "id": "pdf.metadata",
-        "version": "1.0.0"
-      },
-      "location": {
-        "kind": "pdf_metadata",
-        "field": "Author"
-      },
-      "evidence": {
-        "displayValue": "y***@example.com",
-        "redacted": true,
-        "maskPolicy": "email_local_part"
-      },
-      "message": "The PDF author field contains an email address.",
-      "remediation": {
-        "supported": true,
-        "action": "remove_pdf_metadata_field",
-        "sideEffects": [],
-        "actionGroupId": "pdf-metadata-write"
-      }
-    },
-    {
-      "id": "finding-2",
       "category": "annotation",
       "group": "document_structure",
       "severity": "high",
@@ -89,6 +62,33 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "id": "finding-2",
+      "category": "document_author",
+      "group": "document_structure",
+      "severity": "medium",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "location": {
+        "kind": "pdf_metadata",
+        "field": "Author"
+      },
+      "evidence": {
+        "displayValue": "y***@example.com",
+        "redacted": true,
+        "maskPolicy": "email_local_part"
+      },
+      "message": "The PDF author field contains an email address.",
+      "remediation": {
+        "supported": true,
+        "action": "remove_pdf_metadata_field",
+        "sideEffects": [],
+        "actionGroupId": "pdf-metadata-write"
       }
     },
     {

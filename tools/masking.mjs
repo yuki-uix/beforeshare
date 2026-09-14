@@ -43,14 +43,17 @@ function keepEdges(chars, keep) {
 export function mask(value, policy) {
   if (!POLICIES.includes(policy)) throw new Error(`unknown mask policy: ${policy}`);
 
-  if (policy === 'structural_label') {
-    return { displayValue: value, maskPolicy: policy, redacted: false, truncated: false };
-  }
-
-  // The cap runs FIRST, so neither the tail of a long value nor its exact length leaks.
+  // The cap runs FIRST, so neither the tail of a long value nor its exact length
+  // leaks. It applies to structural_label too: that policy is unredacted, not
+  // unbounded, and an oversized "structural" value is exactly the case where a
+  // detector has mislabelled content as structure.
   const all = cp(value);
   const truncated = all.length > MAX_DISPLAY_CODE_POINTS;
   const chars = truncated ? all.slice(0, MAX_DISPLAY_CODE_POINTS) : all;
+
+  if (policy === 'structural_label') {
+    return { displayValue: chars.join(''), maskPolicy: policy, redacted: false, truncated };
+  }
 
   const degrade = (p) => ({
     displayValue: fullyMasked(chars),

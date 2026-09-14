@@ -80,6 +80,15 @@ check('overlong value respects the display cap',
 check('overlong value does not leak its real length',
   !r.displayValue.includes(String(cp(long).length)));
 
+// structural_label is unredacted, not unbounded.
+const longLabel = mask('A'.repeat(65), 'structural_label');
+check('structural_label respects the display cap',
+  cp(longLabel.displayValue).length === MAX_DISPLAY_CODE_POINTS && longLabel.truncated === true,
+  JSON.stringify(longLabel));
+check('a short structural_label passes through untouched',
+  mask('AES-256', 'structural_label').displayValue === 'AES-256'
+  && mask('AES-256', 'structural_label').truncated === false);
+
 const longAscii = 'a'.repeat(200) + '@example.com';
 const r2 = mask(longAscii, 'email_local_part');
 check('overlong email is truncated and never emits the full domain tail',

@@ -9,7 +9,11 @@
   },
   "status": "no_findings",
   "coverage": {
-    "completed": ["image.png_text", "image.xmp", "ocr.visible_text"],
+    "completed": [
+      "image.png_text",
+      "image.xmp",
+      "ocr.visible_text"
+    ],
     "skipped": [
       {
         "detector": "image.exif",
@@ -24,9 +28,18 @@
   "versions": {
     "core": "0.1.0",
     "detectors": [
-      { "id": "image.png_text", "version": "1.0.0" },
-      { "id": "image.xmp", "version": "1.0.0" },
-      { "id": "ocr.visible_text", "version": "0.4.1" }
+      {
+        "id": "image.png_text",
+        "version": "1.0.0"
+      },
+      {
+        "id": "image.xmp",
+        "version": "1.0.0"
+      },
+      {
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      }
     ]
   },
   "startedAt": "2026-01-01T00:05:00Z",

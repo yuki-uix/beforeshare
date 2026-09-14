@@ -58,6 +58,10 @@ versions. Array order is observable output, so it is specified: severity descend
 then canonical location, then id. Without this, a result set could be byte-different run to run while
 every individual value stayed identical.
 
+The validator checks the committed examples against this ordering. It is not enough to write the rule
+down: the first draft of this PR documented the ordering and then shipped an example that violated
+it, which is the worst of both — a rule stated confidently and a reference file teaching the opposite.
+
 ### `severity` has four levels; "blocking" is not one of them
 
 `low` / `medium` / `high` / `critical`. §8.1 has a `blocking_findings` status, which implies some
@@ -87,6 +91,14 @@ out-of-band local call keyed by `(runId, findingId)`, available only to the desk
 alternative — an optional `fullValue` field populated only sometimes — makes every consumer
 responsible for never serialising it, and one mistake in one code path is a disclosure. Removing the
 field removes the class of mistake. Masking rules are in [masking.md](masking.md).
+
+### The two remediation variants are mutually exclusive
+
+`supported: true` requires an action and its side effects, and forbids `unsupportedReason` and
+`unsupportedDetail`. `supported: false` requires a reason, and forbids `action`, `sideEffects`,
+`alternativeActions` and `actionGroupId`. A payload carrying both halves tells a consumer that
+remediation can and cannot run at the same time; the schema now rejects it rather than leaving each
+of the three interfaces to decide which half to believe.
 
 ### `remediation.sideEffects` is computed per file, not declared per action
 

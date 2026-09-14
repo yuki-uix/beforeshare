@@ -66,6 +66,7 @@
   },
   "allOf": [
     {
+      "$comment": "A supported remediation describes an action and its cost. It must not also carry a reason for being unavailable.",
       "if": {
         "properties": {
           "supported": {
@@ -90,11 +91,14 @@
             "items": {
               "$ref": "enums.schema.json#/$defs/sideEffect"
             }
-          }
+          },
+          "unsupportedReason": false,
+          "unsupportedDetail": false
         }
       }
     },
     {
+      "$comment": "An unsupported remediation carries only the reason. Action-specific fields would tell a consumer that something can run when nothing can.",
       "if": {
         "properties": {
           "supported": {
@@ -113,7 +117,10 @@
           "unsupportedReason": {
             "$ref": "enums.schema.json#/$defs/unsupportedReason"
           },
-          "action": false
+          "action": false,
+          "sideEffects": false,
+          "alternativeActions": false,
+          "actionGroupId": false
         }
       }
     }

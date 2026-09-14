@@ -37,12 +37,21 @@ that would leave less than 2 code points hidden degrades to `fully_masked`. This
 where the rules prefer showing the user less than they might want: the alternative is a mask that
 looks like protection without being it.
 
+## The cap applies to `structural_label` too
+
+`structural_label` is unredacted, not unbounded. An oversized value arriving under
+this policy is precisely the case where a detector has mislabelled content as
+structure, so the 64-code-point cap still applies and `truncated` is still set.
+
 ## `structural_label` is the only unredacted policy
 
 It exists because `encryption_state` and similar findings have no sensitive value to hide — the
 finding *is* "this file is encrypted with AES-256". Every other policy sets `redacted: true`.
 A reviewer should treat any new use of `structural_label` on a content-derived category as a
 disclosure bug.
+
+The schema enforces the pairing: `structural_label` requires `redacted: false`, and every other
+policy requires `redacted: true`. The two fields cannot disagree.
 
 ## `fully_masked` preserves length; the other policies do not
 
