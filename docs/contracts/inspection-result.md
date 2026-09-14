@@ -189,6 +189,23 @@ negotiated with pinned consumers over the long run is owned by issue #25.
 `status` and `versions` appear in this schema because examples cannot be written without them. Their
 *shape* is fixed here; their *semantics* are not.
 
+## The guards are checked for being able to fail
+
+`.github/workflows/contracts.yml` runs the suite, and then runs a second job that
+deliberately breaks three invariants on a throwaway copy — an undeclared category, a reversed
+example, a removed schema constraint — and asserts the suite goes red each time.
+
+Each case asserts the suite fails **for the expected reason**, matching the specific message the guard
+emits. Asserting only that it fails would accept any failure at all — a malformed mutation, a missing
+dependency, a bad path — as proof the guard works, which is the same mistake the guards exist to
+prevent. A control case with nothing broken keeps a suite that fails unconditionally from satisfying
+all three.
+
+A guard that cannot fail is worse than no guard: it reports coverage that does not exist. This branch
+already produced two such cases — a bug in the ordering checker that let a non-deterministic ordering
+pass, and a first draft of this very job that read a JSON syntax error as evidence the drift check was
+working.
+
 ## Tooling note
 
 `package.json` and `tools/validate-schemas.mjs` exist to validate the schemas in CI. This is build
