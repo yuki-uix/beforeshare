@@ -78,6 +78,10 @@ a fixed false negative stays fixed only in the new code.
 classified, and `changelogViolations()` fails the build when a `breaking` change is recorded under an
 unchanged MAJOR — the case where a contract breaks consumers while claiming it did not.
 
+It also rejects a `breaking` entry in the **first** release, where there is nothing to break. That
+case is not hypothetical tidiness: with one release and no predecessor, the comparison had nothing to
+compare against and passed vacuously — which is the only state a new schema is ever in.
+
 ## Adding to a closed enum, end to end
 
 1. Add the value to the enum.

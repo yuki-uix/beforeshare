@@ -126,8 +126,14 @@ export function changelogViolations(changelog = CHANGELOG) {
     const v = parseVersion(rel.version);
     for (const c of rel.changes) {
       if (!CHANGE_TYPES.includes(c.type)) violations.push(`${rel.version}: unknown change type ${c.type}`);
-      if (c.type === 'breaking' && previous && v.major === previous.major) {
-        violations.push(`${rel.version}: a breaking change was released without a major bump`);
+      if (c.type === 'breaking') {
+        if (previous === null) {
+          // Nothing existed to break. Accepting this would make the check pass
+          // vacuously for the only release a new schema has.
+          violations.push(`${rel.version}: the first release cannot contain a breaking change`);
+        } else if (v.major === previous.major) {
+          violations.push(`${rel.version}: a breaking change was released without a major bump`);
+        }
       }
     }
     previous = v;

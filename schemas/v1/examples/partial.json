@@ -86,10 +86,14 @@
       "code": "encrypted_content_not_inspected",
       "impact": "coverage_incomplete",
       "affectedDetectors": [
-        "pdf.text_layer",
-        "ocr.visible_text"
+        "ocr.visible_text",
+        "pdf.actions",
+        "pdf.embedded_files",
+        "pdf.form_fields",
+        "pdf.structure",
+        "pdf.text_layer"
       ],
-      "message": "Hidden text and visible text were not inspected because the document is encrypted."
+      "message": "Hidden text, visible text, embedded files, form fields, document actions and structural flags were not inspected because the document is encrypted."
     },
     {
       "code": "damaged_cross_reference_table",

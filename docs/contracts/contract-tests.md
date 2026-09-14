@@ -38,6 +38,11 @@ the build today — which is verified by mutation, not assumed.
 When zero interfaces are implemented the suite prints a `note` line saying so, rather than a passing
 assertion. A note is honest about there being nothing to compare; an `ok` would not be.
 
+**This does not mean §20.3's equivalence requirement is met.** Nothing here compares three interfaces,
+because there are none. The obligation is recorded on #9, #10 and #11 — each must flip its registry
+entry and supply an adapter — rather than being quietly absorbed by a registry that only checks its
+own consistency.
+
 ## Coverage completeness
 
 `npm run validate` additionally requires every committed example to account for **every detector
@@ -46,3 +51,10 @@ appears in none of them is a check nobody can tell ran, which reads to a consume
 
 This check found a real defect when it was written: the inspection examples listed five detectors for
 a PDF while the registry declared eight applicable, and nothing said what the other three did.
+
+Fixing that surfaced a second hole. Four detectors were added to `partial.json` as skipped, and no
+limitation named them — so six checks were suppressed and only two were explained. Every
+coverage-reducing skip and every failure must now be named by some limitation. Benign skips are
+exempt: requiring a limitation for "this PNG has no EXIF block" would bury the real ones in noise.
+The converse is checked too, scoped by impact — a `coverage_incomplete` limitation may not name a
+detector that completed, while an `evidence_degraded` one legitimately can.

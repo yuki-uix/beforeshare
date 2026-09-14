@@ -533,5 +533,34 @@ for (const file of examples) {
     inapplicable.length === 0, `inapplicable: ${inapplicable.join(', ')}`);
 }
 
+// --- every suppressed check must be explained --------------------------------
+// A limitation names the detectors it affected; that is what stops a suppressed
+// check from going unmentioned (§5.8). Benign skips are exempt: requiring a
+// limitation for "this PNG has no EXIF block" would bury the real ones in noise.
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  const needsExplaining = [
+    ...doc.coverage.skipped.filter((s) => reducesCoverage(s.reason)).map((s) => s.detector),
+    ...doc.coverage.failed.map((f) => f.detector),
+  ];
+  const explained = new Set((doc.limitations ?? []).flatMap((l) => l.affectedDetectors));
+  const unexplained = needsExplaining.filter((d) => !explained.has(d));
+  check(`${file} explains every check that did not run`, unexplained.length === 0,
+    `no limitation names: ${unexplained.join(', ')}`);
+
+  // Only coverage_incomplete limitations are claims that something did not run.
+  // evidence_degraded and the rest legitimately describe a detector that did run
+  // — a media-type mismatch degrades what the metadata reader's output means
+  // without stopping it — so they are not held to this rule.
+  const claimsNotRun = new Set(
+    (doc.limitations ?? [])
+      .filter((l) => l.impact === 'coverage_incomplete')
+      .flatMap((l) => l.affectedDetectors),
+  );
+  const ranAnyway = [...claimsNotRun].filter((d) => doc.coverage.completed.includes(d));
+  check(`${file} claims no completed check was skipped`, ranAnyway.length === 0,
+    `coverage_incomplete limitation names detectors that completed: ${ranAnyway.join(', ')}`);
+}
+
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

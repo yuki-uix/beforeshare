@@ -183,6 +183,21 @@ check('breaking and additive kinds do not overlap',
   BREAKING_KINDS.every((k) => !ADDITIVE_KINDS.includes(k)));
 check('the changelog records no breaking change without a major bump',
   changelogViolations().length === 0, changelogViolations().join('; '));
+check('a breaking change without a major bump is caught',
+  changelogViolations({ releases: [
+    { version: '1.1', date: 'x', changes: [{ type: 'breaking', target: 't', description: 'd' }] },
+    { version: '1.0', date: 'w', changes: [{ type: 'additive', target: 't', description: 'd' }] },
+  ] }).length > 0);
+check('a breaking change in the very first release is caught',
+  changelogViolations({ releases: [
+    { version: '1.0', date: 'x', changes: [{ type: 'breaking', target: 't', description: 'd' }] },
+  ] }).length > 0,
+  'nothing existed to break; accepting it makes the check vacuous for a new schema');
+check('a breaking change with a major bump is allowed',
+  changelogViolations({ releases: [
+    { version: '2.0', date: 'y', changes: [{ type: 'breaking', target: 't', description: 'd' }] },
+    { version: '1.0', date: 'x', changes: [{ type: 'additive', target: 't', description: 'd' }] },
+  ] }).length === 0);
 
 // --- §14.1 a changed detector invalidates a stored result --------------------
 const current = { core: '0.1.0', detectors: currentDetectorVersions() };
