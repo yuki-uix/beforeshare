@@ -167,6 +167,27 @@ jobs:
             "example capabilities.json" \
             "schemas/v1/examples/capabilities.json" || failed=1
 
+          node -e "
+            const fs=require('fs'), p='schemas/v1/detector-registry.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.detectors['pdf.metadata'].status='implemented';
+            delete r.detectors['pdf.metadata'].waitingOn;
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "a detector claiming to exist without an adapter" \
+            "example capabilities.json" \
+            "schemas/v1/detector-registry.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/verification-unable.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.results[0].readPaths[0].reader='verify.does_not_exist';
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "a verification example naming an unregistered reader" \
+            "names only registered readers" \
+            "schemas/v1/examples/verification-unable.json" || failed=1
+
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
           # above.

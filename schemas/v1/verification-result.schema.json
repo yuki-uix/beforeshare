@@ -424,7 +424,7 @@
     },
     "preservation": {
       "type": "object",
-      "description": "The five unintended-change checks §10.3 requires. Each is present whether or not it ran; a missing key would be indistinguishable from a check that passed.",
+      "description": "The unintended-change checks §10.3 requires. Six keys for its five bullets: the first bullet, \"page count and dimensions\", covers two failures that happen independently — pages resized but not lost, or lost but not resized — and one combined key could only report the worse of them. Each key is present whether or not the check ran; a missing key would be indistinguishable from a check that passed.",
       "required": [
         "pageCount",
         "pageDimensions",

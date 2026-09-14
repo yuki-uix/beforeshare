@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { computeStatus, reducesCoverage } from './status.mjs';
-import { buildCapabilities, REGISTRY, ACTION_FACTS } from './capabilities.mjs';
+import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSources } from './capabilities.mjs';
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -241,6 +241,18 @@ const capNegatives = [
   ['an unknown verifiability status is rejected',
     cClone((c) => { c.actions[0].verifiable = { status: 'probably_verifiable', surfaces: ['raw_objects'] }; })],
 
+  ['a detector without an implementation status is rejected',
+    cClone((c) => { delete c.formats[0].detectors[0].status; })],
+
+  ['an unimplemented detector cannot name an adapter',
+    cClone((c) => { c.formats[0].detectors[0] = { ...c.formats[0].detectors[0], status: 'not_implemented', adapter: 'x.mjs' }; })],
+
+  ['an implemented detector must name an adapter',
+    cClone((c) => { c.formats[0].detectors[0] = { ...c.formats[0].detectors[0], status: 'implemented', waitingOn: undefined, adapter: undefined }; })],
+
+  ['a limitation cannot name a media type outside the supported set',
+    cClone((c) => { c.limitations[0].mediaTypes = ['image/heic']; })],
+
   ['an action without confirmationRequired is rejected',
     cClone((c) => { delete c.actions[0].confirmationRequired; })],
 
@@ -386,24 +398,6 @@ check('the committed capability declaration matches the one generated from the r
   JSON.stringify(generatedCaps) === JSON.stringify(committedCaps),
   'run: node -e "import(\'./tools/capabilities.mjs\').then(async m => (await import(\'node:fs\')).writeFileSync(\'schemas/v1/examples/capabilities.json\', JSON.stringify(m.buildCapabilities({app:\'0.1.0\'}),null,2)+\'\\n\'))"');
 
-// --- no detector id may appear anywhere without being registered -------------
-// Detector ids are written by hand into coverage arrays, findings and version
-// lists. An unregistered id there is a typo that silently claims a check ran.
-const registered = new Set(Object.keys(REGISTRY.detectors));
-for (const file of examples) {
-  const doc = read(join(exampleDir, file));
-  const used = new Set([
-    ...doc.coverage.completed,
-    ...doc.coverage.skipped.map((s) => s.detector),
-    ...doc.coverage.failed.map((f) => f.detector),
-    ...(doc.findings ?? []).map((f) => f.detector.id),
-    ...(doc.versions.detectors ?? []).map((d) => d.id),
-    ...(doc.limitations ?? []).flatMap((l) => l.affectedDetectors),
-  ]);
-  const unknown = [...used].filter((id) => !registered.has(id));
-  check(`${file} uses only registered detector ids`, unknown.length === 0, unknown.join(', '));
-}
-
 // --- every registered detector emits only declared categories ----------------
 const allCategories = enums.$defs.category.enum;
 for (const [id, d] of Object.entries(REGISTRY.detectors)) {
@@ -481,6 +475,32 @@ for (const [file, expected] of [['verification-verified.json', true], ['verifica
   check(`${file} summarises as ${expected ? 'successful' : 'not successful'}`, s.successful === expected, s.reason);
 }
 
+// Duplicate actions must not let one result answer two requests.
+check('two requests answered by one result is not successful',
+  summariseVerification({
+    requested: [{ action: 'remove_pdf_metadata_field' }, { action: 'remove_pdf_metadata_field' }],
+    results: [{ action: 'remove_pdf_metadata_field', outcome: 'verified_removed' }],
+    preservation: {},
+  }).successful === false);
+check('results out of order with requested is not successful',
+  summariseVerification({
+    requested: [{ action: 'remove_annotations' }, { action: 'remove_pdf_metadata_field' }],
+    results: [
+      { action: 'remove_pdf_metadata_field', outcome: 'verified_removed' },
+      { action: 'remove_annotations', outcome: 'verified_removed' },
+    ],
+    preservation: {},
+  }).successful === false);
+check('a surplus result entry is not successful',
+  summariseVerification({
+    requested: [{ action: 'remove_annotations' }],
+    results: [
+      { action: 'remove_annotations', outcome: 'verified_removed' },
+      { action: 'remove_annotations', outcome: 'verified_removed' },
+    ],
+    preservation: {},
+  }).successful === false);
+
 // A run that verified one action and could not verify another is not a success.
 const mixed = structuredClone(read(join(exampleDir, 'verification-verified.json')));
 mixed.results[1].outcome = 'unable_to_verify';
@@ -533,6 +553,111 @@ for (const f of committedCaps.formats) {
     inlineCopies.length === 0,
     `inline copies found at: ${inlineCopies.join(', ')}`);
 }
+
+// --- every example kind is covered by a checker that actually runs -----------
+// The detector-id check originally iterated only inspection examples, because
+// those were the only examples when it was written. Two verification examples
+// were then added naming five unregistered verifier ids and nothing noticed: the
+// guard had not grown to the new kind of file.
+//
+// The first attempt at fixing that was a map from schema name to a description
+// string. It had no teeth — the value was never used, so any string passed, and
+// it was an assertion over a constant written in the same commit. The map now
+// holds the checkers themselves and dispatches through them, so a kind with no
+// checker fails the build and a registered checker demonstrably runs.
+const knownReaders = new Set([
+  ...Object.keys(REGISTRY.verifiers ?? {}),
+  ...Object.keys(REGISTRY.detectors),
+]);
+const registeredDetectors = new Set(Object.keys(REGISTRY.detectors));
+
+const ID_CHECKERS = {
+  'inspection-result.schema.json': (file, doc) => {
+    const used = new Set([
+      ...doc.coverage.completed,
+      ...doc.coverage.skipped.map((x) => x.detector),
+      ...doc.coverage.failed.map((x) => x.detector),
+      ...(doc.findings ?? []).map((f) => f.detector.id),
+      ...(doc.versions.detectors ?? []).map((d) => d.id),
+      ...(doc.limitations ?? []).flatMap((l) => l.affectedDetectors),
+    ]);
+    const unknown = [...used].filter((id) => !registeredDetectors.has(id));
+    check(`${file} uses only registered detector ids`, unknown.length === 0, unknown.join(', '));
+  },
+
+  'verification-result.schema.json': (file, doc) => {
+    // A reader is either a registered verifier (independent) or a registered
+    // detector (the writer-side path, which a result may record as long as it
+    // is labelled as such).
+    const used = new Set([
+      ...doc.results.flatMap((r) => r.readPaths.map((p) => p.reader)),
+      ...doc.versions.verifiers.map((v) => v.id),
+    ]);
+    const unknown = [...used].filter((id) => !knownReaders.has(id));
+    check(`${file} names only registered readers`, unknown.length === 0, unknown.join(', '));
+
+    // §10.1: surfacesChecked is what stops a partial check reading as a
+    // complete one. Claiming a surface no read path touched defeats the field.
+    for (const r of doc.results) {
+      const examined = new Set(r.readPaths.map((p) => p.surface).filter(Boolean));
+      const unread = (r.surfacesChecked ?? []).filter((sfc) => !examined.has(sfc));
+      check(`${file}:${r.action} checked only surfaces some read path examined`,
+        unread.length === 0, `claimed without a reader: ${unread.join(', ')}`);
+    }
+  },
+
+  'capabilities.schema.json': (file, doc) => {
+    const bad = doc.versions.detectors.filter((d) => !registeredDetectors.has(d.id));
+    check(`${file} versions name only registered detectors`, bad.length === 0,
+      bad.map((d) => d.id).join(', '));
+    for (const f of doc.formats) {
+      const unknown = f.detectors.filter((d) => !registeredDetectors.has(d.id));
+      check(`${file} ${f.mediaType} names only registered detectors`, unknown.length === 0,
+        unknown.map((d) => d.id).join(', '));
+    }
+  },
+};
+
+let dispatched = 0;
+for (const [file, schemaName] of Object.entries(manifest)) {
+  const checker = ID_CHECKERS[schemaName];
+  check(`example kind ${schemaName} has an id checker`, checker !== undefined,
+    `add one to ID_CHECKERS; ${file} is otherwise unchecked`);
+  if (!checker) continue;
+  checker(file, read(join(exampleDir, file)));
+  dispatched += 1;
+}
+check('every example was dispatched to a checker', dispatched === Object.keys(manifest).length,
+  `${dispatched} of ${Object.keys(manifest).length}`);
+
+// --- an available verifier must be one that exists ---------------------------
+const implementedVerifiers = Object.entries(REGISTRY.verifiers ?? {})
+  .filter(([, v]) => v.status === 'implemented')
+  .map(([id]) => id);
+for (const entry of committedCaps.actions) {
+  if (entry.verifiable.status !== 'independent_reader_available') continue;
+  const missing = (entry.verifiable.readers ?? []).filter((r) => !implementedVerifiers.includes(r));
+  check(`action ${entry.action} names only implemented verifiers`, missing.length === 0,
+    `registered but not implemented, or absent: ${missing.join(', ')}`);
+}
+
+// --- nothing may be published as a working capability ------------------------
+// capabilities.md states that no format adapter exists. The declaration has to
+// agree: a consumer reading eight PDF detectors with no status would conclude
+// this build inspects PDFs.
+for (const f of committedCaps.formats) {
+  for (const d of f.detectors) {
+    check(`${f.mediaType} detector ${d.id} declares its implementation state`,
+      d.status === 'not_implemented' ? typeof d.waitingOn === 'string' && d.adapter === undefined
+        : typeof d.adapter === 'string',
+      JSON.stringify({ status: d.status, adapter: d.adapter, waitingOn: d.waitingOn }));
+  }
+}
+
+// --- media types in the sources must be inside the closed set ---------------
+check('no detector or action declares a media type outside the supported set',
+  unsupportedMediaTypesInSources().length === 0,
+  unsupportedMediaTypesInSources().join('; '));
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

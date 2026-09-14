@@ -16,7 +16,9 @@
         "document_keywords",
         "document_timestamp"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "pdf.annotations": {
       "mediaTypes": [
@@ -26,7 +28,9 @@
       "emits": [
         "annotation"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "pdf.form_fields": {
       "mediaTypes": [
@@ -37,7 +41,9 @@
         "form_field_name",
         "form_field_value"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "pdf.embedded_files": {
       "mediaTypes": [
@@ -47,7 +53,9 @@
       "emits": [
         "embedded_file"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "pdf.actions": {
       "mediaTypes": [
@@ -60,7 +68,9 @@
         "external_reference",
         "local_file_reference"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "pdf.text_layer": {
       "mediaTypes": [
@@ -71,7 +81,9 @@
         "hidden_text",
         "text_under_redaction"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "pdf.structure": {
       "mediaTypes": [
@@ -84,7 +96,9 @@
         "digital_signature",
         "incremental_update"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#4"
     },
     "image.exif": {
       "mediaTypes": [
@@ -102,7 +116,9 @@
         "image_modification_timestamp",
         "image_embedded_thumbnail"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#5"
     },
     "image.xmp": {
       "mediaTypes": [
@@ -115,7 +131,9 @@
         "image_software",
         "image_metadata_comment"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#5"
     },
     "image.iptc": {
       "mediaTypes": [
@@ -126,7 +144,9 @@
         "image_author",
         "image_metadata_comment"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#5"
     },
     "image.png_text": {
       "mediaTypes": [
@@ -138,7 +158,9 @@
         "image_author",
         "image_metadata_comment"
       ],
-      "certainty": "deterministic"
+      "certainty": "deterministic",
+      "status": "not_implemented",
+      "waitingOn": "#5"
     },
     "ocr.visible_text": {
       "mediaTypes": [
@@ -158,9 +180,44 @@
         "pii_credential_like",
         "pii_user_defined_term"
       ],
-      "certainty": "probabilistic"
+      "certainty": "probabilistic",
+      "status": "not_implemented",
+      "waitingOn": "#6"
     }
   },
-  "verifiers": {},
-  "$verifiersComment": "Independent readers available to the verification stage (§10.1). Deliberately empty: none is implemented. A capability entry claiming `independent_reader_available` must name readers registered here, so the claim cannot be made by editing a status string — it requires a verifier to exist. When one lands it is added here with the surfaces it reads and the writer-side components it shares no code with."
+  "verifiers": {
+    "verify.object_scanner": {
+      "status": "not_implemented",
+      "waitingOn": "#8",
+      "surfaces": [
+        "raw_objects",
+        "annotations",
+        "attachments"
+      ]
+    },
+    "verify.metadata_reader": {
+      "status": "not_implemented",
+      "waitingOn": "#8",
+      "surfaces": [
+        "metadata_block"
+      ]
+    },
+    "verify.text_extractor": {
+      "status": "not_implemented",
+      "waitingOn": "#8",
+      "surfaces": [
+        "extracted_text"
+      ]
+    },
+    "verify.renderer": {
+      "status": "not_implemented",
+      "waitingOn": "#8",
+      "surfaces": [
+        "rendered_page",
+        "image_pixels"
+      ]
+    }
+  },
+  "$verifiersComment": "Independent readers for the verification stage (§10.1). Every entry is not_implemented: none is written. They are registered rather than omitted so that a result may reference a known id, while a capability claiming `independent_reader_available` still has to name a verifier whose status is `implemented` — which none is. Registering an id is not claiming it works.",
+  "$detectorsComment": "Each detector declares whether it exists. Nothing does: the registry describes the taxonomy the adapters will implement, and publishing it as current capability would tell consumers this build can inspect PDFs. `implemented` requires an `adapter` module that really exists, so the status cannot be advanced by editing a string."
 }
