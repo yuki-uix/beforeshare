@@ -176,11 +176,24 @@ for (const file of examples) {
 }
 
 // --- committed examples must obey the ordering contract ----------------------
+// NOTE: the comparison below is this checker's own copy of the ordering rule,
+// because no core sorter exists yet. When E3/E4 produce one, this must call it
+// instead — otherwise a drifting implementation gets validated against a stale
+// duplicate of the rule it was supposed to be checked against.
 // Array order is observable output and §17.5 requires it to be deterministic, so
 // it is checked rather than merely documented. An unordered example teaches the
 // wrong thing to anyone copying it.
 const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
-const canonicalLocation = (loc) => JSON.stringify(loc, Object.keys(loc).sort());
+// Recursive: JSON.stringify's array-replacer form filters keys at EVERY level, so
+// passing the top-level key list silently flattens nested objects to {} and makes
+// two locations differing only in, say, their rect compare equal.
+const canonicalLocation = (v) => {
+  if (Array.isArray(v)) return `[${v.map(canonicalLocation).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalLocation(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+};
 const sortKey = (f) => [SEVERITY_RANK[f.severity], f.category, canonicalLocation(f.location), f.id];
 const lte = (a, b) => {
   for (let i = 0; i < a.length; i += 1) {
