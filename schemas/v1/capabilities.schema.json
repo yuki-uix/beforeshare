@@ -82,12 +82,7 @@
         "additionalProperties": false,
         "properties": {
           "mediaType": {
-            "type": "string",
-            "enum": [
-              "application/pdf",
-              "image/jpeg",
-              "image/png"
-            ]
+            "$ref": "common.schema.json#/$defs/mediaType"
           },
           "detectors": {
             "type": "array",
@@ -393,12 +388,7 @@
             "type": "array",
             "uniqueItems": true,
             "items": {
-              "type": "string",
-              "enum": [
-                "application/pdf",
-                "image/jpeg",
-                "image/png"
-              ]
+              "$ref": "common.schema.json#/$defs/mediaType"
             }
           }
         }

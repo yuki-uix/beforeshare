@@ -9,12 +9,15 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { computeStatus, reducesCoverage } from './status.mjs';
 import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSources } from './capabilities.mjs';
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
+import { POLICIES } from './masking.mjs';
+import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const schemaDir = join(root, 'schemas', 'v1');
@@ -34,7 +37,9 @@ for (const file of readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json
 }
 
 const validate = ajv.getSchema('inspection-result.schema.json');
-const manifest = read(join(exampleDir, 'manifest.json')).examples;
+const manifestRaw = read(join(exampleDir, 'manifest.json')).examples;
+/** file -> schema name, for the many places that only need that. */
+const manifest = Object.fromEntries(Object.entries(manifestRaw).map(([f, v]) => [f, v.schema]));
 
 let failures = 0;
 const fail = (msg, errors) => {
@@ -469,10 +474,18 @@ let outcomeThrew = false;
 try { isSuccessfulOutcome('probably_gone'); } catch { outcomeThrew = true; }
 check('an unknown outcome throws instead of defaulting to failure', outcomeThrew);
 
-for (const [file, expected] of [['verification-verified.json', true], ['verification-unable.json', false]]) {
-  const doc = read(join(exampleDir, file));
-  const s = summariseVerification(doc);
-  check(`${file} summarises as ${expected ? 'successful' : 'not successful'}`, s.successful === expected, s.reason);
+// Driven by the manifest, not by a list written beside the loop. A third
+// verification example added later would have gone unchecked by that list, with
+// nothing to say so.
+for (const [file, entry] of Object.entries(manifestRaw)) {
+  if (entry.schema !== 'verification-result.schema.json') continue;
+  check(`${file} declares whether it summarises as successful`,
+    typeof entry.expectSuccessful === 'boolean',
+    'add expectSuccessful to its manifest entry');
+  if (typeof entry.expectSuccessful !== 'boolean') continue;
+  const summary = summariseVerification(read(join(exampleDir, file)));
+  check(`${file} summarises as ${entry.expectSuccessful ? 'successful' : 'not successful'}`,
+    summary.successful === entry.expectSuccessful, summary.reason);
 }
 
 // Duplicate actions must not let one result answer two requests.
@@ -658,6 +671,101 @@ for (const f of committedCaps.formats) {
 check('no detector or action declares a media type outside the supported set',
   unsupportedMediaTypesInSources().length === 0,
   unsupportedMediaTypesInSources().join('; '));
+
+// --- every exported list is either derived from a schema or justified --------
+// Several lists in tools/ restate a schema enum. They agreed by hand, and a
+// value added to the schema and missed in the list produced no failure — a
+// masking policy the schema accepts and the implementation throws on, a status
+// the rules can emit that the reachability check never looks for.
+//
+// The table below is not the guard. The guard is the assertion under it: every
+// exported array constant in tools/ must appear here, so adding one without
+// deciding whether it mirrors a schema fails the build. That is the part that
+// does not depend on anyone remembering.
+const enumAt = (file, path) => path.split('.').reduce((n, k) => n[k], read(join(schemaDir, file)));
+
+
+const MIRRORS = {
+  POLICIES: { value: POLICIES, schema: ['evidence.schema.json', 'properties.maskPolicy.enum'] },
+  SUPPORTED_MEDIA_TYPES: {
+    value: SUPPORTED_MEDIA_TYPES,
+    schema: ['common.schema.json', '$defs.mediaType.enum'],
+  },
+  VERIFICATION_OUTCOMES: {
+    value: VERIFICATION_OUTCOMES,
+    schema: ['verification-result.schema.json', '$defs.actionResult.properties.outcome.enum'],
+  },
+  SUCCESSFUL_OUTCOMES: {
+    value: SUCCESSFUL_OUTCOMES,
+    // Registered as a mirror, not standalone. It is a subset of the outcome enum,
+    // but it is also exactly the condition the schema uses to decide which
+    // outcomes must carry an independent reader — so the two have to agree, and
+    // the standalone check caught the mislabel.
+    schema: ['verification-result.schema.json', '$defs.actionResult.allOf.0.if.properties.outcome.enum'],
+  },
+};
+
+// Every enum defined anywhere in the schemas, so a list claiming to have no
+// counterpart can be checked against that claim rather than trusted.
+const allSchemaEnums = [];
+{
+  const collect = (node, path, file) => {
+    if (Array.isArray(node)) return node.forEach((v, i) => collect(v, `${path}/${i}`, file));
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node.enum)) allSchemaEnums.push({ file, path, key: JSON.stringify([...node.enum].sort()) });
+    for (const [k, v] of Object.entries(node)) collect(v, `${path}/${k}`, file);
+  };
+  for (const f of readdirSync(schemaDir).filter((x) => x.endsWith('.schema.json'))) {
+    collect(read(join(schemaDir, f)), '', f);
+  }
+}
+
+for (const [name, spec] of Object.entries(MIRRORS)) {
+  if (spec.standalone) {
+    check(`${name} is justified as standalone`, typeof spec.standalone === 'string' && spec.standalone.length > 0);
+    // A free-text reason is not evidence. If the values happen to equal a schema
+    // enum, the list is a mirror that was labelled standalone - which is how the
+    // previous version of this guard could be defeated by editing one word.
+    const key = JSON.stringify([...spec.value].sort());
+    const match = allSchemaEnums.find((e) => e.key === key);
+    check(`${name} really has no schema counterpart`, match === undefined,
+      match ? `identical to ${match.file}${match.path}; register it as a mirror instead` : '');
+    continue;
+  }
+  const [file, path] = spec.schema;
+  check(`${name} matches ${file} ${path}`,
+    JSON.stringify([...spec.value].sort()) === JSON.stringify([...enumAt(file, path)].sort()),
+    `list ${JSON.stringify(spec.value)} vs schema ${JSON.stringify(enumAt(file, path))}`);
+}
+
+{
+  // An exported array that nobody registered is a list whose relationship to the
+  // schemas was never decided.
+  //
+  // Discovered by importing each module and inspecting what it exports, not by
+  // matching source text. The first version used a regex anchored on
+  // `export const NAME = [`, which missed a lowercase name, a declaration whose
+  // bracket was on the next line, and Object.freeze - three ordinary spellings,
+  // each of which would have let an unregistered list through. A guard whose
+  // reach depends on how the code was typed is the same problem it exists to
+  // solve.
+  const toolsDir = join(schemaDir, '..', '..', 'tools');
+  const found = [];
+  for (const file of readdirSync(toolsDir).filter((f) => f.endsWith('.mjs'))) {
+    const href = pathToFileURL(join(toolsDir, file)).href;
+    // Importing the module currently being evaluated deadlocks on its own
+    // top-level await. It exports nothing, so there is nothing to miss.
+    if (href === import.meta.url) continue;
+    const mod = await import(href);
+    for (const [name, value] of Object.entries(mod)) {
+      if (Array.isArray(value)) found.push({ file, name });
+    }
+  }
+  check('exported arrays were found to check', found.length > 0);
+  const unregistered = found.filter((e) => !(e.name in MIRRORS));
+  check('every exported array is registered in MIRRORS', unregistered.length === 0,
+    unregistered.map((e) => `${e.file}:${e.name}`).join(', '));
+}
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length + verifyNegatives.length + capNegatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

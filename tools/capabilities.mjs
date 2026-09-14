@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaDir = join(here, '..', 'schemas', 'v1');
@@ -122,8 +123,7 @@ export const UNMEASURED = {
   reason: 'No format adapter is implemented yet, so no file size or page count has been tested on any reference machine.',
 };
 
-/** The closed set capabilities.schema.json allows. */
-export const SUPPORTED_MEDIA_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+export { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 
 /**
  * A detector or action declaring a media type outside the closed set would be

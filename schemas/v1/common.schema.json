@@ -105,6 +105,15 @@
         "image_pixels"
       ],
       "description": "A place a reader can look inside a file. Defined once and referenced everywhere it is used: a capability declaring a surface it can verify, a verification read path naming the surface it examined, and an action result listing the surfaces it checked all have to mean the same seven things. Four inline copies agreed by copy-paste until this existed, which is not a guarantee."
+    },
+    "mediaType": {
+      "type": "string",
+      "enum": [
+        "application/pdf",
+        "image/jpeg",
+        "image/png"
+      ],
+      "description": "The media types in scope for the MVP (§4.1). Defined here rather than inside the capability declaration: which formats the product handles is a fact about product scope, and the status rules need it too. Having status read it out of the capability contract pointed the dependency the wrong way."
     }
   }
 }

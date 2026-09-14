@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const INPUTS = JSON.parse(readFileSync(join(here, '..', 'schemas', 'v1', 'status-inputs.json'), 'utf8'));
 
-export const SUPPORTED_MEDIA_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+export { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
+import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 
 /** A finding blocks only when it is both critical and deterministic. */
 export function isBlocking(finding) {
