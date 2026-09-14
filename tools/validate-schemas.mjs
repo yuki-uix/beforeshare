@@ -638,12 +638,19 @@ const ID_CHECKERS = {
     const unknownParsers = parsers.filter((id) => !registeredParsers.has(id));
     check(`${file} uses only registered parser ids`, unknownParsers.length === 0, unknownParsers.join(', '));
 
+    // Parsers are a subset of what applies, not the whole set. Detectors have
+    // completed/skipped/failed, so demanding every applicable one be accounted
+    // for is answerable; parsers have one list, so demanding every applicable one
+    // be named would make a result claim it used a component it never invoked -
+    // a PDF whose OCR was skipped never touched the renderer. This rule was
+    // copied from the detector check without that difference surviving the copy.
     const mediaType = doc.input.mediaType;
     const applicableParsers = Object.entries(REGISTRY.parsers ?? {})
       .filter(([, p]) => p.mediaTypes.includes(mediaType))
       .map(([id]) => id);
-    const missing = applicableParsers.filter((id) => !parsers.includes(id));
-    check(`${file} names every parser applicable to ${mediaType}`, missing.length === 0, missing.join(', '));
+    const inapplicable = parsers.filter((id) => registeredParsers.has(id) && !applicableParsers.includes(id));
+    check(`${file} names no parser that does not apply to ${mediaType}`, inapplicable.length === 0,
+      inapplicable.join(', '));
   },
 
   'verification-result.schema.json': (file, doc) => {

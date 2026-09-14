@@ -65,7 +65,13 @@ what makes a stored result re-runnable against just the detectors that moved.
 - a recorded detector is at a different version, or no longer exists
 - a detector that **applies to this media type** is absent from the result
 
-Parsers are checked the same way as detectors. §14.1 names both, and the parser is the layer most
+A result names the parsers it used, which is a subset of those that apply. Detectors are held to a
+stricter rule — every applicable one must appear in `completed`, `skipped` or `failed` — because they
+have three lists to be accounted for in. Parsers have one, so requiring every applicable parser would
+make a result claim it invoked a component it never reached: a PDF whose OCR was skipped never
+touched the renderer.
+
+Parsers are checked for staleness the same way as detectors. §14.1 names both, and the parser is the layer most
 likely to change what a detector can see: a result produced by an older reader is not one this build
 would reproduce. `versions.parsers` was optional until a review pointed out that the clause names it —
 a result could omit the layer most likely to change the answer.
