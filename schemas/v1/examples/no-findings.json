@@ -44,6 +44,12 @@
         "id": "ocr.visible_text",
         "version": "0.4.1"
       }
+    ],
+    "parsers": [
+      {
+        "id": "image.png_parser",
+        "version": "1.0.0"
+      }
     ]
   },
   "startedAt": "2026-01-01T00:05:00Z",

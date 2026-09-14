@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { computeStatus } from './status.mjs';
-import { canConsume, resultIsStale, currentDetectorVersions, changelogViolations, parseVersion, BREAKING_KINDS, ADDITIVE_KINDS } from './versioning.mjs';
+import { canConsume, resultIsStale, currentDetectorVersions, currentParserVersions, changelogViolations, parseVersion, BREAKING_KINDS, ADDITIVE_KINDS } from './versioning.mjs';
 import { pathToFileURL } from 'node:url';
 
 // Only run when invoked directly. tools/validate-schemas.mjs discovers exported
@@ -54,6 +54,7 @@ if (isMain) {
     limitations: [],
     versions: {
       core: '0.1.0',
+      parsers: [{ id: 'image.png_parser', version: '1.0.0' }],
       detectors: [
         { id: 'image.exif', version: '1.0.0' },
         { id: 'image.xmp', version: '1.0.0' },
@@ -207,7 +208,7 @@ if (isMain) {
     ] }).length === 0);
 
   // --- §14.1 a changed detector invalidates a stored result --------------------
-  const current = { core: '0.1.0', detectors: currentDetectorVersions() };
+  const current = { core: '0.1.0', parsers: currentParserVersions(), detectors: currentDetectorVersions() };
   check('an up-to-date result is not stale', resultIsStale(fixture(), current).stale === false,
     JSON.stringify(resultIsStale(fixture(), current).reasons));
   {
@@ -226,6 +227,24 @@ if (isMain) {
     old.versions.detectors = old.versions.detectors.filter((d) => d.id !== 'ocr.visible_text');
     check('a result missing a now-applicable detector is stale', resultIsStale(old, current).stale);
   }
+  // §14.1 names parser versions alongside detector versions, and the parser is
+  // the layer most likely to change what a detector can see.
+  {
+    const old = fixture();
+    old.versions.parsers = [{ id: 'image.png_parser', version: '0.9.0' }];
+    check('a result from an older parser version is stale', resultIsStale(old, current).stale);
+  }
+  {
+    const old = fixture();
+    old.versions.parsers = [{ id: 'image.gone_parser', version: '1.0.0' }];
+    check('a result naming a parser that no longer exists is stale', resultIsStale(old, current).stale);
+  }
+  {
+    const doc = fixture();
+    delete doc.versions.parsers;
+    check('a result without parser versions fails visibly (§14.1)', !validateInspection(doc));
+  }
+
   {
     const pdfResult = fixture({ input: { ...fixture().input, mediaType: 'application/pdf', path: '/tmp/f.pdf' } });
     const s = resultIsStale(pdfResult, current);

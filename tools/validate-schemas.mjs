@@ -124,6 +124,12 @@ const negatives = [
   ['a finding without a detector is rejected (§14.1 version visibility)',
     clone((r) => { delete r.findings[0].detector; })],
 
+  ['a result without parser versions is rejected (§14.1 version visibility)',
+    clone((r) => { delete r.versions.parsers; })],
+
+  ['an empty parser list is rejected',
+    clone((r) => { r.versions.parsers = []; })],
+
   ['a non-UTC timestamp is rejected',
     clone((r) => { r.startedAt = '2026-01-01T00:00:00+08:00'; })],
 
@@ -611,6 +617,7 @@ const knownReaders = new Set([
   ...Object.keys(REGISTRY.detectors),
 ]);
 const registeredDetectors = new Set(Object.keys(REGISTRY.detectors));
+const registeredParsers = new Set(Object.keys(REGISTRY.parsers ?? {}));
 
 const ID_CHECKERS = {
   'inspection-result.schema.json': (file, doc) => {
@@ -624,6 +631,19 @@ const ID_CHECKERS = {
     ]);
     const unknown = [...used].filter((id) => !registeredDetectors.has(id));
     check(`${file} uses only registered detector ids`, unknown.length === 0, unknown.join(', '));
+
+    // Parsers get the same treatment: §14.1 names them alongside detectors, so a
+    // result citing a parser nobody registered is the same unverifiable claim.
+    const parsers = (doc.versions.parsers ?? []).map((p) => p.id);
+    const unknownParsers = parsers.filter((id) => !registeredParsers.has(id));
+    check(`${file} uses only registered parser ids`, unknownParsers.length === 0, unknownParsers.join(', '));
+
+    const mediaType = doc.input.mediaType;
+    const applicableParsers = Object.entries(REGISTRY.parsers ?? {})
+      .filter(([, p]) => p.mediaTypes.includes(mediaType))
+      .map(([id]) => id);
+    const missing = applicableParsers.filter((id) => !parsers.includes(id));
+    check(`${file} names every parser applicable to ${mediaType}`, missing.length === 0, missing.join(', '));
   },
 
   'verification-result.schema.json': (file, doc) => {
@@ -866,6 +886,27 @@ for (const file of examples) {
   const ranAnyway = [...claimsNotRun].filter((d) => doc.coverage.completed.includes(d));
   check(`${file} claims no completed check was skipped`, ranAnyway.length === 0,
     `coverage_incomplete limitation names detectors that completed: ${ranAnyway.join(', ')}`);
+}
+
+// --- every contract document ends with a handoff table -----------------------
+// The repository's own review configuration requires one, and two documents had
+// drifted to different headings instead - a rule stated in configuration and
+// enforced nowhere. What a document does NOT decide is the part a reader needs
+// most, and the part most easily lost when the document grows.
+{
+  const docsDir = join(schemaDir, '..', '..', 'docs', 'contracts');
+  const docs = readdirSync(docsDir).filter((f) => f.endsWith('.md'));
+  check('contract documents were found to check', docs.length > 0);
+  for (const file of docs) {
+    const text = readFileSync(join(docsDir, file), 'utf8');
+    const hasHeading = text.includes('## Not decided here');
+    check(`${file} has a handoff section`, hasHeading,
+      'every contract document must end with "## Not decided here"');
+    if (!hasHeading) continue;
+    const section = text.slice(text.indexOf('## Not decided here'));
+    check(`${file} handoff names an owner`, /\|\s*Owner\s*\|/.test(section) || /#\d+|E\d+/.test(section),
+      'the section must name the issue or epic each open question belongs to');
+  }
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${Object.keys(manifest).length} examples (${examples.length} inspection), ${negatives.length}+${verifyNegatives.length}+${capNegatives.length} negative cases (inspection/verification/capability), ${enumCats.length} categories, ${failures} failure(s)`);

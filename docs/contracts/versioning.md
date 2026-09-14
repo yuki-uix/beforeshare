@@ -61,8 +61,14 @@ what makes a stored result re-runnable against just the detectors that moved.
 `resultIsStale(result, current)` returns why a stored result may no longer be reused:
 
 - `core` changed
+- a recorded **parser** is at a different version, or no longer exists
 - a recorded detector is at a different version, or no longer exists
 - a detector that **applies to this media type** is absent from the result
+
+Parsers are checked the same way as detectors. §14.1 names both, and the parser is the layer most
+likely to change what a detector can see: a result produced by an older reader is not one this build
+would reproduce. `versions.parsers` was optional until a review pointed out that the clause names it —
+a result could omit the layer most likely to change the answer.
 
 The third rule is scoped by media type on purpose. An image detector missing from a PDF result is not
 staleness — it is the detector not applying. Without that scoping every PDF result would be
@@ -90,3 +96,10 @@ compare against and passed vacuously — which is the only state a new schema is
 3. For a `remediationAction`, decide its capability facts and whether any verifier can confirm it.
 4. Bump MINOR.
 5. Record it in `CHANGELOG.json` as `additive`.
+
+## Not decided here
+
+| Question | Owner |
+|---|---|
+| Which parsers and detectors actually exist | E3 (#4), E4 (#5), E5 (#6) |
+| Whether a stale result is re-run automatically or only flagged | E9 (#10) — it is a product decision about what the user is shown |

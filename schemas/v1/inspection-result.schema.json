@@ -196,6 +196,7 @@
       "description": "Which code produced this result (§14.1). Versions are per detector rather than one aggregate build number, because the question a version answers is whether this build would produce this result again — and a single number says no whenever anything changed anywhere. See docs/contracts/versioning.md.",
       "required": [
         "core",
+        "parsers",
         "detectors"
       ],
       "additionalProperties": false,
@@ -213,7 +214,9 @@
           "uniqueItems": true,
           "items": {
             "$ref": "common.schema.json#/$defs/componentVersion"
-          }
+          },
+          "minItems": 1,
+          "description": "The parsers that read the file. §14.1 requires parser AND detector versions to be visible in results; this was optional, so a result could omit the layer most likely to change what was found."
         },
         "detectors": {
           "type": "array",

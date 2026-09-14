@@ -78,7 +78,7 @@ export function canConsume(resultVersion, consumerVersion) {
  * quietly stays fixed only in the new code.
  *
  * @param {object} result           a canonical inspection result
- * @param {object} current          { core, detectors: {id: version} }
+ * @param {object} current          { core, parsers: {id: version}, detectors: {id: version} }
  * @returns {{stale: boolean, reasons: string[]}}
  */
 export function resultIsStale(result, current) {
@@ -86,6 +86,15 @@ export function resultIsStale(result, current) {
 
   if (current.core && result.versions?.core && current.core !== result.versions.core) {
     reasons.push(`core ${result.versions.core} -> ${current.core}`);
+  }
+
+  // Parsers are checked the same way as detectors. §14.1 names both, and the
+  // parser is the layer most likely to change what a detector can see: a result
+  // produced by an older reader is not one this build would reproduce.
+  for (const p of result.versions?.parsers ?? []) {
+    const now = current.parsers?.[p.id];
+    if (now === undefined) reasons.push(`parser ${p.id} no longer exists`);
+    else if (now !== p.version) reasons.push(`parser ${p.id} ${p.version} -> ${now}`);
   }
 
   for (const d of result.versions?.detectors ?? []) {
@@ -111,6 +120,11 @@ export function resultIsStale(result, current) {
 /** The detector versions this build would use right now. */
 export function currentDetectorVersions() {
   return Object.fromEntries(Object.entries(REGISTRY.detectors).map(([id, d]) => [id, d.version]));
+}
+
+/** The parser versions this build would use right now. */
+export function currentParserVersions() {
+  return Object.fromEntries(Object.entries(REGISTRY.parsers ?? {}).map(([id, p]) => [id, p.version]));
 }
 
 /**

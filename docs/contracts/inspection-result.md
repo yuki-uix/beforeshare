@@ -181,7 +181,7 @@ consumer.
 [capabilities.md](capabilities.md); versioning in [versioning.md](versioning.md); the §20.3
 boundaries in [contract-tests.md](contract-tests.md).
 
-## What this PR deliberately does not decide
+## Not decided here
 
 | Question | Owner |
 |---|---|

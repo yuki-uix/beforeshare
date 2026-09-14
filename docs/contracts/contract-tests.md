@@ -33,7 +33,9 @@ not name an adapter. An entry that is `implemented` must name an adapter module 
 
 The consequence: **the comparison starts the moment an interface claims to exist.** Nobody has to
 remember to remove a skip marker. Flipping `cli` to `implemented` without writing the adapter fails
-the build today — which is verified by mutation, not assumed.
+the build today — which a CI mutation verifies rather than assumes: the guard job flips `cli` to
+`implemented`, removes its `waitingOn`, and requires `npm run test:contracts` to fail with
+`interface cli names an adapter`.
 
 When zero interfaces are implemented the suite prints a `note` line saying so, rather than a passing
 assertion. A note is honest about there being nothing to compare; an `ok` would not be.
@@ -58,3 +60,15 @@ coverage-reducing skip and every failure must now be named by some limitation. B
 exempt: requiring a limitation for "this PNG has no EXIF block" would bury the real ones in noise.
 The converse is checked too, scoped by impact — a `coverage_incomplete` limitation may not name a
 detector that completed, while an `evidence_degraded` one legitimately can.
+
+## Not decided here
+
+| Question | Owner |
+|---|---|
+| Whether the CLI produces the canonical result, and its adapter | #9 |
+| The same for the desktop app | #10 |
+| The same for the MCP server | #11 |
+| Whether the three actually agree on one fixture set | #9 / #10 / #11 — the comparison runs as soon as two of them are registered |
+
+Nothing here compares three interfaces, because none exists. The registry checks its own
+consistency; it does not stand in for the §20.3 requirement.
