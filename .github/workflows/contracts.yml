@@ -1,0 +1,136 @@
+name: contracts
+
+# The guards this workflow runs are the point of the schemas: enum drift, example
+# ordering, severity floors, masking rules, and the negative cases. Running them
+# only on a contributor's machine would make them documentation, not enforcement.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contracts-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: schemas and masking
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # npm ci fails loudly when package.json and package-lock.json disagree,
+      # which npm install would quietly paper over.
+      - run: npm ci
+
+      - name: Validate schemas, examples and enum drift
+        run: npm run validate
+
+      - name: Test masking rules
+        run: npm run test:masking
+
+  guards-are-effective:
+    name: guards fail when they should
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      # A guard that cannot fail is worse than no guard: it reports coverage that
+      # does not exist.
+      #
+      # Each case below breaks one invariant and asserts the suite goes red *for
+      # the expected reason*. Asserting only that it goes red would accept any
+      # failure at all — a malformed mutation, a missing dependency, a bad path —
+      # as proof the guard works. That is the same mistake the guards exist to
+      # prevent, so the expected message is matched explicitly.
+      - name: Guards reject what they are supposed to reject
+        run: |
+          set -uo pipefail
+
+          expect_failure() {
+            local label="$1" expected="$2" file="$3"
+            local out status
+
+            out=$(npm run validate --silent 2>&1)
+            status=$?
+
+            if [ "$status" -eq 0 ]; then
+              echo "::error::${label}: the suite passed; this guard no longer checks anything"
+              git checkout -- "$file"
+              return 1
+            fi
+
+            if ! printf '%s' "$out" | grep -qF "$expected"; then
+              echo "::error::${label}: the suite failed, but not for the expected reason."
+              echo "::error::expected to find: ${expected}"
+              printf '%s\n' "$out" | tail -20
+              git checkout -- "$file"
+              return 1
+            fi
+
+            echo "ok  ${label}"
+            git checkout -- "$file"
+          }
+
+          failed=0
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/enums.schema.json';
+            const s=JSON.parse(fs.readFileSync(p,'utf8'));
+            s.\$defs.category.enum.push('pii_invented_for_ci');
+            fs.writeFileSync(p, JSON.stringify(s,null,2));
+          "
+          expect_failure "undeclared category" \
+            "every category has a defaults row" \
+            "schemas/v1/enums.schema.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/examples/review-required.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.findings.reverse();
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "reversed example" \
+            "review-required.json findings follow the documented ordering" \
+            "schemas/v1/examples/review-required.json" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='schemas/v1/evidence.schema.json';
+            const s=JSON.parse(fs.readFileSync(p,'utf8'));
+            delete s.properties.displayValue.maxLength;
+            s.additionalProperties = true;
+            fs.writeFileSync(p, JSON.stringify(s,null,2));
+          "
+          expect_failure "removed schema constraint" \
+            "negative case was ACCEPTED" \
+            "schemas/v1/evidence.schema.json" || failed=1
+
+          # The control: with nothing broken, the suite must be green. Without
+          # this, a suite that failed unconditionally would satisfy every case
+          # above.
+          if ! npm run validate --silent > /dev/null 2>&1; then
+            echo "::error::control case: the suite fails even with no mutation applied"
+            failed=1
+          else
+            echo "ok  control: unmutated tree is green"
+          fi
+
+          exit "$failed"

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beforeshare.dev/schemas/v1/enums.schema.json",
+  "title": "BeforeShare closed enumerations",
+  "description": "Every enumeration here is CLOSED. A consumer that encounters a value it does not know must fail visibly (§20.3) rather than skip the item or degrade it to a default.",
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "no_findings",
+        "review_required",
+        "blocking_findings",
+        "partial",
+        "unsupported",
+        "failed"
+      ],
+      "description": "Aggregate outcome of one inspection run. The decision rules that produce this value are owned by issue #18 and are NOT defined by this schema."
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "description": "How much unintended disclosure this finding represents if the file is shared as-is. Severity describes the finding, never the confidence in it - that is `certainty`."
+    },
+    "certainty": {
+      "type": "string",
+      "enum": [
+        "deterministic",
+        "probabilistic"
+      ],
+      "description": "deterministic: produced by a format parser or an explicit rule over structured data. probabilistic: produced by OCR, a model, or a heuristic over free text. Carried per finding, not per category: the same category can arrive by either path (§7.3)."
+    },
+    "categoryGroup": {
+      "type": "string",
+      "enum": [
+        "document_structure",
+        "image_metadata",
+        "personal_information"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "document_author",
+        "document_creator",
+        "document_producer",
+        "document_title",
+        "document_subject",
+        "document_keywords",
+        "document_timestamp",
+        "annotation",
+        "form_field_name",
+        "form_field_value",
+        "embedded_file",
+        "document_javascript",
+        "launch_action",
+        "external_reference",
+        "local_file_reference",
+        "hidden_text",
+        "text_under_redaction",
+        "encryption_state",
+        "permission_state",
+        "digital_signature",
+        "incremental_update",
+        "image_gps_coordinates",
+        "image_device_make",
+        "image_device_model",
+        "image_software",
+        "image_author",
+        "image_capture_timestamp",
+        "image_modification_timestamp",
+        "image_embedded_thumbnail",
+        "image_metadata_comment",
+        "pii_email_address",
+        "pii_phone_number",
+        "pii_postal_address",
+        "pii_geographic_coordinates",
+        "pii_government_or_account_id",
+        "pii_person_name",
+        "pii_username_or_path",
+        "pii_credential_like",
+        "pii_user_defined_term"
+      ]
+    },
+    "remediationAction": {
+      "type": "string",
+      "enum": [
+        "remove_pdf_metadata_field",
+        "remove_image_metadata_field",
+        "remove_annotations",
+        "remove_embedded_files",
+        "disable_javascript_and_launch_actions",
+        "clear_form_values",
+        "flatten_to_high_assurance_copy",
+        "apply_visual_redaction"
+      ],
+      "description": "The eight actions required by §9.1. PDF metadata removal and image metadata removal are kept as SEPARATE values even though both write metadata: they touch different parsers, carry different side effects (an image rewrite can alter orientation; a PDF rewrite can invalidate a signature), and a capability declaration must be able to say that one format supports it and the other does not. No action may be added here without a corresponding verification path (§10.1); an action nothing can verify must not be offered."
+    },
+    "sideEffect": {
+      "type": "string",
+      "enum": [
+        "invalidates_digital_signature",
+        "removes_accessible_or_searchable_text",
+        "flattens_forms_or_annotations",
+        "alters_visual_rendering",
+        "removes_interactive_behavior",
+        "makes_future_editing_harder"
+      ],
+      "description": "The six warning classes required by §9.2. alters_visual_rendering covers colour, font rendering, image quality, page dimensions and file size."
+    },
+    "unsupportedReason": {
+      "type": "string",
+      "enum": [
+        "format_not_supported",
+        "detection_only",
+        "would_corrupt_output",
+        "requires_manual_region_selection",
+        "blocked_by_encryption",
+        "not_implemented"
+      ],
+      "description": "Required whenever remediation.supported is false. 'Why can this not be fixed' is user-facing information, not an internal detail."
+    },
+    "coverageSkipReason": {
+      "type": "string",
+      "enum": [
+        "not_applicable_to_media_type",
+        "disabled_by_user",
+        "blocked_by_encryption",
+        "input_too_large",
+        "dependency_unavailable",
+        "cancelled"
+      ]
+    },
+    "detectorFailureCode": {
+      "type": "string",
+      "enum": [
+        "parser_error",
+        "malformed_input",
+        "resource_limit_exceeded",
+        "timeout",
+        "internal_error"
+      ]
+    },
+    "limitationCode": {
+      "type": "string",
+      "enum": [
+        "encrypted_content_not_inspected",
+        "damaged_cross_reference_table",
+        "incremental_updates_not_fully_resolved",
+        "unsupported_compression_or_color_profile",
+        "media_type_mismatch",
+        "oversized_metadata_value_truncated",
+        "image_resolution_below_ocr_threshold",
+        "language_not_covered_by_ocr",
+        "signature_present_remediation_restricted"
+      ],
+      "description": "A limitation narrows what a clean result is allowed to mean. Every limitation must name the detectors it affects, so that `no_findings` can never be produced while a limitation silently suppressed a check."
+    },
+    "limitationImpact": {
+      "type": "string",
+      "enum": [
+        "coverage_incomplete",
+        "evidence_degraded",
+        "remediation_unavailable",
+        "verification_unavailable"
+      ]
+    }
+  }
+}

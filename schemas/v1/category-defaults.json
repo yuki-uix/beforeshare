@@ -1,0 +1,259 @@
+{
+  "$comment": "Per-category defaults. Not a JSON Schema: it is the table the detectors and the status rules (issue #18) read. defaultCertainty is what a detector emits unless its detection path says otherwise, and certaintyMayVary marks the categories where that is legitimate. defaultSeverity is the starting point for severity; a detector may raise it with a documented reason but must not silently lower it. tools/validate-schemas.mjs fails if this table and the category enum disagree, so a new category cannot be added without deciding these values.",
+  "schemaVersion": "1.0",
+  "categories": {
+    "document_author": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false
+    },
+    "document_creator": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "document_producer": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "document_title": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "document_subject": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "document_keywords": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "document_timestamp": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "annotation": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false,
+      "note": "Comment text is authored content the sharer usually forgot was there."
+    },
+    "form_field_name": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "form_field_value": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false
+    },
+    "embedded_file": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "critical",
+      "certaintyMayVary": false,
+      "note": "A whole second file travelling inside the shared one."
+    },
+    "document_javascript": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false
+    },
+    "launch_action": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false
+    },
+    "external_reference": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false
+    },
+    "local_file_reference": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false,
+      "note": "Reveals the sharer's directory layout and often their account name."
+    },
+    "hidden_text": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false
+    },
+    "text_under_redaction": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "critical",
+      "certaintyMayVary": false,
+      "note": "The user believes this content is already gone."
+    },
+    "encryption_state": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false,
+      "note": "Structural fact, not disclosure. Never blocking."
+    },
+    "permission_state": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false,
+      "note": "Structural fact, not disclosure."
+    },
+    "digital_signature": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false,
+      "note": "Reported so the user can judge remediation side effects."
+    },
+    "incremental_update": {
+      "group": "document_structure",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false,
+      "note": "Earlier revisions may still contain removed content."
+    },
+    "image_gps_coordinates": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "critical",
+      "certaintyMayVary": true,
+      "note": "Deterministic from an EXIF tag; probabilistic when coordinates are recognised in visible text."
+    },
+    "image_device_make": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "image_device_model": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false
+    },
+    "image_software": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "image_author": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false
+    },
+    "image_capture_timestamp": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false
+    },
+    "image_modification_timestamp": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "low",
+      "certaintyMayVary": false
+    },
+    "image_embedded_thumbnail": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "critical",
+      "certaintyMayVary": false,
+      "note": "The thumbnail can still show content that was cropped or painted over in the main image."
+    },
+    "image_metadata_comment": {
+      "group": "image_metadata",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false
+    },
+    "pii_email_address": {
+      "group": "personal_information",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": true,
+      "note": "Deterministic by pattern in structured metadata; probabilistic when read out of an image by OCR."
+    },
+    "pii_phone_number": {
+      "group": "personal_information",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": true,
+      "note": "Same split as email: pattern in metadata vs OCR over visible text."
+    },
+    "pii_postal_address": {
+      "group": "personal_information",
+      "defaultCertainty": "probabilistic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false,
+      "note": "§7.3 names addresses as ambiguous. Never deterministic."
+    },
+    "pii_geographic_coordinates": {
+      "group": "personal_information",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": true,
+      "note": "Pattern-based in text; deterministic when read from a coordinate field."
+    },
+    "pii_government_or_account_id": {
+      "group": "personal_information",
+      "defaultCertainty": "probabilistic",
+      "defaultSeverity": "critical",
+      "certaintyMayVary": true,
+      "note": "Checksum-verifiable identifiers may be deterministic; unverifiable ones stay probabilistic."
+    },
+    "pii_person_name": {
+      "group": "personal_information",
+      "defaultCertainty": "probabilistic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": false,
+      "note": "§7.3 names full names as ambiguous. Never deterministic."
+    },
+    "pii_username_or_path": {
+      "group": "personal_information",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "medium",
+      "certaintyMayVary": true,
+      "note": "Filesystem paths are pattern-matchable; a bare username in prose is not."
+    },
+    "pii_credential_like": {
+      "group": "personal_information",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "critical",
+      "certaintyMayVary": true,
+      "note": "Known key formats are deterministic; high-entropy strings are probabilistic."
+    },
+    "pii_user_defined_term": {
+      "group": "personal_information",
+      "defaultCertainty": "deterministic",
+      "defaultSeverity": "high",
+      "certaintyMayVary": false,
+      "note": "The user supplied the exact term, so matching it is deterministic."
+    }
+  }
+}

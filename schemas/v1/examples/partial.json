@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "01JR7K4S1TF3XZA5D7W2BE8GHK",
+  "input": {
+    "path": "/Users/example/Downloads/statement.jpg",
+    "mediaType": "application/pdf",
+    "declaredMediaType": "image/jpeg",
+    "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+    "sizeBytes": 3145728
+  },
+  "status": "partial",
+  "coverage": {
+    "completed": [
+      "pdf.metadata"
+    ],
+    "skipped": [
+      {
+        "detector": "pdf.text_layer",
+        "reason": "blocked_by_encryption",
+        "message": "The document is encrypted and no password was supplied."
+      },
+      {
+        "detector": "ocr.visible_text",
+        "reason": "blocked_by_encryption",
+        "message": "Pages could not be rendered for text recognition."
+      }
+    ],
+    "failed": [
+      {
+        "detector": "pdf.annotations",
+        "errorCode": "malformed_input",
+        "message": "The cross-reference table is damaged; the annotation tree could not be walked."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "finding-1",
+      "category": "encryption_state",
+      "group": "document_structure",
+      "severity": "low",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "location": {
+        "kind": "file_structure",
+        "detail": "encryption_dictionary"
+      },
+      "evidence": {
+        "displayValue": "AES-256",
+        "redacted": false,
+        "maskPolicy": "structural_label"
+      },
+      "message": "The document is encrypted. Most checks could not run.",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "blocked_by_encryption",
+        "unsupportedDetail": "BeforeShare does not remove document encryption. Open the file with its password and export an unprotected copy first."
+      }
+    }
+  ],
+  "limitations": [
+    {
+      "code": "encrypted_content_not_inspected",
+      "impact": "coverage_incomplete",
+      "affectedDetectors": [
+        "pdf.text_layer",
+        "ocr.visible_text"
+      ],
+      "message": "Hidden text and visible text were not inspected because the document is encrypted."
+    },
+    {
+      "code": "damaged_cross_reference_table",
+      "impact": "coverage_incomplete",
+      "affectedDetectors": [
+        "pdf.annotations"
+      ],
+      "message": "Annotations and comments could not be read. This file may contain comments that are not listed here."
+    },
+    {
+      "code": "media_type_mismatch",
+      "impact": "evidence_degraded",
+      "affectedDetectors": [
+        "pdf.metadata"
+      ],
+      "message": "The filename extension claims a JPEG image but the contents are a PDF document. The contents were inspected."
+    }
+  ],
+  "versions": {
+    "core": "0.1.0",
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ],
+    "detectors": [
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      },
+      {
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      }
+    ]
+  },
+  "startedAt": "2026-01-01T00:10:00Z",
+  "durationMs": 1180
+}
