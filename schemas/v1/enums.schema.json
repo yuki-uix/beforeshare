@@ -18,17 +18,29 @@
     },
     "severity": {
       "type": "string",
-      "enum": ["low", "medium", "high", "critical"],
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
       "description": "How much unintended disclosure this finding represents if the file is shared as-is. Severity describes the finding, never the confidence in it - that is `certainty`."
     },
     "certainty": {
       "type": "string",
-      "enum": ["deterministic", "probabilistic"],
+      "enum": [
+        "deterministic",
+        "probabilistic"
+      ],
       "description": "deterministic: produced by a format parser or an explicit rule over structured data. probabilistic: produced by OCR, a model, or a heuristic over free text. Carried per finding, not per category: the same category can arrive by either path (§7.3)."
     },
     "categoryGroup": {
       "type": "string",
-      "enum": ["document_structure", "image_metadata", "personal_information"]
+      "enum": [
+        "document_structure",
+        "image_metadata",
+        "personal_information"
+      ]
     },
     "category": {
       "type": "string",
@@ -54,7 +66,6 @@
         "permission_state",
         "digital_signature",
         "incremental_update",
-
         "image_gps_coordinates",
         "image_device_make",
         "image_device_model",
@@ -64,7 +75,6 @@
         "image_modification_timestamp",
         "image_embedded_thumbnail",
         "image_metadata_comment",
-
         "pii_email_address",
         "pii_phone_number",
         "pii_postal_address",
@@ -79,7 +89,8 @@
     "remediationAction": {
       "type": "string",
       "enum": [
-        "remove_metadata_field",
+        "remove_pdf_metadata_field",
+        "remove_image_metadata_field",
         "remove_annotations",
         "remove_embedded_files",
         "disable_javascript_and_launch_actions",
@@ -87,7 +98,7 @@
         "flatten_to_high_assurance_copy",
         "apply_visual_redaction"
       ],
-      "description": "The seven actions required by §9.1. No action may be added here without a corresponding verification path (§10.1); an action nothing can verify must not be offered."
+      "description": "The eight actions required by §9.1. PDF metadata removal and image metadata removal are kept as SEPARATE values even though both write metadata: they touch different parsers, carry different side effects (an image rewrite can alter orientation; a PDF rewrite can invalidate a signature), and a capability declaration must be able to say that one format supports it and the other does not. No action may be added here without a corresponding verification path (§10.1); an action nothing can verify must not be offered."
     },
     "sideEffect": {
       "type": "string",

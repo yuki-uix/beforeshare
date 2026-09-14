@@ -26,8 +26,14 @@
       "group": "document_structure",
       "severity": "medium",
       "certainty": "deterministic",
-      "detector": { "id": "pdf.metadata", "version": "1.0.0" },
-      "location": { "kind": "pdf_metadata", "field": "Author" },
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "location": {
+        "kind": "pdf_metadata",
+        "field": "Author"
+      },
       "evidence": {
         "displayValue": "y***@example.com",
         "redacted": true,
@@ -36,7 +42,7 @@
       "message": "The PDF author field contains an email address.",
       "remediation": {
         "supported": true,
-        "action": "remove_metadata_field",
+        "action": "remove_pdf_metadata_field",
         "sideEffects": [],
         "actionGroupId": "pdf-metadata-write"
       }
@@ -47,10 +53,18 @@
       "group": "document_structure",
       "severity": "high",
       "certainty": "deterministic",
-      "detector": { "id": "pdf.annotations", "version": "1.0.0" },
-      "location": { "kind": "pdf_annotation", "page": 2, "objectNumber": 41, "subtype": "Text" },
+      "detector": {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      "location": {
+        "kind": "pdf_annotation",
+        "page": 2,
+        "objectNumber": 41,
+        "subtype": "Text"
+      },
       "evidence": {
-        "displayValue": "内部审阅…***",
+        "displayValue": "内***段",
         "redacted": true,
         "maskPolicy": "text_keep_edges",
         "truncated": true
@@ -59,7 +73,10 @@
       "remediation": {
         "supported": true,
         "action": "remove_annotations",
-        "sideEffects": ["removes_interactive_behavior", "makes_future_editing_harder"],
+        "sideEffects": [
+          "removes_interactive_behavior",
+          "makes_future_editing_harder"
+        ],
         "alternativeActions": [
           {
             "action": "flatten_to_high_assurance_copy",
@@ -80,11 +97,20 @@
       "group": "personal_information",
       "severity": "medium",
       "certainty": "probabilistic",
-      "detector": { "id": "ocr.visible_text", "version": "0.4.1" },
+      "detector": {
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      },
       "location": {
         "kind": "ocr_text",
         "page": 1,
-        "rect": { "x": 72.0, "y": 690.5, "width": 154.25, "height": 14.0, "space": "pdf_user_space" },
+        "rect": {
+          "x": 72.0,
+          "y": 690.5,
+          "width": 154.25,
+          "height": 14.0,
+          "space": "pdf_user_space"
+        },
         "confidence": 0.82
       },
       "evidence": {
@@ -96,7 +122,10 @@
       "remediation": {
         "supported": true,
         "action": "apply_visual_redaction",
-        "sideEffects": ["removes_accessible_or_searchable_text", "alters_visual_rendering"]
+        "sideEffects": [
+          "removes_accessible_or_searchable_text",
+          "alters_visual_rendering"
+        ]
       }
     }
   ],
@@ -104,13 +133,33 @@
   "versions": {
     "core": "0.1.0",
     "app": "0.1.0",
-    "parsers": [{ "id": "pdf.parser", "version": "1.0.0" }],
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ],
     "detectors": [
-      { "id": "pdf.metadata", "version": "1.0.0" },
-      { "id": "pdf.annotations", "version": "1.0.0" },
-      { "id": "pdf.embedded_files", "version": "1.0.0" },
-      { "id": "pdf.text_layer", "version": "1.0.0" },
-      { "id": "ocr.visible_text", "version": "0.4.1" }
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      },
+      {
+        "id": "ocr.visible_text",
+        "version": "0.4.1"
+      }
     ]
   },
   "startedAt": "2026-01-01T00:00:00Z",

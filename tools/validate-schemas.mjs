@@ -35,6 +35,11 @@ const fail = (msg, errors) => {
   if (errors) for (const e of errors) console.error(`        ${e.instancePath || '/'} ${e.message}`);
 };
 
+const check = (name, cond, detail) => {
+  if (cond) console.log(`ok    ${name}`);
+  else fail(name, detail ? [{ instancePath: '', message: detail }] : undefined);
+};
+
 // --- positive: every committed example must validate -------------------------
 const examples = readdirSync(exampleDir).filter((f) => f.endsWith('.json')).sort();
 if (examples.length === 0) fail('no examples found - the example set must not be empty');
@@ -111,5 +116,46 @@ for (const [name, doc] of negatives) {
   else console.log(`ok    rejected: ${name}`);
 }
 
-console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length} negative cases, ${failures} failure(s)`);
+// --- category defaults must stay in lockstep with the enum -------------------
+// The enum is the source of truth for which categories exist. This check is what
+// makes adding a category impossible without also deciding its default certainty
+// and severity: a new enum value with no row here fails the build.
+const enums = read(join(schemaDir, 'enums.schema.json'));
+const defaults = read(join(schemaDir, 'category-defaults.json'));
+const enumCats = enums.$defs.category.enum;
+const tableCats = Object.keys(defaults.categories);
+
+const missing = enumCats.filter((c) => !tableCats.includes(c));
+const orphan = tableCats.filter((c) => !enumCats.includes(c));
+check('every category has a defaults row', missing.length === 0, `missing: ${missing.join(', ')}`);
+check('no defaults row without a category', orphan.length === 0, `orphan: ${orphan.join(', ')}`);
+
+const groups = enums.$defs.categoryGroup.enum;
+const severities = enums.$defs.severity.enum;
+const certainties = enums.$defs.certainty.enum;
+for (const [name, row] of Object.entries(defaults.categories)) {
+  check(`defaults row ${name} uses declared enum values`,
+    groups.includes(row.group) && severities.includes(row.defaultSeverity) && certainties.includes(row.defaultCertainty),
+    JSON.stringify(row));
+}
+
+// --- examples must respect the defaults table --------------------------------
+// A finding may only deviate from its default certainty where the table says the
+// certainty legitimately varies. Without this, "probabilistic" becomes whatever
+// a given detector felt like emitting.
+for (const file of examples) {
+  const doc = read(join(exampleDir, file));
+  for (const f of doc.findings ?? []) {
+    const row = defaults.categories[f.category];
+    if (!row) { fail(`example ${file}: finding ${f.id} uses a category with no defaults row`); continue; }
+    check(`${file}:${f.id} group matches the defaults table`, f.group === row.group,
+      `finding says ${f.group}, table says ${row.group}`);
+    if (f.certainty !== row.defaultCertainty) {
+      check(`${file}:${f.id} may deviate from default certainty`, row.certaintyMayVary === true,
+        `${f.category} defaults to ${row.defaultCertainty} and is not marked certaintyMayVary`);
+    }
+  }
+}
+
+console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${examples.length} examples, ${negatives.length} negative cases, ${enumCats.length} categories, ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

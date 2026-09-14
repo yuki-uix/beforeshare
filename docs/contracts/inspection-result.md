@@ -98,6 +98,56 @@ field states what applies to *this* file.
 An empty `sideEffects` array is therefore a positive claim that none of the six classes in §9.2
 apply — not an unfilled default.
 
+### There are eight remediation actions, not seven
+
+§9.1 lists eight bullets. Two of them — "remove selected PDF metadata fields" and "remove selected
+image metadata fields" — describe the same verb over different formats, and an earlier draft of this
+work merged them into a single `remove_metadata_field`. That merge was wrong, and it is worth
+recording why rather than quietly fixing it:
+
+- the two actions run through different parsers and have different failure modes;
+- their side effects differ — an image rewrite can change orientation, a PDF rewrite can invalidate a
+  signature;
+- §14.1 requires each format adapter to declare exact capabilities, which a shared action value
+  cannot express when one format supports it and the other does not.
+
+So the enum carries `remove_pdf_metadata_field` and `remove_image_metadata_field` separately.
+
+**This makes the schema differ from the illustrative result in §8**, which prints
+`"action": "remove_metadata_field"`. §8 is a minimum example, §9.1 is the requirement; where they
+disagree the requirement wins. The difference is recorded here so it reads as a decision rather than
+as drift.
+
+### Per-category defaults live in a table the build checks
+
+[`schemas/v1/category-defaults.json`](../../schemas/v1/category-defaults.json) gives every category a
+`defaultCertainty`, a `defaultSeverity`, and a `certaintyMayVary` flag. It is not a JSON Schema — it
+is the table detectors read, and the table the status rules (#18) will read.
+
+The point of the file is the check around it: `npm run validate` fails when the table and the
+`category` enum disagree in either direction. **Adding a category therefore forces a decision about
+its certainty and severity**, instead of letting a new detector pick whichever values it likes at the
+call site. The validator also rejects any example whose finding deviates from its default certainty
+unless the table marks that category as one where certainty legitimately varies.
+
+Three categories are probabilistic by default — `pii_postal_address`, `pii_person_name`, and
+`pii_government_or_account_id` — because §7.3 names addresses and full names as ambiguous. Seven more
+are marked `certaintyMayVary`, all for the same structural reason: the same fact read out of a
+metadata field is deterministic, and read out of an image by OCR is not.
+
+### Adding to a closed enum: the process
+
+1. Add the value to the enum in `enums.schema.json`.
+2. For a `category`, add its row to `category-defaults.json` — the build fails until you do.
+3. For a `remediationAction`, confirm a verification path exists (§10.1). An action nothing can
+   verify must not be offered, because §10.2 would leave it permanently `unable_to_verify`.
+4. Bump the schema MINOR version.
+5. Note it in the changelog.
+
+Consumers pinned to an earlier MINOR will reject the new value. That is intended: §20.3 requires
+unknown enum values to fail visibly, and a consumer that silently tolerated one would be deciding, on
+its own, that a category it has never heard of is safe to ignore.
+
 ### `actionGroupId` answers the deduplication question
 
 Five findings on author / creator / producer / title / keywords are five things the user reviews and
@@ -109,9 +159,8 @@ what §9.3's ban on hidden bulk actions requires — the user sees five decision
 
 §20.3 requires unknown enum values to fail visibly. `additionalProperties: false` and closed enums
 throughout; the validator pins this with negative cases. The consequence is that **adding an enum
-value is a compatibility event**, not a free extension — a consumer pinned to 1.0 will reject a value
-added in 1.1, which is the intended behaviour rather than a bug. The policy for that is owned by
-issue #25.
+value is a compatibility event**, not a free extension — see the process above. How MINOR bumps are
+negotiated with pinned consumers over the long run is owned by issue #25.
 
 ## What this PR deliberately does not decide
 
@@ -121,7 +170,8 @@ issue #25.
 | Which exit code each status maps to | #24 |
 | The verification result schema | #22 |
 | The capability declaration, and the static per-action side-effect superset | #23 |
-| Version granularity and the compatibility policy | #25 |
+| Version granularity and the long-run compatibility policy | #25 |
+| Which detectors actually emit which category | E3 / E4 / E5 |
 | Cross-interface equivalence tests | #26 |
 
 `status` and `versions` appear in this schema because examples cannot be written without them. Their
