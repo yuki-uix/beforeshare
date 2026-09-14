@@ -183,7 +183,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=8
+          EXPECTED_CASES=9
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
