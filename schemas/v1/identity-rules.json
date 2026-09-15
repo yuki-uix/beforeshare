@@ -21,6 +21,9 @@
     },
     "output_not_from_this_run": {
       "rationale": "Verification was handed a sanitized file the cited run did not produce. Confirming removals on the wrong file is worse than not confirming them."
+    },
+    "duplicate_run_id": {
+      "rationale": "common.schema.json says a run identifier is unique per inspection run. A repeat lets a second run inherit the first one's approvals: the id matches, the content may match, and nothing records that they were different runs."
     }
   },
   "hash": {

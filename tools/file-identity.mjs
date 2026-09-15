@@ -22,9 +22,28 @@ export const STAGES = RULES.stages;
 export const IDENTITY_REJECTIONS = Object.keys(RULES.rejectionReasons);
 
 const intakeRecords = new WeakSet();
+/**
+ * Inspections whose file was still the same at the end.
+ *
+ * A separate brand from intakeRecords because origin and completion are
+ * different facts: a record proves intake produced it, and proves nothing about
+ * whether the run finished. Approving straight off an intake record granted
+ * sanitize for a file nobody had confirmed was still there.
+ */
+const confirmedInspections = new WeakSet();
 const approvals = new WeakSet();
 /** Content kept off the record, so freezing the record actually protects it. */
 const contents = new WeakMap();
+/**
+ * runId -> the record currently holding it.
+ *
+ * common.schema.json says a run identifier is unique per inspection run, and
+ * that concurrent inspections of one input must be distinguishable. Accepting a
+ * repeat let a second run silently inherit the first one's approvals: the run id
+ * matched, the content matched, and nothing recorded that they were different
+ * runs.
+ */
+const issuedRunIds = new Map();
 
 export class IdentityRejected extends Error {
   constructor(reason, detail) {
@@ -53,6 +72,10 @@ export function intake(fs, resolvedPath, { runId }) {
   if (typeof runId !== 'string' || runId.length === 0) {
     throw new Error('intake requires a run identifier');
   }
+  if (issuedRunIds.has(runId)) {
+    throw new IdentityRejected('duplicate_run_id',
+      `${runId} is already in use by an inspection of ${issuedRunIds.get(runId).path}`);
+  }
   const bytes = readFile(fs, resolvedPath);
   const record = {
     runId,
@@ -67,6 +90,7 @@ export function intake(fs, resolvedPath, { runId }) {
   Object.freeze(record);
   intakeRecords.add(record);
   contents.set(record, bytes);
+  issuedRunIds.set(runId, record);
   return record;
 }
 
@@ -93,6 +117,28 @@ export function bytesOf(record) {
   return Uint8Array.prototype.slice.call(bytes);
 }
 
+/**
+ * Refuse a path that is not the one the record was taken from.
+ *
+ * Every re-read here takes the path from the caller again. Hand in a different
+ * file and the comparison still runs, still compares two real hashes, and still
+ * reports a mismatch as though the input had changed - a wrong answer that
+ * looks exactly like a right one. The record already knows its path, so the
+ * disagreement is detectable rather than silent.
+ */
+function assertSamePath(subject, resolvedPath) {
+  const record = subject;
+  if (!resolvedPath || resolvedPath.path !== record.path) {
+    throw new IdentityRejected('stage_out_of_order',
+      `this record is for ${record.path}, not ${resolvedPath?.path ?? '(none)'}`);
+  }
+}
+
+/** Release a run identifier, so a finished run does not hold it forever. */
+export function releaseRunId(runId) {
+  return issuedRunIds.delete(runId);
+}
+
 /** Whether the stored content still hashes to what the record claims. */
 export function contentMatchesHash(record) {
   assertRecord(record);
@@ -108,12 +154,21 @@ export function contentMatchesHash(record) {
  */
 export function confirmUnchanged(fs, record, resolvedPath) {
   assertRecord(record);
+  assertSamePath(record, resolvedPath);
   const after = hashBytes(readFile(fs, resolvedPath));
   if (after !== record.sha256) {
     throw new IdentityRejected('input_replaced_during_inspection',
       `${record.sha256.slice(0, 12)} -> ${after.slice(0, 12)}`);
   }
-  return record;
+  const confirmed = Object.freeze({
+    runId: record.runId,
+    path: record.path,
+    sha256: record.sha256,
+    stage: 'inspect',
+    confirmed: true,
+  });
+  confirmedInspections.add(confirmed);
+  return confirmed;
 }
 
 /**
@@ -122,13 +177,19 @@ export function confirmUnchanged(fs, record, resolvedPath) {
  * The approval carries the hash rather than the path, because the path is what
  * stays the same when the content changes.
  */
-export function approve(record, { actions }) {
-  assertRecord(record);
+export function approve(confirmedInspection, { actions }) {
+  if (!confirmedInspection || typeof confirmedInspection !== 'object'
+      || !confirmedInspections.has(confirmedInspection)) {
+    throw new IdentityRejected('stage_out_of_order',
+      'an approval needs a confirmed inspection; call confirmUnchanged first');
+  }
+  const record = confirmedInspection;
   if (!Array.isArray(actions) || actions.length === 0) {
     throw new Error('an approval must name the actions it covers');
   }
   const approval = Object.freeze({
     runId: record.runId,
+    path: record.path,
     inputSha256: record.sha256,
     actions: Object.freeze([...actions]),
     grantedFor: 'sanitize',
@@ -154,6 +215,7 @@ function assertApproval(approval) {
  */
 export function checkSanitizeAllowed(fs, approval, resolvedPath, known) {
   assertApproval(approval);
+  assertSamePath(approval, resolvedPath);
   if (!known.runIds.has(approval.runId)) {
     throw new IdentityRejected('unknown_run',
       `${approval.runId} was not issued by this process; inspect again before sanitizing`);
@@ -167,7 +229,7 @@ export function checkSanitizeAllowed(fs, approval, resolvedPath, known) {
 }
 
 /** Verification must be handed the file this run produced. */
-export function checkVerifyAllowed(fs, { runId, inputSha256, outputSha256 }, produced, known) {
+export function checkVerifyAllowed({ runId, inputSha256, outputSha256 }, produced, known) {
   if (!known.runIds.has(runId)) {
     throw new IdentityRejected('unknown_run', `${runId} was not issued by this process`);
   }
@@ -187,4 +249,9 @@ export function checkVerifyAllowed(fs, { runId, inputSha256, outputSha256 }, pro
   return true;
 }
 
-export { readFile, writeFile };
+// readFile and writeFile are deliberately NOT re-exported. Re-exporting them
+// here offered a way to obtain bytes without going through intake, which is the
+// structural guarantee this module claims. A caller determined to import
+// path-gate directly still can — closing that needs a boundary this reference
+// implementation does not have — but this module no longer hands out the bypass
+// alongside the thing it is meant to protect.

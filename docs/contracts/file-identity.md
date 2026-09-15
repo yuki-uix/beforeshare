@@ -61,11 +61,54 @@ depends on what the gate's handles can offer.
 | `stage_out_of_order` | verify asked for a run whose sanitize recorded no output |
 | `input_changed_since_inspection` | the approved bytes are not the current bytes |
 | `input_replaced_during_inspection` | the file changed while it was being read |
+| `duplicate_run_id` | a run identifier already naming another inspection — a repeat lets the second run inherit the first one's approvals, because every check it meets compares the id and finds a match |
 | `output_not_from_this_run` | verification handed a file this run did not produce — confirming removals on the wrong file is worse than not confirming them |
 
 Every reason is triggered by a vector, and seven mutations against the implementation — dropping the
 hash comparison, dropping the run check, skipping the re-read, defeating either brand, adding a
 second read, and dropping the output comparison — are each caught by the vector written for it.
+
+## Each stage proves the previous one finished
+
+Three brands, not one. An intake record proves where the bytes came from; a
+confirmation proves the file was still the same when the findings were shown; an
+approval proves a person saw those findings. `approve()` takes a confirmation,
+not a record, so the sequence is a type question rather than a review question:
+
+```
+intake()            -> record          (origin)
+confirmUnchanged()  -> confirmation    (origin + the run completed)
+approve()           -> approval        (+ a person decided)
+```
+
+Collapsing the first two — approving straight off a record — grants sanitize for
+a file nobody confirmed was still there. It is the same defect as trusting a
+path: the thing being checked is not the thing that can change.
+
+Every re-read takes its path from the caller. On the confirm side a wrong path
+produces a real mismatch and a wrong answer shaped like a right one. On the
+sanitize side it is worse, because the hashes can agree: two identical copies of
+a document meant an approval for one authorised rewriting the other, and
+sanitize writes. So the record and the approval each carry the path they are
+for, and both re-reads refuse a path that is not it.
+
+The suite could not have found this: its filesystem stub answered every path
+with the same bytes, so no vector could tell two files apart. A stub that cannot
+express the difference makes every check over it read as coverage.
+
+## The rule table is checked against the source, not against itself
+
+`IDENTITY_REJECTIONS` is `Object.keys` over `identity-rules.json`, so comparing
+it with that file's keys compares a file with itself. It passes for a reason
+nothing throws and for a name misspelled in both places at once — a check
+shaped like coverage over a case it cannot reach.
+
+The independent fact is which literals the code hands its rejection
+constructor. The validator reads those out of the module source and checks both
+directions — and requires every rejection to name its reason literally at the
+throw site, because a reason passed as a variable would be invisible to the scan
+and the check would go on passing while no longer seeing the code — and rejects keys in the table that nothing reads: a rule no code
+consults still reads, to anyone opening the file, as one in force.
 
 ## Not decided here
 

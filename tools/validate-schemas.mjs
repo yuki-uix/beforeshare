@@ -1002,13 +1002,65 @@ for (const file of examples) {
   }
 }
 
+// --- rule tables: checked against the source, not against themselves --------
+//
+// Both rule modules build their exported reason list with Object.keys over the
+// same JSON the table comes from, so comparing the two compares a file with
+// itself: it passes for a reason nothing throws, and for one spelled wrong in
+// both places at once. The independent fact is which literals the code actually
+// hands to its rejection constructor, so read those out of the source.
+const RULE_MODULE_DIR = join(schemaDir, '..', '..', 'tools');
+function reasonsThrownIn(moduleFile, constructorName) {
+  const src = readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8');
+  const thrown = new Set();
+  const re = new RegExp(`new ${constructorName}\\(\\s*['\"]([a-z_]+)['\"]`, 'g');
+  for (const m of src.matchAll(re)) thrown.add(m[1]);
+  return thrown;
+}
+
+function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed,
+                          topLevelKeys, reasonKeys }) {
+  const declared = Object.keys(table.rejectionReasons);
+  const thrown = reasonsThrownIn(moduleFile, constructorName);
+
+  check(`${file} every declared reason is thrown somewhere in ${moduleFile}`,
+    declared.every((r) => thrown.has(r)),
+    `never thrown: ${declared.filter((r) => !thrown.has(r)).join(', ')}`);
+  // The scan reads literals. A reason passed as a variable would be invisible to
+  // it - the check would keep passing while no longer seeing the code. So the
+  // module is required to keep every rejection literal at its throw site.
+  const src = readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8');
+  const nonLiteral = [...src.matchAll(new RegExp(`new ${constructorName}\\(\\s*([^'"\\s][^,)]*)`, 'g'))];
+  check(`${file} every rejection in ${moduleFile} names its reason literally`,
+    nonLiteral.length === 0,
+    nonLiteral.map((m) => m[1].slice(0, 40)).join(' / '));
+  check(`${file} every reason ${moduleFile} throws is declared`,
+    [...thrown].every((r) => declared.includes(r)),
+    `undeclared: ${[...thrown].filter((r) => !declared.includes(r)).join(', ')}`);
+  check(`${file} the module exposes exactly the declared reasons`,
+    JSON.stringify([...exposed].sort()) === JSON.stringify([...declared].sort()),
+    `impl: ${exposed.join(', ')} vs table: ${declared.join(', ')}`);
+
+  // An unknown key is a rule nothing reads. It looks like it is in force.
+  const strayTop = Object.keys(table).filter((k) => !topLevelKeys.includes(k));
+  check(`${file} carries no keys the validator does not check`, strayTop.length === 0,
+    strayTop.join(', '));
+  for (const [name, r] of Object.entries(table.rejectionReasons)) {
+    const stray = Object.keys(r).filter((k) => !reasonKeys.includes(k));
+    check(`${file} reason ${name} carries no unknown keys`, stray.length === 0, stray.join(', '));
+  }
+}
+
 // --- the path rule table and its implementation stay in step ----------------
 {
   const pathRules = read(join(schemaDir, 'path-rules.json'));
   const declared = Object.keys(pathRules.rejectionReasons);
-  check('the gate exposes exactly the declared rejection reasons',
-    JSON.stringify([...REJECTION_REASONS].sort()) === JSON.stringify([...declared].sort()),
-    `gate: ${REJECTION_REASONS.join(', ')} vs table: ${declared.join(', ')}`);
+  checkRuleTable({
+    file: 'path-rules.json', table: pathRules, module: 'path-gate.mjs',
+    constructorName: 'Rejected', exposed: REJECTION_REASONS,
+    topLevelKeys: ['$comment', 'schemaVersion', 'rejectionReasons', 'identity'],
+    reasonKeys: ['stage', 'rationale'],
+  });
   for (const [name, r] of Object.entries(pathRules.rejectionReasons)) {
     check(`rejection reason ${name} names when it applies and why`,
       ['before_access', 'before_write'].includes(r.stage) && typeof r.rationale === 'string' && r.rationale.length > 20,
@@ -1024,9 +1076,13 @@ for (const file of examples) {
 {
   const idRules = read(join(schemaDir, 'identity-rules.json'));
   const declared = Object.keys(idRules.rejectionReasons);
-  check('the binding exposes exactly the declared rejection reasons',
-    JSON.stringify([...IDENTITY_REJECTIONS].sort()) === JSON.stringify([...declared].sort()),
-    `impl: ${IDENTITY_REJECTIONS.join(', ')} vs table: ${declared.join(', ')}`);
+  checkRuleTable({
+    file: 'identity-rules.json', table: idRules, module: 'file-identity.mjs',
+    constructorName: 'IdentityRejected', exposed: IDENTITY_REJECTIONS,
+    topLevelKeys: ['$comment', 'schemaVersion', 'stages', 'rejectionReasons', 'hash',
+      'orderingIsStructural'],
+    reasonKeys: ['rationale'],
+  });
   for (const [name, r] of Object.entries(idRules.rejectionReasons)) {
     check(`identity reason ${name} says why it exists`,
       typeof r.rationale === 'string' && r.rationale.length > 20, JSON.stringify(r));

@@ -193,7 +193,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=16
+          EXPECTED_CASES=20
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -360,6 +360,52 @@ jobs:
           "
           expect_failure "an approval that survives a change to its input" \
             "an approval does not survive a change to the input" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (issuedRunIds.has(runId)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an intake that lets one run identifier name two inspections" \
+            "a run identifier already in use is refused" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(' || !confirmedInspections.has(confirmedInspection)','');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an approval taken straight off an intake record" \
+            "an intake record cannot be approved without a confirmation" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          # The rule-table check used to compare a file with itself, so a reason
+          # nothing throws read as consistent. This mutation adds exactly that.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/identity-rules.json';
+            const t=JSON.parse(fs.readFileSync(p,'utf8'));
+            t.rejectionReasons.never_thrown_anywhere={rationale:'a rule the implementation does not enforce, declared as though it did'};
+            fs.writeFileSync(p, JSON.stringify(t,null,2)+'\\n');
+          "
+          expect_failure "a declared rejection reason no code path throws" \
+            "every declared reason is thrown somewhere in file-identity.mjs" \
+            "schemas/v1/identity-rules.json" \
+            "validate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  assertSamePath(approval, resolvedPath);','');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an approval honoured for a file it was not granted for" \
+            "an approval does not authorise sanitizing an identical other file" \
             "tools/file-identity.mjs" \
             "test:identity" || failed=1
 
