@@ -106,10 +106,10 @@ export const FIXTURES = {
       catalogueExtra: ' /OpenAction 6 0 R',
       extraObjects: ['<< /S /GoTo /D [3 0 R /Fit] >>'],
     })),
-    annotationInstructions: 'The positive has both document-level JavaScript and a launch action. The control has an /OpenAction too - a benign GoTo - so a detector keying on /OpenAction rather than on its /S fails here.',
+    annotationInstructions: 'The positive has both document-level JavaScript and a launch action. The control has an /OpenAction too - a benign GoTo - so a detector keying on /OpenAction rather than on its /S fails here. Expect review_required, not blocking: E1 set both categories to high, and §7.2\'s concern is that a user cannot judge a script, not that every script is disclosure.',
     expectedCoverage: 'completed',
     expectedRemediation: 'disable_javascript_and_launch_actions',
-    expectedStatus: 'blocking_findings',
+    expectedStatus: 'review_required',
   },
 
   'external and local-file references': {

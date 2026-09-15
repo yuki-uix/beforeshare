@@ -24,6 +24,9 @@ import {
 } from './temp-files.mjs';
 import { REGISTRY_REFUSALS, RECORD_FIELDS } from './run-registry.mjs';
 import { LIMIT_REFUSALS, OUTCOMES, BASIS_KINDS, budgetsWithoutBasis } from './limits.mjs';
+import {
+  DETECTION_REFUSALS, ESCALATABLE, CONSIDERED_AND_NOT_RAISED,
+} from './pdf-detection.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -812,6 +815,18 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  DETECTION_REFUSALS: {
+    value: DETECTION_REFUSALS,
+    standalone: 'what the §7.1 mapping refuses; pdf-detection-rules.json is data, and the validator checks the two against each other directly',
+  },
+  ESCALATABLE: {
+    value: ESCALATABLE,
+    standalone: 'categories a detector may raise above E1\'s default; not an enum in any schema',
+  },
+  CONSIDERED_AND_NOT_RAISED: {
+    value: CONSIDERED_AND_NOT_RAISED,
+    standalone: 'categories this epic considered raising and did not; recorded so an absence does not read as an oversight',
+  },
   LIMIT_REFUSALS: {
     value: LIMIT_REFUSALS,
     standalone: 'what the limit rules refuse; limit-rules.json is data, and the validator checks the two against each other directly',
@@ -1300,6 +1315,36 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   }
 }
 
+// --- the §7.1 mapping and its module stay in step -----------------------------
+{
+  const det = read(join(schemaDir, 'pdf-detection-rules.json'));
+  checkRuleTable({
+    file: 'pdf-detection-rules.json', table: det, module: 'pdf-detection.mjs',
+    constructorName: 'MappingRefused', exposed: DETECTION_REFUSALS, reasonsKey: 'refusals',
+    shape: {
+      $comment: true, schemaVersion: true,
+      source: { document: true, section: true, atLeast: true },
+      mapping: { $comment: 'prose', '*': { categories: true, location: true, detector: true,
+        locationNote: 'prose', producesNoFinding: 'prose' } },
+      escalation: { $comment: 'prose', '*': { e1Default: true, raiseTo: true,
+        condition: true, why: 'prose' } },
+      nonEscalating: { $comment: 'prose', '*': 'prose' },
+      refusals: { $comment: 'prose', '*': { rationale: 'prose', negativeCase: true } },
+    },
+  });
+  // The module reads the section and the floor; the suite reads the document.
+  // Asserted here so the field is not a path nobody checks.
+  // Read by the suite, which is a different file, so asserted here - a rule
+  // nobody reads is decoration, and the check does not know about suites.
+  for (const [name, r] of Object.entries(det.refusals)) {
+    if (name === '$comment') continue;
+    check(`${name} says where its negative case lives`,
+      ['in_suite', 'in_ci'].includes(r.negativeCase), r.negativeCase);
+  }
+  check('the §7.1 mapping names the case study that exists',
+    existsSync(join(schemaDir, '..', '..', det.source.document)), det.source.document);
+}
+
 // --- the boundary claims, and the floor under them ---------------------------
 {
   const bounds = read(join(schemaDir, 'boundary-rules.json'));
@@ -1434,7 +1479,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       arbitration: { $comment: 'prose', sameInputInspect: 'prose',
         sameInputSanitize: 'prose', sameOutputName: 'prose' },
       record: { $comment: 'prose', fields: true, stages: true, durability: true },
-      refusals: { '*': { rationale: 'prose' } },
+      refusals: { $comment: 'prose', '*': { rationale: 'prose', negativeCase: true } },
     },
   });
 
