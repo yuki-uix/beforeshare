@@ -14,6 +14,11 @@ A temporary directory on another volume would make the publish silently become a
 half-copied file wearing the destination's name is the one thing §12.1 says must never appear.
 Atomicity is the stronger guarantee, so it wins.
 
+This was put as a question rather than settled quietly, because #38's own scope note asked for a
+location outside anything backed up, synchronised or indexed, and moving there would mean undoing
+the publish protocol #36 landed. **Decided: atomicity wins, the location stays.** The note was mine
+rather than the case study's, which asks for the threat model and the cleanup test.
+
 What that costs is written down rather than left out: the user's directory is watched by Time
 Machine, by cloud sync, and by Spotlight. A temporary file there can be copied off the machine or
 read by an indexer during its life, and owner-only permissions do not stop a backup agent running as
