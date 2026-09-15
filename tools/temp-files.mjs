@@ -16,6 +16,7 @@ const RULES = JSON.parse(
 
 /** Owner-only, as a number the filesystem call can take. */
 export const TEMP_MODE = parseInt(RULES.mode.octal, 8);
+const MARKER = RULES.incompleteMarker;
 export const THREATS = Object.keys(RULES.threats);
 export const TEMP_REFUSALS = Object.keys(RULES.refusals).filter((k) => k !== '$comment');
 export const TEMP_LOCATION = RULES.location.policy;
@@ -83,6 +84,14 @@ export function sweep(fs, host, entries) {
       continue;
     }
     if (!reclaimable) { kept.push({ path, because: 'owner_may_be_alive' }); continue; }
+    // The marker is checked here, at the delete, and not only where candidates
+    // are found. A caller can skip findTemporaryFiles and hand over anything -
+    // and with the owner reported gone, this would delete the user's own file.
+    // Every path out of this module passes the same gate.
+    if (!path.endsWith(MARKER)) {
+      kept.push({ path, because: 'not_a_temporary_file' });
+      continue;
+    }
     fs.unlink(path);
     removed.push(path);
   }
@@ -103,7 +112,7 @@ export function findTemporaryFiles(fs, directory) {
     throw new TempRefused('cannot_enumerate',
       'this host cannot list a directory, so a sweep would only see what it was handed');
   }
-  return fs.list(directory).filter((name) => name.endsWith(RULES.incompleteMarker ?? '.part'))
+  return fs.list(directory).filter((name) => name.endsWith(MARKER))
     .map((name) => `${directory}/${name}`);
 }
 

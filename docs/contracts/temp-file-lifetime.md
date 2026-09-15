@@ -32,9 +32,11 @@ copy a file that exists for milliseconds. This build sets no exclusion attribute
 afterwards is world-readable for the interval between, which is the whole of the window someone
 waiting for it needs.
 
-The mode is passed, not assumed. A stub that records whatever it was handed proves the call and not
-the result, so the vectors also create a file on a real filesystem with the same mode and read the
-mode back — the same lesson as `realpath`, whose documented contract no filesystem implemented.
+The mode is passed, not assumed — and checked by running the publish itself, on a real directory,
+through an adapter that implements `createExclusive` the way one would. A stub that records what it
+was handed proves the call and not the result, and creating a file with `openSync` in the test would
+prove `node:fs` and not this module. An implementation that dropped `{ mode }`, or created wide and
+narrowed afterwards, fails there and nowhere else.
 
 ## An orphan is proved, not guessed
 
@@ -63,6 +65,12 @@ that is where these two contracts meet: a crash leaves an orphan, the sweep find
 and reclaims it once the owner is provably gone. Answering the crash case with the `finally` would
 have been answering it with code the case is defined by not reaching.
 
+## Both exits of the sweep check the marker
+
+`findTemporaryFiles` filters by it, and the delete checks it again. A caller can skip the finder, and
+with the owner reported gone a sweep that trusted its list would delete whatever it was handed — the
+user's own input included. Same class of data, same gate on every exit.
+
 ## The sweep finds its own candidates
 
 `findTemporaryFiles` lists the directory and filters by the marker. A sweep handed its list by the
@@ -88,9 +96,12 @@ input. An implementation that staged a copy of the original would be visible.
 | a backup or indexer copies it | a sync client can copy a file that exists for milliseconds; no exclusion attribute is set |
 | a sweep deletes one still being written | proving a process is gone depends on the host, and a host that cannot answer must refuse |
 
-Each entry names a vector by its exact text, and the validator checks the name is found in the
-suite. *Mitigated, tested* is the sentence that stops anyone looking again, so the sentence has to be
-true.
+Each entry names a check by its exact text, and **the suite** — which knows the names it ran —
+asserts the name is among them. The validator used to prove this with a substring search over the
+file, which a comment satisfies and which a prefix satisfied: one threat named
+*the temporary file does not outlive the publish* while every actual check carried a per-path suffix.
+The exact comparison found that on its first run. *Mitigated, tested* is the sentence that stops
+anyone looking again, so the sentence has to be true.
 
 ## Not decided here
 

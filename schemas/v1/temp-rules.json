@@ -34,6 +34,12 @@
     },
     "cannot_enumerate": {
       "rationale": "the host cannot list a directory. A sweep that only sees the paths it was handed protects whatever the caller remembered to include, which is the same failure as a registry the caller fills in."
+    },
+    "not_a_temporary_file": {
+      "rationale": "a path handed to the sweep does not carry the incomplete marker. Deleting it because its owner is gone would delete whatever the caller passed, the user's own input included, so the marker is checked at the delete and not only where candidates are found."
+    },
+    "owner_may_be_alive": {
+      "rationale": "the owning process could not be shown to be gone, so the file stays. This is the sweep's most common answer and the reason it exists, and leaving it out of the table meant the one outcome nobody had written down was the one that matters."
     }
   },
   "threats": {

@@ -1257,6 +1257,9 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     // kind of entry - nothing throws a threat - so they are checked by their
     // own rules rather than squeezed through a scan for throw sites.
     constructorName: 'TempRefused', exposed: TEMP_REFUSALS, reasonsKey: 'refusals',
+    // The sweep reports rather than throws: a kept file carries the same
+    // vocabulary in `because`, so that is a producing site too.
+    extraProducers: ["because: '([a-z_]+)'"],
     shape: {
       $comment: true, schemaVersion: true,
       incompleteMarker: true,
@@ -1281,12 +1284,13 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       missing.join(', '));
   }
 
-  // And the coverage it names must exist. "Mitigated, tested" is the sentence
-  // that stops anyone looking again, so the vector it points at has to be real.
-  const tempVectors = readFileSync(join(RULE_MODULE_DIR, 'test-temp-files.mjs'), 'utf8');
+  // Whether the named check ran is asserted by the suite itself, which knows
+  // the names it executed; a search for the text here would be satisfied by a
+  // comment, the way the rule-table scan nearly was by its own explanation.
+  // What is left here is that a name was given at all.
   for (const [name, t] of Object.entries(tempRules.threats)) {
-    check(`the vector named by ${name} exists`, tempVectors.includes(t.testCoverage),
-      t.testCoverage);
+    check(`threat ${name} names something as its coverage`,
+      typeof t.testCoverage === 'string' && t.testCoverage.length > 10, t.testCoverage);
   }
 
   check('the mode is owner-only', () => !readableByOthers(TEMP_MODE) && TEMP_MODE === 0o600);

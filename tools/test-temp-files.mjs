@@ -6,7 +6,8 @@
  * that stops anyone looking again, so the sentence has to be true.
  */
 import {
-  mkdtempSync, statSync, openSync, closeSync, rmSync, readFileSync,
+  mkdtempSync, statSync, openSync, closeSync, rmSync, writeFileSync, readFileSync,
+  realpathSync, readdirSync, linkSync, unlinkSync, lstatSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -22,6 +23,8 @@ const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import
 if (isMain) {
   let failures = 0;
   const refused = new Set();
+  /** Names of checks this run actually executed, for the coverage claim below. */
+  const ran = new Set();
   const fail = (name, detail) => {
     failures += 1;
     console.error(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`);
@@ -37,6 +40,7 @@ if (isMain) {
     process.exit(1);
   });
   const check = (name, cond, detail) => {
+    ran.add(name);
     let value;
     try { value = typeof cond === 'function' ? cond() : cond; }
     catch (e) { fail(name, `threw instead of returning: ${e?.reason ?? e?.message ?? e}`); return; }
@@ -86,32 +90,51 @@ if (isMain) {
       `mode ${(fs.modes.get(claim.temp.path) ?? 0).toString(8)}`);
 
     // A stub that records whatever it was handed proves the call, not the
-    // result. This is the same class as the realpath contract that no
-    // filesystem implemented: check what the filesystem does with it.
+    // result - and creating a file here with openSync would prove node:fs, not
+    // this module. So the publish runs for real, on a real directory, through
+    // an adapter that implements createExclusive the way one would: an
+    // implementation that dropped { mode }, or created wide and chmodded after,
+    // fails here and nowhere else.
     const dir = mkdtempSync(`${tmpdir()}/beforeshare-temp-`);
     try {
-      const real = `${dir}/created.part`;
-      closeSync(openSync(real, 'wx', TEMP_MODE));
-      const mode = statSync(real).mode & 0o777;
-      check('node:fs creates it owner-only when handed the same mode',
-        () => !readableByOthers(mode), `mode ${mode.toString(8)}`);
-      // Created that way rather than narrowed afterwards: a file that is
-      // world-readable for even an instant is readable for the whole of the
-      // window someone waiting for it needs.
-      // umask can only clear bits, never add them, so the property is simply
-      // that nothing beyond the owner's is set and nothing beyond what was
-      // asked for. An `or` between two spellings of 0600 would have read like
-      // a check while only one branch ever ran.
-      check('the mode was right from the first instant, not set afterwards',
-        () => (mode & ~TEMP_MODE & 0o777) === 0,
-        `mode ${mode.toString(8)} vs ${TEMP_MODE.toString(8)}`);
+      const realInput = `${dir}/report.pdf`;
+      writeFileSync(realInput, 'original');
+      const adapter = {
+        realpath: (p) => { try { return realpathSync(p); } catch { return p; } },
+        isDirectory: (p) => { try { return lstatSync(p).isDirectory(); } catch { return false; } },
+        read: (p) => readFileSync(p, 'utf8'),
+        write: (p, bytes) => (writeFileSync(p, bytes), true),
+        createExclusive: (p, { mode } = {}) => {
+          try { closeSync(openSync(p, 'wx', mode)); return true; } catch { return false; }
+        },
+        link: (from, to) => { try { linkSync(from, to); return true; } catch { return false; } },
+        unlink: (p) => { try { unlinkSync(p); return true; } catch { return false; } },
+        list: (d) => readdirSync(d),
+      };
+      const realGate = createGate({ fs: adapter, authorisedRoots: [realpathSync(dir)] });
+      const realClaim = claimOutputPath(adapter, realGate, realGate.forRead(realInput));
+      const onDisk = statSync(realClaim.temp.path).mode & 0o777;
+      // umask only clears bits, so the property is that nothing beyond the
+      // owner's is set. An `or` between two spellings of 0600 would have read
+      // like a check while only one branch ever ran.
+      check('the publish creates it owner-only on a real filesystem',
+        () => (onDisk & ~TEMP_MODE & 0o777) === 0 && !readableByOthers(onDisk),
+        `mode ${onDisk.toString(8)} vs ${TEMP_MODE.toString(8)}`);
+      writeClaimed(adapter, realGate, realClaim, 'sanitized');
+      check('and the temporary file is gone once it has published',
+        () => readdirSync(dir).every((n) => !n.endsWith('.part')), readdirSync(dir).join(', '));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }
 
-  // --- the temporary file does not outlive the publish ------------------------
+  // --- the three exits cleanup can reach --------------------------------------
   {
+    // One name, run for each exit. The label is detail, not part of the name: a
+    // threat naming this as its coverage should mean all three paths, and a
+    // name that varied per path would let it mean whichever one still existed.
+    // "Cleanup happens" otherwise means "cleanup happens on the path I was
+    // thinking about".
     for (const [label, run] of [
       ['a successful publish', (fs, g, claim) => writeClaimed(fs, g, claim, 'sanitized')],
       ['a cancelled run', (fs, g, claim) => {
@@ -128,9 +151,11 @@ if (isMain) {
       const g = gateFor(fs);
       const claim = claimOutputPath(fs, g, g.forRead(INPUT));
       run(fs, g, claim);
-      check(`the temporary file does not outlive the publish: ${label}`,
-        () => !fs.files.has(claim.temp.path));
+      check('the temporary file does not outlive the publish',
+        () => !fs.files.has(claim.temp.path), label);
     }
+    // The fourth exit is a crash, where cleanup does not run at all - that one
+    // is answered by the sweep, below.
   }
 
   // --- the temporary file holds the sanitized output, never the input --------
@@ -184,6 +209,23 @@ if (isMain) {
     check('the input is untouched by the sweep', () => fs.files.get(INPUT) === 'original');
   }
 
+  // --- the delete exit checks the marker, not just the finder -----------------
+  {
+    // A caller can skip findTemporaryFiles. With the owner reported gone, a
+    // sweep that trusts its list would delete whatever it was handed - the
+    // user's own input included. Every path out of this module passes the same
+    // gate, which is the two-way check this repository already asks for.
+    const fs = mkFs();
+    const gone = { processIsRunning: () => false };
+    const owner = ownerToken({ pid: 9, startedAt: 9 });
+    const { removed, kept } = sweep(fs, gone, [{ path: INPUT, owner }]);
+    check('a path without the marker is not deleted, whoever owns it',
+      () => removed.length === 0 && kept[0].because === 'not_a_temporary_file');
+    check('the input survives a sweep that was pointed at it',
+      () => fs.files.get(INPUT) === 'original');
+    refused.add('not_a_temporary_file');
+  }
+
   // --- a host that cannot list a directory sweeps nothing ---------------------
   {
     const fs = mkFs();
@@ -219,6 +261,7 @@ if (isMain) {
     check('the sweep removes the orphan', () => removed.length === 1 && removed[0].endsWith('b.part'));
     check('the sweep keeps the live one and says why',
       () => kept.length === 1 && kept[0].because === 'owner_may_be_alive');
+    refused.add('owner_may_be_alive');
     check("the live run's bytes are still there", () => fs.files.get(`${ROOT}/a.part`) === 'live work');
   }
 
@@ -241,6 +284,20 @@ if (isMain) {
     check('a sweep that cannot decide keeps the file and reports it',
       () => removed.length === 0 && kept[0].because === 'liveness_unknown');
     check('and the file is still there', () => fs.files.has(`${ROOT}/c.part`));
+  }
+
+  // --- each threat names a check that ran -------------------------------------
+  {
+    // The validator used to prove this with a substring search over the file,
+    // which a comment satisfies - the same defect as the rule-table scan that
+    // its own explanatory comment nearly passed. The suite knows which names it
+    // ran, so the comparison is exact and only counts checks that executed.
+    const rules = JSON.parse(readFileSync(
+      new URL('../schemas/v1/temp-rules.json', import.meta.url), 'utf8'));
+    for (const [threat, entry] of Object.entries(rules.threats)) {
+      check(`the check named by ${threat} ran`, () => ran.has(entry.testCoverage),
+        entry.testCoverage);
+    }
   }
 
   // --- every declared refusal is reachable ------------------------------------

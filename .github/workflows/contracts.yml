@@ -212,7 +212,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=38
+          EXPECTED_CASES=40
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -632,9 +632,9 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
           "
           expect_failure "a threat whose named test coverage does not exist" \
-            "the vector named by another_local_user_reads_the_temporary_file exists" \
+            "the check named by another_local_user_reads_the_temporary_file ran" \
             "schemas/v1/temp-rules.json" \
-            "validate" || failed=1
+            "test:temp" || failed=1
 
           # A sweep handed its list protects whatever the caller remembered to
           # include, which is the same failure as a registry the caller fills in.
@@ -647,6 +647,32 @@ jobs:
           expect_failure "a sweep that accepts a host which cannot enumerate" \
             "a host that cannot list a directory is refused, not handed a list" \
             "tools/temp-files.mjs" \
+            "test:temp" || failed=1
+
+          # With the owner reported gone, a sweep that trusts its list deletes
+          # whatever it was handed - the user's own input included.
+          node -e "
+            const fs=require('fs'), p='tools/temp-files.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if (!path.endsWith(MARKER)) {','    if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a sweep that deletes a path without the marker" \
+            "a path without the marker is not deleted, whoever owns it" \
+            "tools/temp-files.mjs" \
+            "test:temp" || failed=1
+
+          # The mode has to survive the whole way to the filesystem, which only
+          # a publish run against a real directory can show.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('fs.createExclusive(temp.path, { mode: TEMP_MODE })','fs.createExclusive(temp.path, {})');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a mode that does not reach the filesystem" \
+            "the publish creates it owner-only on a real filesystem" \
+            "tools/output-naming.mjs" \
             "test:temp" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
