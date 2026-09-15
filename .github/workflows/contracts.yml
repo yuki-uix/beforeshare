@@ -112,6 +112,10 @@ jobs:
       - name: Test resource limits
         run: npm run test:limits
 
+      # Last, because it runs the others and reads what they reported.
+      - name: Every §20.2 boundary is covered or owed
+        run: npm run test:boundaries
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -202,12 +206,17 @@ jobs:
             exit 1
           fi
 
+          # Takes one or more paths, space separated: a mutation can span files,
+          # and the interesting ones do - deleting a safety boundary means
+          # editing the requirement and the claim about it together.
           restore() {
-            local f="$1"
-            if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
-              echo "::error::could not restore ${f} after mutating it; later cases are unreliable"
-              exit 1
-            fi
+            local f
+            for f in $1; do
+              if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
+                echo "::error::could not restore ${f} after mutating it; later cases are unreliable"
+                exit 1
+              fi
+            done
           }
 
           failed=0
@@ -218,7 +227,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=54
+          EXPECTED_CASES=59
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -865,6 +874,78 @@ jobs:
           expect_failure "a handoff owner with no reason beside it" \
             "resource-limits.md every handoff row says why that owner" \
             "docs/contracts/resource-limits.md" \
+            "validate" || failed=1
+
+          # A boundary added to §20.2 must arrive with nothing claiming it.
+          # The list is read from the case study, so this is the case that
+          # matters most: a list copied into a file of ours would be compared
+          # with itself and notice nothing.
+          node -e "
+            const fs=require('fs'), p='docs/product-case-study.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('- log and error redaction.','- log and error redaction;\\n- a boundary nobody has claimed yet.');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a new §20.2 boundary that nothing claims" \
+            "a boundary nobody has claimed yet" \
+            "docs/product-case-study.md" \
+            "test:boundaries" || failed=1
+
+          # Coverage is "a check that ran", not "a check that exists": rename one
+          # and the boundary loses its cover.
+          node -e "
+            const fs=require('fs'), p='tools/test-path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"'an output equal to the input is refused'\",\"'an output equal to the input is rejected'\");
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a renamed check that a boundary still claims" \
+            "output path equals input is covered by checks that ran" \
+            "tools/test-path-gate.mjs" \
+            "test:boundaries" || failed=1
+
+          # Three suites carry "every declared refusal is triggered by a
+          # vector". A claim on a bare name is covered by whichever check
+          # happened to share it.
+          node -e "
+            const fs=require('fs'), p='tools/test-boundaries.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('if (m) passed.add(\`\${script}:\${m[1]}\`);','if (m) passed.add(m[1]);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "coverage credited to a check name without its suite" \
+            "output path equals input is covered by checks that ran" \
+            "tools/test-boundaries.mjs" \
+            "test:boundaries" || failed=1
+
+          # Removing a boundary together with its claim slipped through:
+          # staleClaims only sees a claim whose boundary is gone, never a pair
+          # that left together.
+          node -e "
+            const fs=require('fs');
+            let s=fs.readFileSync('docs/product-case-study.md','utf8');
+            s=s.replace('- symlink escape;\\n','');
+            fs.writeFileSync('docs/product-case-study.md', s);
+            const d=JSON.parse(fs.readFileSync('schemas/v1/boundary-rules.json','utf8'));
+            delete d.claims['symlink escape'];
+            fs.writeFileSync('schemas/v1/boundary-rules.json', JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "a safety boundary deleted along with its claim" \
+            "still lists at least" \
+            "docs/product-case-study.md schemas/v1/boundary-rules.json" \
+            "test:boundaries" || failed=1
+
+          # And the floor needs its own guard, or whoever drops a boundary drops
+          # the floor in the same edit.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/boundary-rules.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.source.atLeast = 1;
+            fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "a boundary floor lowered below what is claimed" \
+            "the boundary floor is not below what is claimed" \
+            "schemas/v1/boundary-rules.json" \
             "validate" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without

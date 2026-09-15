@@ -1283,6 +1283,27 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   }
 }
 
+// --- the boundary claims, and the floor under them ---------------------------
+{
+  const bounds = read(join(schemaDir, 'boundary-rules.json'));
+  // The floor exists so that removing a boundary and its claim together cannot
+  // pass quietly. A floor that drifts down with the list would be no floor.
+  const claimed = Object.keys(bounds.claims).filter((k) => k !== '$comment');
+  check('the boundary floor is not below what is claimed',
+    bounds.source.atLeast >= claimed.length,
+    `floor ${bounds.source.atLeast}, ${claimed.length} claims`);
+  check('every claim is either covered or owed, never both or neither',
+    claimed.every((k) => {
+      const c = bounds.claims[k];
+      return Array.isArray(c.coveredBy) !== (typeof c.owedBy === 'string');
+    }));
+  // A claim names the suite it ran in, because three suites share a check name.
+  const unqualified = claimed.flatMap((k) => (bounds.claims[k].coveredBy ?? []))
+    .filter((name) => !/^test:[a-z-]+:/.test(name));
+  check('every claimed check names the suite it ran in', unqualified.length === 0,
+    unqualified.join(' / '));
+}
+
 // --- what a run may consume, and what an overrun is called --------------------
 {
   const limits = read(join(schemaDir, 'limit-rules.json'));
