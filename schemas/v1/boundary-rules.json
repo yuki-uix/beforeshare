@@ -5,7 +5,9 @@
     "$comment": "Where the boundaries come from, and how they are found. A boundary added to the case study appears here with nothing claiming it, and the suite fails until something does.",
     "document": "docs/product-case-study.md",
     "section": "20.2",
-    "shape": "a bullet list, one boundary per line"
+    "shape": "a bullet list, one boundary per line",
+    "atLeast": 12,
+    "atLeastReason": "What §20.2 listed when this was written. A floor, not a count: adding a boundary must not fail, and removing one must not pass. Without it, deleting a boundary together with its claim slips through - staleClaims only sees a claim whose boundary is gone, not a pair that left together. Lowering this number is how someone says out loud that a safety requirement was dropped."
   },
   "claims": {
     "$comment": "Keyed by the boundary's text as the case study writes it. Each names either checks that must have run - as \"suite:check name\", because a bare name can appear in more than one suite and a boundary would then be covered by whichever check happened to share a name - or an owner who owes it. Never both, and never neither.",

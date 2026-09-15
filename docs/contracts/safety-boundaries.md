@@ -12,6 +12,16 @@ would notice, which is the failure this exists to prevent.
 The parse is required to find something. A regex that silently matches nothing would report perfect
 coverage of an empty list, which is the same shape of lie one level up.
 
+And there is a **floor**, carried in the rule table: §20.2 must still list at least as many
+boundaries as it did when this was written. Without it, deleting a boundary *together with its
+claim* passed quietly — `staleClaims` only sees a claim whose boundary is gone, never a pair that
+left together. Measured: two boundaries removed, twelve became ten, suite green.
+
+Adding a boundary must not fail and removing one must not pass, so it is a floor rather than a
+count. Lowering it is how someone says out loud that a safety requirement was dropped — and the
+floor has its own guard, because otherwise whoever drops a boundary drops the floor in the same
+edit.
+
 ## Coverage means a check that ran
 
 Not "a check exists with this name" — a name that appeared as `ok` in a suite that actually

@@ -206,12 +206,17 @@ jobs:
             exit 1
           fi
 
+          # Takes one or more paths, space separated: a mutation can span files,
+          # and the interesting ones do - deleting a safety boundary means
+          # editing the requirement and the claim about it together.
           restore() {
-            local f="$1"
-            if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
-              echo "::error::could not restore ${f} after mutating it; later cases are unreliable"
-              exit 1
-            fi
+            local f
+            for f in $1; do
+              if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
+                echo "::error::could not restore ${f} after mutating it; later cases are unreliable"
+                exit 1
+              fi
+            done
           }
 
           failed=0
@@ -222,7 +227,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=57
+          EXPECTED_CASES=59
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -912,6 +917,36 @@ jobs:
             "output path equals input is covered by checks that ran" \
             "tools/test-boundaries.mjs" \
             "test:boundaries" || failed=1
+
+          # Removing a boundary together with its claim slipped through:
+          # staleClaims only sees a claim whose boundary is gone, never a pair
+          # that left together.
+          node -e "
+            const fs=require('fs');
+            let s=fs.readFileSync('docs/product-case-study.md','utf8');
+            s=s.replace('- symlink escape;\\n','');
+            fs.writeFileSync('docs/product-case-study.md', s);
+            const d=JSON.parse(fs.readFileSync('schemas/v1/boundary-rules.json','utf8'));
+            delete d.claims['symlink escape'];
+            fs.writeFileSync('schemas/v1/boundary-rules.json', JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "a safety boundary deleted along with its claim" \
+            "still lists at least" \
+            "docs/product-case-study.md schemas/v1/boundary-rules.json" \
+            "test:boundaries" || failed=1
+
+          # And the floor needs its own guard, or whoever drops a boundary drops
+          # the floor in the same edit.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/boundary-rules.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.source.atLeast = 1;
+            fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "a boundary floor lowered below what is claimed" \
+            "the boundary floor is not below what is claimed" \
+            "schemas/v1/boundary-rules.json" \
+            "validate" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

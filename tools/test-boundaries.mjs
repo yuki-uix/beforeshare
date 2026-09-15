@@ -80,8 +80,14 @@ if (isMain) {
 
   // A parse that finds nothing reports perfect coverage of an empty list, so
   // the count is asserted before anything is concluded from it.
-  check(`§${BOUNDARY_SOURCE.section} still lists boundaries to cover`,
-    () => boundaries.length >= 10, `${boundaries.length} found`);
+  // A floor from the rule table, not a number in here. Adding a boundary must
+  // not fail; removing one must not pass - and removing a boundary together
+  // with its claim slipped through, because staleClaims only sees a claim whose
+  // boundary is gone, never a pair that left together. Lowering the floor is
+  // how someone says out loud that a safety requirement was dropped.
+  check(`§${BOUNDARY_SOURCE.section} still lists at least ${BOUNDARY_SOURCE.atLeast} boundaries`,
+    () => boundaries.length >= BOUNDARY_SOURCE.atLeast,
+    `${boundaries.length} found, floor is ${BOUNDARY_SOURCE.atLeast}`);
 
   const scripts = suiteScripts();
   // Two suites can carry the same check name, so a claim names the suite too.
