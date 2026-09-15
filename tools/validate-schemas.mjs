@@ -18,6 +18,7 @@ import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSourc
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
+import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 import { BREAKING_KINDS, ADDITIVE_KINDS, CHANGE_TYPES } from './versioning.mjs';
 
@@ -796,6 +797,14 @@ const enumAt = (file, path) => path.split('.').reduce((n, k) => n[k], read(join(
 
 const MIRRORS = {
   POLICIES: { value: POLICIES, schema: ['evidence.schema.json', 'properties.maskPolicy.enum'] },
+  IDENTITY_REJECTIONS: {
+    value: IDENTITY_REJECTIONS,
+    standalone: 'the binding\'s own vocabulary; identity-rules.json is data, and the validator compares the two directly',
+  },
+  STAGES: {
+    value: STAGES,
+    standalone: 'the three stages §14.1 names; they are not an enum in any schema',
+  },
   REJECTION_REASONS: {
     value: REJECTION_REASONS,
     standalone: 'the gate\'s own vocabulary; path-rules.json is data, and the validator checks the two against each other directly',
@@ -993,13 +1002,90 @@ for (const file of examples) {
   }
 }
 
+// --- rule tables: checked against the source, not against themselves --------
+//
+// Both rule modules build their exported reason list with Object.keys over the
+// same JSON the table comes from, so comparing the two compares a file with
+// itself: it passes for a reason nothing throws, and for one spelled wrong in
+// both places at once. The independent fact is which literals the code actually
+// hands to its rejection constructor, so read those out of the source.
+const RULE_MODULE_DIR = join(schemaDir, '..', '..', 'tools');
+function reasonsThrownIn(moduleFile, constructorName) {
+  const src = readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8');
+  const thrown = new Set();
+  const re = new RegExp(`new ${constructorName}\\(\\s*['\"]([a-z_]+)['\"]`, 'g');
+  for (const m of src.matchAll(re)) thrown.add(m[1]);
+  return thrown;
+}
+
+/**
+ * Every key at every level, checked against a declared shape.
+ *
+ * A node whose shape is not declared is reported rather than skipped: adding a
+ * nested object to a rule table must force a decision about what may live in
+ * it, the same way adding an enum value forces a row in the drift tables.
+ */
+function undeclaredKeys(node, shape, where) {
+  if (shape === undefined) return [`${where}: nothing declares what may appear here`];
+  const found = [];
+  for (const [k, v] of Object.entries(node)) {
+    const allowed = shape['*'] ?? shape[k];
+    if (allowed === undefined) { found.push(`${where}.${k}`); continue; }
+    const isNode = v && typeof v === 'object' && !Array.isArray(v);
+    // true declares a leaf. An object arriving under one would carry keys the
+    // walk never reaches, so the shape has to be widened deliberately rather
+    // than outgrown silently.
+    if (isNode && allowed === true) { found.push(`${where}.${k}: an object where a leaf was declared`); }
+    else if (isNode) { found.push(...undeclaredKeys(v, allowed, `${where}.${k}`)); }
+  }
+  return found;
+}
+
+function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape }) {
+  const declared = Object.keys(table.rejectionReasons);
+  const thrown = reasonsThrownIn(moduleFile, constructorName);
+
+  check(`${file} every declared reason is thrown somewhere in ${moduleFile}`,
+    declared.every((r) => thrown.has(r)),
+    `never thrown: ${declared.filter((r) => !thrown.has(r)).join(', ')}`);
+  // The scan reads literals. A reason passed as a variable would be invisible to
+  // it - the check would keep passing while no longer seeing the code. So the
+  // module is required to keep every rejection literal at its throw site.
+  const src = readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8');
+  const nonLiteral = [...src.matchAll(new RegExp(`new ${constructorName}\\(\\s*([^'"\\s][^,)]*)`, 'g'))];
+  check(`${file} every rejection in ${moduleFile} names its reason literally`,
+    nonLiteral.length === 0,
+    nonLiteral.map((m) => m[1].slice(0, 40)).join(' / '));
+  check(`${file} every reason ${moduleFile} throws is declared`,
+    [...thrown].every((r) => declared.includes(r)),
+    `undeclared: ${[...thrown].filter((r) => !declared.includes(r)).join(', ')}`);
+  check(`${file} the module exposes exactly the declared reasons`,
+    JSON.stringify([...exposed].sort()) === JSON.stringify([...declared].sort()),
+    `impl: ${exposed.join(', ')} vs table: ${declared.join(', ')}`);
+
+  // An unknown key is a rule nothing reads. It looks, to anyone opening the
+  // file, like one in force. Checking only the top level and the reasons left
+  // the nested objects - hash, orderingIsStructural, identity - accepting
+  // anything, so the walk covers every level and a nested object whose shape
+  // nobody declared fails rather than passing by default.
+  const stray = undeclaredKeys(table, shape, file);
+  check(`${file} carries no keys the validator does not check`, stray.length === 0,
+    stray.join(' / '));
+}
+
 // --- the path rule table and its implementation stay in step ----------------
 {
   const pathRules = read(join(schemaDir, 'path-rules.json'));
   const declared = Object.keys(pathRules.rejectionReasons);
-  check('the gate exposes exactly the declared rejection reasons',
-    JSON.stringify([...REJECTION_REASONS].sort()) === JSON.stringify([...declared].sort()),
-    `gate: ${REJECTION_REASONS.join(', ')} vs table: ${declared.join(', ')}`);
+  checkRuleTable({
+    file: 'path-rules.json', table: pathRules, module: 'path-gate.mjs',
+    constructorName: 'Rejected', exposed: REJECTION_REASONS,
+    shape: {
+      $comment: true, schemaVersion: true,
+      rejectionReasons: { '*': { stage: true, rationale: true } },
+      identity: { $comment: true, unicodeNormalization: true, caseInsensitiveDefault: true },
+    },
+  });
   for (const [name, r] of Object.entries(pathRules.rejectionReasons)) {
     check(`rejection reason ${name} names when it applies and why`,
       ['before_access', 'before_write'].includes(r.stage) && typeof r.rationale === 'string' && r.rationale.length > 20,
@@ -1009,6 +1095,37 @@ for (const file of examples) {
   // the file is open would be describing a check that runs too late.
   check('every reason applies before the filesystem is touched',
     declared.every((n) => pathRules.rejectionReasons[n].stage.startsWith('before_')));
+}
+
+// --- the identity rule table and its implementation stay in step -------------
+{
+  const idRules = read(join(schemaDir, 'identity-rules.json'));
+  const declared = Object.keys(idRules.rejectionReasons);
+  checkRuleTable({
+    file: 'identity-rules.json', table: idRules, module: 'file-identity.mjs',
+    constructorName: 'IdentityRejected', exposed: IDENTITY_REJECTIONS,
+    shape: {
+      $comment: true, schemaVersion: true, stages: true,
+      rejectionReasons: { '*': { rationale: true } },
+      hash: { algorithm: true, encoding: true, $comment: true },
+      orderingIsStructural: { claim: true, howItHolds: true, $comment: true },
+    },
+  });
+  for (const [name, r] of Object.entries(idRules.rejectionReasons)) {
+    check(`identity reason ${name} says why it exists`,
+      typeof r.rationale === 'string' && r.rationale.length > 20, JSON.stringify(r));
+  }
+  check('the stages are the three §14.1 names, in order',
+    JSON.stringify(idRules.stages) === JSON.stringify(['inspect', 'sanitize', 'verify']));
+  // A structural guarantee is not a rejection reason: a reason describes a check
+  // that can fire, and one that never can is an enforcement claim the code does
+  // not make. The table records the claim separately, with how it holds.
+  check('a structural guarantee is recorded as one, not as a reason',
+    typeof idRules.orderingIsStructural?.claim === 'string'
+    && typeof idRules.orderingIsStructural?.howItHolds === 'string'
+    && !declared.includes('bytes_read_before_hashing'));
+  check('the hash algorithm matches what the result schema requires',
+    idRules.hash.algorithm === 'sha256' && idRules.hash.encoding === 'lowercase-hex');
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${Object.keys(manifest).length} examples (${examples.length} inspection), ${negatives.length}+${verifyNegatives.length}+${capNegatives.length} negative cases (inspection/verification/capability), ${enumCats.length} categories, ${failures} failure(s)`);

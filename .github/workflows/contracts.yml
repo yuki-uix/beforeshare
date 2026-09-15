@@ -94,6 +94,9 @@ jobs:
       - name: Test the path safety gate
         run: npm run test:path-gate
 
+      - name: Test file identity binding
+        run: npm run test:identity
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -190,7 +193,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=15
+          EXPECTED_CASES=22
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -348,6 +351,85 @@ jobs:
             "a replaced component does not change what a bound read returns" \
             "tools/path-gate.mjs" \
             "test:path-gate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (now !== approval.inputSha256) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an approval that survives a change to its input" \
+            "an approval does not survive a change to the input" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (issuedRunIds.has(runId)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an intake that lets one run identifier name two inspections" \
+            "a run identifier already in use is refused" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(' || !confirmedInspections.has(confirmedInspection)','');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an approval taken straight off an intake record" \
+            "an intake record cannot be approved without a confirmation" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          # The rule-table check used to compare a file with itself, so a reason
+          # nothing throws read as consistent. This mutation adds exactly that.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/identity-rules.json';
+            const t=JSON.parse(fs.readFileSync(p,'utf8'));
+            t.rejectionReasons.never_thrown_anywhere={rationale:'a rule the implementation does not enforce, declared as though it did'};
+            fs.writeFileSync(p, JSON.stringify(t,null,2)+'\\n');
+          "
+          expect_failure "a declared rejection reason no code path throws" \
+            "every declared reason is thrown somewhere in file-identity.mjs" \
+            "schemas/v1/identity-rules.json" \
+            "validate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  assertSamePath(approval, resolvedPath);','');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an approval honoured for a file it was not granted for" \
+            "an approval does not authorise sanitizing an identical other file" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (retiredRunIds.has(runId)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a spent run identifier handed out again" \
+            "a released identifier is still refused" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('const bytes = copyOf(readFile(fs, resolvedPath));','const bytes = readFile(fs, resolvedPath);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a record hashing the adapter's own mutable buffer" \
+            "the adapter writing through its own reference does not change the record" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
