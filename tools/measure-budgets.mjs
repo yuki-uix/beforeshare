@@ -153,16 +153,27 @@ export function inputBytesWithin({ hashBytesPerSecond, readBytesPerSecond },
   return Math.floor(bytesPerSecond * (targetMs / 1000) * shareOfTarget);
 }
 
-const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
-if (isMain) {
-  const result = measure();
-  const memory = measureMemoryInCleanProcess();
-  const memorySpread = spread(memory);
-  console.log(JSON.stringify({
+/**
+ * The whole report, assembled once.
+ *
+ * Exported because the suite has to check that a budget's declared measurement
+ * is a field this actually produces - and a suite that rebuilds the shape by
+ * hand checks its own copy. Rename a field here and the hand-built version goes
+ * on agreeing with a report nobody generates any more.
+ */
+export function report(options = {}) {
+  const result = measure(options);
+  const memory = measureMemoryInCleanProcess(options);
+  return {
     ...result,
     memory,
-    memorySpread,
+    memorySpread: spread(memory),
     inputBytesWithinQuarterOfTarget: inputBytesWithin(result),
     inputBytesWithinQuarterOfMemory: inputBytesWithinMemory(memory, result),
-  }, null, 2));
+  };
+}
+
+const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (isMain) {
+  console.log(JSON.stringify(report(), null, 2));
 }

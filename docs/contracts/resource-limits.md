@@ -41,6 +41,10 @@ the cyclic one uses an actual cycle: a test that walks a tree would never notice
 
 ## An undeclared budget is not an unlimited one
 
+…and neither is a budget of `NaN`. It is a number, `typeof` says so, and every comparison against it
+is false — so it is no limit at all, declared. `Infinity` spells the same thing honestly, and a
+negative budget refuses work that was inside any real one. A budget must be finite and positive.
+
 Work asked to run without a budget is refused. Defaulting to unlimited makes the limit an opt-in,
 and the case it exists for is the one where nobody remembered to opt in.
 
@@ -68,8 +72,8 @@ The measurement was taken before the numbers were written, and it moved one of t
   "totalMemoryBytes": 25769803776,
   "sampleBytes": 33554432,
   "samples": 5,
-  "hashBytesPerSecond": 3301301850,
-  "readBytesPerSecond": 11206446580,
+  "hashBytesPerSecond": 3377891995,
+  "readBytesPerSecond": 12189236237,
   "memory": [
     {
       "fileBytes": 8388608,
@@ -77,7 +81,7 @@ The measurement was taken before the numbers were written, and it moved one of t
     },
     {
       "fileBytes": 33554432,
-      "ratio": 1.999767154455185
+      "ratio": 1.9997553825378418
     },
     {
       "fileBytes": 134217728,
@@ -85,10 +89,10 @@ The measurement was taken before the numbers were written, and it moved one of t
     }
   ],
   "memorySpread": {
-    "min": 1.999767154455185,
+    "min": 1.9997553825378418,
     "max": 2
   },
-  "inputBytesWithinQuarterOfTarget": 3187595150,
+  "inputBytesWithinQuarterOfTarget": 3306159210,
   "inputBytesWithinQuarterOfMemory": 3221225952
 }
 ```
@@ -98,21 +102,6 @@ this, time allowed about 3.2 GB and memory about 3.0 GB, so **neither is the bin
 The cap is therefore a decision — a desktop tool that takes a quarter of the machine for one file is
 a bad neighbour even when it fits — and it says so rather than wearing a measurement it does not
 have.
-
-### The instrument had to be fixed before the number meant anything
-
-The first version measured resident memory and reported 2.03, then 0.00, then 1.00 on repeated runs —
-and took the largest sample, which hid the fault by choosing whichever run happened to be right.
- is the better instrument, but it is a **process-wide total**, so two things had to
-change before it said anything true: every allocated buffer is kept alive for the whole run (release
-one and the collector reclaims it partway through the next size, whose baseline already counted it),
-and the measurement runs in a **child process** (the suite that calls it has just expanded a 64 MB
-decompression bomb, and the baseline would be answering a question about the suite).
-
-Each of those read as a finding on the way: a multiplier that fell with file size looks like a
-discovery about large files, and it was the measurement measuring itself. The suite now asserts the
-multiplier does not vary with size, which is true by construction — one copy plus one more — so a
-reading that varies is an instrument fault and fails as one.
 
 ### The instrument had to be fixed before the number meant anything
 

@@ -14,7 +14,8 @@ import {
   BASIS_KINDS, budgetsWithoutBasis, LimitExceeded,
 } from './limits.mjs';
 import {
-  measure, measureMemoryInCleanProcess, spread, inputBytesWithin, inputBytesWithinMemory,
+  measure, measureMemoryInCleanProcess, spread, report,
+  inputBytesWithin, inputBytesWithinMemory,
 } from './measure-budgets.mjs';
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
@@ -196,6 +197,27 @@ if (isMain) {
       try { budget(budgets); } catch (e) { refusedHere = e.reason === 'budget_not_declared'; refused.add(e.reason); }
       check(`${label} is refused rather than treated as unlimited`, refusedHere);
     }
+    // A number is not enough. NaN is a number and every comparison against it
+    // is false, so a budget of NaN is not a loose limit - it is no limit at
+    // all, declared. Infinity spells the same thing honestly.
+    for (const [label, value] of [['NaN', NaN], ['Infinity', Infinity],
+      ['zero', 0], ['a negative number', -1]]) {
+      let refusedHere = false;
+      try { budget({ ...DEFAULT_BUDGETS, expansionRatio: value }); }
+      catch (e) { refusedHere = e.reason === 'budget_not_declared'; }
+      check(`a budget of ${label} is refused`, refusedHere);
+      let admitRefusedHere = false;
+      try { admit(1, { inputBytes: value }); }
+      catch (e) { admitRefusedHere = e.reason === 'budget_not_declared'; }
+      check(`and admitting against ${label} is refused`, admitRefusedHere);
+    }
+    // The one that shows why: without the check, this passes.
+    let bypassed = null;
+    try { bypassed = admit(Number.MAX_SAFE_INTEGER, { inputBytes: NaN }); }
+    catch { bypassed = 'refused'; }
+    check('an enormous input against a NaN cap does not slip through',
+      () => bypassed === 'refused', String(bypassed));
+
     let admitRefused = false;
     try { admit(1, {}); } catch (e) { admitRefused = e.reason === 'budget_not_declared'; }
     check('and admitting against no cap is refused too', admitRefused);
@@ -208,8 +230,10 @@ if (isMain) {
       without.join(', '));
     const rules = JSON.parse(readFileSync(
       new URL('../schemas/v1/limit-rules.json', import.meta.url), 'utf8'));
-    // A measured basis has to name a measurement this repository produces.
-    const produced = Object.keys({ ...measure({ sampleBytes: 1 << 20, samples: 1 }), memory: [] });
+    // A measured basis has to name a field the report actually produces - from
+    // the report, not from a shape rebuilt here. A hand-built copy goes on
+    // agreeing after the real one is renamed, which is a test checking itself.
+    const produced = Object.keys(report({ sampleBytes: 1 << 20, samples: 1, sizes: [4] }));
     for (const [name, b] of Object.entries(rules.budgets)) {
       if (name === '$comment' || b.basis !== 'measured') continue;
       check(`${name} names a measurement the harness produces`,

@@ -218,7 +218,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=51
+          EXPECTED_CASES=53
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -826,6 +826,33 @@ jobs:
             "the multiplier does not vary with the size of the input" \
             "tools/measure-budgets.mjs" \
             "test:limits" || failed=1
+
+          # NaN is a number, and every comparison against it is false - so a
+          # budget of NaN is not a loose limit, it is no limit at all, declared.
+          node -e "
+            const fs=require('fs'), p='tools/limits.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {\",\"  if (typeof value !== 'number') {\");
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a budget nothing can exceed, declared as a number" \
+            "a budget of NaN is refused" \
+            "tools/limits.mjs" \
+            "test:limits" || failed=1
+
+          # A misspelled coverage falls into the other branch rather than
+          # failing: "faield" is not "skipped", so it is looked for among the
+          # failure codes and found there.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/limit-rules.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.outcomes.timeout.coverage='faield';
+            fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "a coverage value the result schema does not have" \
+            "timeout has a coverage the result schema knows" \
+            "schemas/v1/limit-rules.json" \
+            "validate" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

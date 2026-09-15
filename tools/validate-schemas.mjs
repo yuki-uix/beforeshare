@@ -7,8 +7,8 @@
  * positive examples would still pass. Each negative case names the rule it is
  * pinning, and the run fails if a case that must be rejected is accepted.
  */
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -1297,6 +1297,11 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   const failureCodes = enumAt('enums.schema.json', '$defs.detectorFailureCode.enum');
   for (const [name, o] of Object.entries(limits.outcomes)) {
     if (name === '$comment') continue;
+    // A misspelling falls into the other branch rather than failing: "faield"
+    // is not "skipped", so it is looked for among the failure codes and found.
+    // The value has to be one of the two the result schema has.
+    check(`${name} has a coverage the result schema knows`,
+      ['skipped', 'failed'].includes(o.coverage), JSON.stringify(o.coverage));
     const home = o.coverage === 'skipped' ? skipReasons : failureCodes;
     check(`${name} is a name the result schema already has`, home.includes(name),
       `${o.coverage} vocabulary is ${home.join(', ')}`);
@@ -1335,8 +1340,14 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   for (const [name, b] of Object.entries(limits.budgets)) {
     if (name === '$comment') continue;
     if (b.basis === 'measured') {
+      // includes() on a string matches a substring, so "memory,other" would
+      // answer for "memory". The list has to be a list.
+      check('the measurement records are a list',
+        Array.isArray(limits.measurement.records),
+        JSON.stringify(limits.measurement.records));
       check(`${name} names the measurement it came from`,
-        limits.measurement.records.includes(b.measurement), b.measurement);
+        Array.isArray(limits.measurement.records)
+        && limits.measurement.records.includes(b.measurement), b.measurement);
     }
     if (b.basis === 'provisional') {
       check(`${name} names who owes the real number`,
@@ -1349,9 +1360,14 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
         typeof b.note === 'string' && b.note.length > 100, b.note?.slice(0, 40));
     }
   }
-  check('the measurement names a file that exists',
-    existsSync(join(RULE_MODULE_DIR, limits.measurement.runs.replace('tools/', ''))),
-    limits.measurement.runs);
+  // Resolved before it is checked, and required to stay inside tools/: a value
+  // of "tools/../package.json" strips to "../package.json", which exists and is
+  // not a measurement script.
+  const declaredRuns = resolve(RULE_MODULE_DIR, limits.measurement.runs.replace(/^tools\//, ''));
+  check('the measurement names a file inside tools/',
+    declaredRuns.startsWith(`${resolve(RULE_MODULE_DIR)}/`), declaredRuns);
+  check('and that file exists and is a regular file',
+    existsSync(declaredRuns) && statSync(declaredRuns).isFile(), limits.measurement.runs);
 }
 
 // --- what two runs on one machine may do at once -----------------------------

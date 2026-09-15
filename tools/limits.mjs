@@ -136,9 +136,14 @@ export function coverageFor(outcome) {
 }
 
 function assertDeclared(budgets, name) {
-  if (budgets === null || typeof budgets !== 'object' || typeof budgets[name] !== 'number') {
+  const value = budgets === null || typeof budgets !== 'object' ? undefined : budgets[name];
+  // A number is not enough. NaN is a number, and every comparison against it is
+  // false - so a budget of NaN is not a loose limit, it is no limit at all,
+  // declared. Infinity is the same thing spelled honestly, and a negative
+  // budget refuses work that was inside any real one.
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     throw new LimitRefused('budget_not_declared',
-      `${name} was not declared; an undeclared budget is an opt-in limit, and the case it exists for is the one nobody opted into`);
+      `${name} must be a finite positive number, not ${JSON.stringify(value)}; a budget nothing can exceed is an opt-in limit, and the case it exists for is the one nobody opted into`);
   }
 }
 
