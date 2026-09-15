@@ -1,0 +1,142 @@
+{
+  "$comment": "How §7.1's twelve disclosure categories reach the canonical result: which category enum value, which location kind, which detector, and whether a finding can be raised to critical. The twelve are NOT listed here - they are read out of the case study, because a list copied into this file would be checked against the copy. category-defaults.json still owns severity and certainty; this says only where a finding may be raised above its default, and on what condition.",
+  "schemaVersion": "1.0",
+  "source": {
+    "document": "docs/product-case-study.md",
+    "section": "7.1",
+    "atLeast": 12
+  },
+  "mapping": {
+    "$comment": "Keyed by the §7.1 item, exactly as the case study writes it. `categories` may be empty only when `producesNoFinding` says why - an item that yields nothing is a decision, not an omission.",
+    "standard document metadata, including author, creator, producer, title, subject, keywords, and timestamps": {
+      "categories": [
+        "document_author",
+        "document_creator",
+        "document_producer",
+        "document_title",
+        "document_subject",
+        "document_keywords",
+        "document_timestamp"
+      ],
+      "location": "pdf_metadata",
+      "detector": "pdf.metadata",
+      "locationNote": "`field` names the /Info key or XMP property. One finding per populated field, not one for the dictionary: a user approving removal is approving each value they were shown."
+    },
+    "annotations and comments": {
+      "categories": [
+        "annotation"
+      ],
+      "location": "pdf_annotation",
+      "detector": "pdf.annotations",
+      "locationNote": "`page` is required and `objectNumber` identifies the annotation within it. `rect` lets the desktop app point at it; a detector that cannot supply one omits it rather than guessing (§8.2)."
+    },
+    "form field names and values": {
+      "categories": [
+        "form_field_name",
+        "form_field_value"
+      ],
+      "location": "pdf_form_field",
+      "detector": "pdf.form_fields",
+      "locationNote": "A field name can disclose on its own - `applicant_national_id` says what the form collects even when empty - so the name and the value are separate categories reached from the same location."
+    },
+    "embedded files": {
+      "categories": [
+        "embedded_file"
+      ],
+      "location": "pdf_embedded_file",
+      "detector": "pdf.embedded_files",
+      "locationNote": "`index` into the EmbeddedFiles name tree, because a name is not unique and may itself be disclosive."
+    },
+    "document-level JavaScript and launch actions": {
+      "categories": [
+        "document_javascript",
+        "launch_action"
+      ],
+      "location": "pdf_action",
+      "detector": "pdf.actions",
+      "locationNote": "`trigger` says what runs it - /OpenAction, an annotation's /A, a field's /AA - because the same action object reached from a different trigger is a different risk."
+    },
+    "external and local-file references": {
+      "categories": [
+        "external_reference",
+        "local_file_reference"
+      ],
+      "location": "pdf_action",
+      "detector": "pdf.actions",
+      "locationNote": "Reached as an action (/URI, /GoToR, /Launch) rather than as an annotation, because the reference lives in the action and the annotation is only one of the things that can carry one."
+    },
+    "text content not visually obvious in the rendered page": {
+      "categories": [
+        "hidden_text"
+      ],
+      "location": "pdf_text_layer",
+      "detector": "pdf.text_layer",
+      "locationNote": "`characterRange` into the extracted text, because a rectangle cannot describe text that renders nowhere."
+    },
+    "text that remains extractable beneath an apparent visual cover or redaction": {
+      "categories": [
+        "text_under_redaction"
+      ],
+      "location": "pdf_text_layer",
+      "detector": "pdf.text_layer",
+      "locationNote": "`rect` is required in practice here even though the schema allows its absence: the finding is that text and a covering shape occupy the same place, which cannot be stated without saying where."
+    },
+    "image-only pages through local OCR": {
+      "categories": [],
+      "location": null,
+      "detector": "pdf.text_layer",
+      "producesNoFinding": "An image-only page is not a disclosure; it is a page this build cannot read. §17.1 puts unsupported checks mislabelled as completed at 0, so it is reported as coverage skipped with input requiring OCR - a finding would assert something about content nobody has looked at. OCR itself is E5 (#6)."
+    },
+    "encryption and permission state": {
+      "categories": [
+        "encryption_state",
+        "permission_state"
+      ],
+      "location": "file_structure",
+      "detector": "pdf.structure",
+      "locationNote": "`detail` carries the filter and revision. Not a disclosure of content - a statement about what could and could not be checked, which §7.1 asks to be reported either way."
+    },
+    "digital signature presence and the likelihood that modification will invalidate it": {
+      "categories": [
+        "digital_signature"
+      ],
+      "location": "file_structure",
+      "detector": "pdf.structure",
+      "locationNote": "`file_structure`, not `pdf_form_field`: a signature is carried by a form field but the finding is about the document's integrity, and §9.2 lists invalidating it as a side effect the user must see before approving."
+    },
+    "parser warnings, malformed objects, incremental updates, and unsupported features": {
+      "categories": [
+        "incremental_update"
+      ],
+      "location": "file_structure",
+      "detector": "pdf.structure",
+      "locationNote": "`revision` numbers the update. This §7.1 item names four things in three different vocabularies: an incremental update is a finding, a malformed object is a detectorFailureCode, and an unsupported feature is an unsupportedReason. Only the first belongs here, and saying so is the point - the other two have their own exits and would otherwise be reported as findings about content."
+    }
+  },
+  "escalation": {
+    "$comment": "category-defaults.json is E1's, and it owns severity. Two categories already default to critical - embedded_file and text_under_redaction - so those block without anything here, and listing them would imply they needed raising. This table is only for categories E1 set BELOW critical that this epic argues a detector may raise, and each entry has to say what it is overriding and on what condition. Writing \"critical always\" for a category E1 deliberately set to high is not a rule, it is one epic overruling another in a file the first would not think to read.",
+    "incremental_update": {
+      "e1Default": "medium",
+      "raiseTo": "critical",
+      "condition": "a previous revision holds values the current one removes",
+      "why": "A user reading the current document cannot see what they are about to send. The default of medium is right for an incremental update as a fact about the file; it is wrong for one that hides a removal, and the detector can tell the two apart by comparing revisions. Raised only in that case, never for the presence of an update."
+    }
+  },
+  "refusals": {
+    "item_unmapped": {
+      "rationale": "a §7.1 item has no mapping. The categories a detector may emit are closed, so an unmapped item means the detector either invents a category or drops the item silently - and dropping it silently is the one §17.1 counts."
+    },
+    "category_unreachable": {
+      "rationale": "a category exists for PDF and no §7.1 item reaches it. Either the taxonomy has a value nothing produces, or an item's mapping is missing one - both leave a category that looks supported and is not."
+    },
+    "escalation_unexplained": {
+      "rationale": "a category may be raised to critical without a stated condition. category-defaults.json requires a documented reason, and 'the detector decided' is not one: a blocking finding stops a person from sharing a file."
+    }
+  },
+  "nonEscalating": {
+    "$comment": "Categories this epic considered raising and did not. Recorded because the next person to look will have the same thought, and an absence says nothing about whether anyone thought about it.",
+    "document_javascript": "E1 set this to high, and high does not block. Raising it would stop a user sharing any document containing script - including the ones their own tools add - and §7.2's concern is that the user cannot judge a script, not that every script is disclosure. Shown prominently, not blocking.",
+    "launch_action": "Same as document_javascript, and set to high by E1 for the same reason.",
+    "annotation": "High by E1. A comment is disclosive and a user can read it; blocking would be deciding for them."
+  }
+}
