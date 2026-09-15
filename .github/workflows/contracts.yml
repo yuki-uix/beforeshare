@@ -196,7 +196,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=27
+          EXPECTED_CASES=28
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -459,17 +459,6 @@ jobs:
             "test:output" || failed=1
 
           node -e "
-            const fs=require('fs'), p='tools/output-naming.mjs';
-            let s=fs.readFileSync(p,'utf8');
-            s=s.replace('  const resolvedTemp = gate.forWrite(temp, { input: claim.input });\n  writeFile(fs, resolvedTemp, bytes);\n  fs.rename(resolvedTemp.path, claim.path);','  fs.write(temp, bytes);\n  fs.rename(temp, claim.path);');
-            fs.writeFileSync(p, s);
-          "
-          expect_failure "a temporary file written without passing the gate" \
-            "a link planted at the temporary name is refused" \
-            "tools/output-naming.mjs" \
-            "test:output" || failed=1
-
-          node -e "
             const fs=require('fs'), p='tools/path-gate.mjs';
             let s=fs.readFileSync(p,'utf8');
             s=s.replace('    forWrite(raw, opts) {','    forWrite(raw, opts = { input: null }) {');
@@ -489,6 +478,30 @@ jobs:
           expect_failure "a temporary file that overwrites another run's" \
             "a temporary name belonging to another run is refused" \
             "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('      if (input !== null) {','      if (input !== null && input !== undefined) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an undefined input declaration skipping the refusal" \
+            "an output whose declared input is undefined is refused" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          # The stub has to behave like the filesystem, or the vectors above
+          # prove something no filesystem does. It has happened here before.
+          node -e "
+            const fs=require('fs'), p='tools/test-output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('files.has(p) || Object.hasOwn(links, p) ? false','files.has(p) ? false');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a stub whose exclusive create follows symlinks" \
+            "exclusive create on a symlink agrees with node:fs" \
+            "tools/test-output-naming.mjs" \
             "test:output" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without

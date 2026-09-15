@@ -225,6 +225,13 @@ if (isMain) {
     check('an output resolved without declaring its input is refused', undeclared);
     check('stating there is no input is still allowed, explicitly',
       () => g.forWrite(`${ROOT}/unrelated.pdf`, { input: null }).mode === 'write');
+    // undefined passes the key check and would skip the refusal - the same hole
+    // as the optional parameter, reached by forwarding a missing optional
+    // argument rather than by omitting the key.
+    let undef = false;
+    try { g.forWrite(`${ROOT}/report.pdf`, { input: undefined }); }
+    catch (e) { undef = /did not come from the gate/.test(e.message); }
+    check('an output whose declared input is undefined is refused', undef);
     rejects('an output differing only in case is refused',
       () => g.forWrite(`${ROOT}/Report.PDF`, { input }), 'output_is_input');
     rejects('an output differing only in Unicode normalisation is refused',

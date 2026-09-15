@@ -38,6 +38,11 @@ original, so the whole guarantee rested on every call site remembering.
 The key is required now. A write genuinely not derived from an input passes
 `input: null` and says so. A default reachable by omission is not a decision.
 
+Only `null` states that. `undefined` passes a key check and would skip the
+refusal again — the same hole, reached by forwarding a missing optional argument
+rather than by omitting the key — so anything else must be a ResolvedPath the
+gate issued.
+
 ## Temp beside the destination, then rename
 
 A rename is atomic within one filesystem and not across them. A temp file elsewhere degrades
@@ -49,9 +54,50 @@ destination: it is a *different name* from the one that was checked, and a symli
 `<destination>.part` would otherwise be followed — the bytes land wherever it points and the rename
 then moves something else into place. It goes through the gate.
 
-The temporary name is also claimed exclusively. Writing to it unconditionally
-would destroy another run's half-written file — the collision the destination is
+The temporary name goes through the gate **first** and is claimed exclusively
+**second**, and that order is deliberate. Claiming first works — `O_CREAT |
+O_EXCL` fails on an existing name and never follows a symlink there — but it
+refuses a planted link as a busy name and leaves the gate call unreachable,
+which CI caught by removing the gate call and finding nothing failed. A guard
+nothing can exercise is worse than no guard.
+
+Checking first is safe here precisely because of what follows it: a check and an
+ordinary write would leave a window, a check and an exclusive create does not,
+since the create fails on any name that appeared in between.
+
+There is no CI mutation for "the temporary file skipped the gate", and the
+reason is worth stating: it cannot be written. `writeFile` accepts only an
+object the gate issued, so every mutation that removes the gate call breaks the
+write outright rather than sneaking past it. The property is structural, like
+the gate's own, and the mutation that protects it is the gate's brand check.
+
+The claim also protects another run's half-written file, which writing to the
+temporary name unconditionally would destroy — the collision the destination is
 careful about, one name over.
+
+The stub these vectors run against is compared with `node:fs` directly, on a
+real temporary directory: exclusive create on a free name, on an existing file
+and on a symlink, that a refused create left the link pointing where it did, and
+that rename replaces the destination and removes the source. This repository has
+been wrong about a filesystem's behaviour before — `realpath` was documented as
+returning null for a missing path, which nothing does, and every vector ran
+against the stub that did.
+
+## A rule nobody reads is decoration
+
+Being allowed to exist is not being read. `naming.extensionRule` said
+`last-dot` beside a `splitExtension` that hard-codes it, and changing the string
+to nonsense changed nothing — the table read as the specification while the code
+ignored it.
+
+Every leaf in a rule table must now be read by its module or asserted by the
+validator. Fields that are genuinely explanation are declared as prose, and then
+checked for being prose, so a rule cannot leave through that door by being
+relabelled.
+
+The check nearly passed vacuously itself: it searched the validator's source,
+and the comment explaining the rule contained the rule's name. Comments are
+stripped from both sides first.
 
 ## What the exhaustive action test proves, and what it does not
 

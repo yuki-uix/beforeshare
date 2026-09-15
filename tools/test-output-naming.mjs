@@ -5,7 +5,8 @@
  * in the enum, not a sample. The list comes from enums.schema.json, so a ninth
  * action joins it without anyone remembering to.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, symlinkSync, openSync, closeSync, renameSync, existsSync, rmSync, readlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { createGate } from './path-gate.mjs';
 import { hashBytes } from './file-identity.mjs';
@@ -67,7 +68,12 @@ if (isMain) {
         return files.get(p);
       },
       write: (p, bytes) => { files.set(p, bytes); return true; },
-      createExclusive: (p) => (files.has(p) ? false : (files.set(p, ''), true)),
+      // O_CREAT|O_EXCL fails on an existing name and does NOT follow a symlink
+      // there, so a planted link counts as occupied. A stub that consulted only
+      // real files would let a vector assert behaviour no filesystem has.
+      createExclusive: (p) => (
+        files.has(p) || Object.hasOwn(links, p) ? false : (files.set(p, ''), true)
+      ),
       rename: (from, to) => { files.set(to, files.get(from)); files.delete(from); return true; },
     };
   };
@@ -171,10 +177,11 @@ if (isMain) {
     const fs = mkFs({ [INPUT]: 'original bytes' }, { [`${dest}.part`]: '/etc/passwd' });
     const g = gateFor(fs);
     const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    let refused = false;
-    try { writeClaimed(fs, g, claim, 'sanitized bytes'); }
-    catch (e) { refused = e.reason === 'symlink_escape'; }
-    check('a link planted at the temporary name is refused', refused);
+    // The exclusive create comes first and fails on the link without following
+    // it, so this is refused as an occupied name rather than as an escape. The
+    // link is never resolved, which is why nothing lands at its target.
+    rejects('a link planted at the temporary name is refused',
+      () => writeClaimed(fs, g, claim, 'sanitized bytes'), 'temp_name_taken');
     check('nothing was written outside the authorised roots',
       () => !fs.files.has('/etc/passwd'));
   }
@@ -249,6 +256,51 @@ if (isMain) {
       outside.length === 0, outside.join(' / '));
     check('the write path was found at all, so the check is not vacuous',
       writers.length >= 2, `${writers.length} writing lines`);
+  }
+
+  // --- the stub agrees with a real filesystem ---------------------------------
+  {
+    // The vectors above are only worth anything if createExclusive and rename
+    // behave here the way they behave on disk. This repository has been wrong
+    // about that before: path-gate's realpath was documented as returning null
+    // for a missing path, no filesystem does that, and every vector ran against
+    // the stub that did. So the two are compared directly.
+    const dir = mkdtempSync(`${tmpdir()}/beforeshare-output-`);
+    try {
+      const realCreateExclusive = (p) => {
+        try { closeSync(openSync(p, 'wx')); return true; } catch { return false; }
+      };
+      const fresh = `${dir}/fresh.part`;
+      const taken = `${dir}/taken.part`;
+      const linked = `${dir}/linked.part`;
+      writeFileSync(taken, 'someone else');
+      symlinkSync('/etc/passwd', linked);
+
+      const stub = mkFs({ [taken]: 'someone else' }, { [linked]: '/etc/passwd' });
+      for (const [name, path] of [['a free name', fresh], ['an existing file', taken],
+        ['a symlink', linked]]) {
+        // Each is called exactly once: creating is the side effect under test,
+        // so asking twice - even only to build a message - answers differently.
+        const onDisk = realCreateExclusive(path);
+        const inStub = stub.createExclusive(path);
+        check(`exclusive create on ${name} agrees with node:fs`,
+          onDisk === inStub, `${path}: node:fs ${onDisk}, stub ${inStub}`);
+      }
+      // The link must still point where it did: a create that followed it would
+      // have truncated the target instead of failing.
+      check('a refused create did not follow the link',
+        () => readlinkSync(linked) === '/etc/passwd');
+
+      const from = `${dir}/from.part`;
+      const onto = `${dir}/onto.pdf`;
+      writeFileSync(from, 'payload');
+      writeFileSync(onto, 'previous');
+      renameSync(from, onto);
+      check('rename replaces the destination and removes the source, as the stub does',
+        () => readFileSync(onto, 'utf8') === 'payload' && !existsSync(from));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   // --- every declared rejection reason is reachable ---------------------------

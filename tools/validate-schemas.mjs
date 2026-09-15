@@ -1046,6 +1046,38 @@ function undeclaredKeys(node, shape, where) {
   return found;
 }
 
+/** Source with comments removed, so prose cannot satisfy a coverage check. */
+function withoutComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+}
+
+/** Leaf key names declared as rules (shape `true`), which something must read. */
+function leafNames(node, shape, found = new Set()) {
+  for (const [k, v] of Object.entries(node)) {
+    if (k === '$comment' || k === 'schemaVersion') continue;
+    const allowed = shape['*'] ?? shape[k];
+    if (allowed === true) found.add(k);
+    else if (allowed !== undefined && allowed !== 'prose'
+      && v && typeof v === 'object' && !Array.isArray(v)) {
+      leafNames(v, allowed, found);
+    }
+  }
+  return [...found];
+}
+
+/** Leaves declared as explanation (shape `'prose'`), which nothing executes. */
+function proseLeaves(node, shape, found = []) {
+  for (const [k, v] of Object.entries(node)) {
+    const allowed = shape['*'] ?? shape[k];
+    if (allowed === 'prose') found.push([k, v]);
+    else if (allowed !== undefined && allowed !== true
+      && v && typeof v === 'object' && !Array.isArray(v)) {
+      proseLeaves(v, allowed, found);
+    }
+  }
+  return found;
+}
+
 function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape }) {
   const declared = Object.keys(table.rejectionReasons);
   const thrown = reasonsThrownIn(moduleFile, constructorName);
@@ -1076,6 +1108,29 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   const stray = undeclaredKeys(table, shape, file);
   check(`${file} carries no keys the validator does not check`, stray.length === 0,
     stray.join(' / '));
+
+  // Being allowed to exist is not the same as being read. A leaf nobody
+  // consults can hold any value at all - naming.extensionRule said "last-dot"
+  // beside a splitExtension that hard-codes it, and changing the string to
+  // nonsense changed nothing. Every leaf must be read by the module or asserted
+  // by this file; a rule that is neither is decoration.
+  // Comments are stripped from both sides first: a rule named only in prose
+  // about it would satisfy this check while nothing executed it, which is the
+  // shape of defect the check exists to find. It nearly passed that way here.
+  const validatorSource = withoutComments(readFileSync(fileURLToPath(import.meta.url), 'utf8'));
+  const moduleSource = withoutComments(readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8'));
+  const unread = leafNames(table, shape)
+    .filter((k) => !moduleSource.includes(k) && !validatorSource.includes(`.${k}`));
+  check(`${file} every rule is read by ${moduleFile} or asserted here`,
+    unread.length === 0, unread.join(', '));
+
+  // Prose fields are exempt from the above precisely because nothing reads
+  // them, so they have to be prose: a rule quietly relabelled as explanation
+  // would otherwise leave the table through this door.
+  for (const [name, value] of proseLeaves(table, shape)) {
+    check(`${file} ${name} is explanation, and says something`,
+      typeof value === 'string' && value.length > 40, JSON.stringify(value));
+  }
 }
 
 // --- the path rule table and its implementation stay in step ----------------
@@ -1113,10 +1168,10 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       rejectionReasons: { '*': { rationale: true } },
       naming: {
         $comment: true, marker: true, sequenceSeparator: true, firstSequenceNumber: true,
-        maxAttempts: true, extensionRule: true, extensionRuleLimit: true,
+        maxAttempts: true, extensionRule: true, extensionRuleLimit: 'prose',
       },
       writeProtocol: {
-        $comment: true, claim: true, then: true, tempLocation: true, tempLocationReason: true,
+        $comment: true, claim: true, then: true, tempLocation: true, tempLocationReason: 'prose',
       },
     },
   });
@@ -1130,6 +1185,13 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     outRules.writeProtocol.claim === 'exclusive-create');
   check('the temporary file lives beside its destination, so the rename is atomic',
     outRules.writeProtocol.tempLocation === 'same-directory-as-destination');
+  check('the write goes through a temporary file and a rename',
+    outRules.writeProtocol.then === 'write-temp-then-rename');
+  // splitExtension hard-codes last-dot, so this is the only thing the table may
+  // say. A table describing a rule the code does not implement is worse than no
+  // table: it reads as the specification.
+  check('the extension rule the table states is the one splitExtension implements',
+    outRules.naming.extensionRule === 'last-dot');
 }
 
 // --- the identity rule table and its implementation stay in step -------------

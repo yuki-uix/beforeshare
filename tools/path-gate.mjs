@@ -217,7 +217,11 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
       }
       const { input } = opts;
       const path = resolve(raw);
-      if (input !== null && input !== undefined) {
+      // Only null states "not derived from an input". undefined passes the key
+      // check and would skip the refusal below, which is the same hole the
+      // optional parameter had - reached now by forwarding a missing optional
+      // argument instead of by omitting the key.
+      if (input !== null) {
         assertResolved(input);
         if (same(path, input.path)) {
           throw new Rejected('output_is_input', path);
