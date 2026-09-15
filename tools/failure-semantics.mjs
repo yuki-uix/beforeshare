@@ -12,6 +12,7 @@
  * runtime. The core language is still undecided.
  */
 import { readFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 
 const RULES = JSON.parse(
   readFileSync(new URL('../schemas/v1/failure-rules.json', import.meta.url), 'utf8'),
@@ -38,7 +39,13 @@ export class WriteFailed extends Error {
  * latency to be reported, which needs the moment it was asked for and the
  * moment the work stopped. A flag records neither.
  */
-export function cancellation({ now = () => Date.now() } = {}) {
+/**
+ * @param {object} [opts]  now() must be monotonic. Date.now() is not: an NTP
+ *   step or a hand-set clock between asking and stopping produces a negative
+ *   latency, and a negative duration in a performance report is worse than no
+ *   number - it is a number someone may average.
+ */
+export function cancellation({ now = () => performance.now() } = {}) {
   let requestedAt = null;
   let observedAt = null;
   return {

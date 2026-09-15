@@ -209,7 +209,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=32
+          EXPECTED_CASES=34
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -565,6 +565,33 @@ jobs:
           "
           expect_failure "a run that keeps the name it reserved after failing or being cancelled" \
             "a failed attempt releases the name it reserved" \
+            "tools/output-naming.mjs" \
+            "test:failure" || failed=1
+
+          # A crash modelled as a thrown error unwinds through the module's own
+          # finally, whose cleanup removes the debris - which is what a dead
+          # process cannot do. The vectors then check an empty list and pass.
+          node -e "
+            const fs=require('fs'), p='tools/test-failure-semantics.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('        self.deathSnapshot = new Map(files);','        self.deathSnapshot = files;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a crash whose debris the cleanup is allowed to remove" \
+            "during_write: the crash really did leave the partial bytes behind" \
+            "tools/test-failure-semantics.mjs" \
+            "test:failure" || failed=1
+
+          # during_publish only runs when a candidate is refused, so a clean run
+          # never reaches it and a shorter list of visited points looks fine.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"      stop('during_publish');\",'');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a checkpoint only a contested publish would reach" \
+            "every declared cancellation checkpoint was reached by a vector" \
             "tools/output-naming.mjs" \
             "test:failure" || failed=1
 
