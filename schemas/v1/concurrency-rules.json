@@ -23,7 +23,12 @@
       "startedAt",
       "stage"
     ],
-    "durability": "written to a file, read back on open, so a run issued before a restart is still known afterwards"
+    "durability": "written to a file, read back on open, so a run issued before a restart is still known afterwards",
+    "stages": [
+      "inspect",
+      "sanitize",
+      "verify"
+    ]
   },
   "refusals": {
     "duplicate_run_id": {
@@ -36,10 +41,16 @@
       "rationale": "another process holds the registry lock. Waiting forever would let one stuck process stop the machine, so the caller is told rather than blocked."
     },
     "unknown_run": {
-      "rationale": "a run identifier that was never issued. Advancing or asking about one is a caller mistake, and answering as though it existed would make the registry agree with whatever it was told."
+      "rationale": "a state change was asked for on an identifier the registry never issued. The questions - knows, isLive - answer false for an unknown identifier, which is how a caller tells 'never issued' from 'issued and gone'; only a change refuses, because changing the stage of a run nobody started would make the registry agree with whatever it was told."
     },
     "not_a_registry": {
       "rationale": "a value that did not come from openRegistry(). The identity checks take their set of known identifiers from here, so accepting anything shaped like a registry would put the caller back in charge of the set they are being checked against."
+    },
+    "not_a_plain_value": {
+      "rationale": "a value that is not a plain string reached the registry. JSON.stringify runs an object's own toJSON and getters, so serialising a caller's object inside the lock runs the caller's code there - which the lock contract says never happens."
+    },
+    "unknown_stage": {
+      "rationale": "a stage outside the three §14.1 names. Recording an invented stage would make every later reader of the registry handle a value no part of this product produces."
     }
   }
 }

@@ -7,7 +7,12 @@
  * dialog into a machine-wide stall.
  */
 import { pathToFileURL } from 'node:url';
-import { readFileSync } from 'node:fs';
+import {
+  readFileSync, writeFileSync, mkdtempSync, rmSync, openSync, closeSync,
+  renameSync, unlinkSync, existsSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { execFile } from 'node:child_process';
 import { createGate } from './path-gate.mjs';
 import { intake, confirmUnchanged, approve, checkSanitizeAllowed, hashBytes } from './file-identity.mjs';
 import { claimOutputPath, writeClaimed } from './output-naming.mjs';
@@ -263,9 +268,14 @@ if (isMain) {
     check('a record carries exactly the declared fields',
       () => JSON.stringify(Object.keys(record).sort()) === JSON.stringify([...RECORD_FIELDS].sort()),
       Object.keys(record).join(', '));
-    // Nothing that cannot survive being written to a file and read back.
-    check('every field survives a round trip through the file',
-      () => Object.values(record).every((v) => ['string', 'number'].includes(typeof v)));
+    // Read back from the file, not from the object issue() returned. Comparing
+    // the returned object with itself would pass however the serialisation
+    // mangled it - and the point of the record is what survives the write.
+    const persisted = openRegistry(fs, { path: REG }).records()
+      .find((r) => r.runId === 'run-fields');
+    check('the persisted record matches the one that was returned',
+      () => JSON.stringify(persisted) === JSON.stringify(record),
+      `${JSON.stringify(persisted)} vs ${JSON.stringify(record)}`);
     refuses('advancing a run nobody issued is refused',
       () => registry.advance('run-nobody', 'sanitize'), 'unknown_run');
     check('advancing a known run is recorded',
@@ -273,10 +283,97 @@ if (isMain) {
         && openRegistry(fs, { path: REG }).records()[0].stage === 'sanitize');
   }
 
+  // --- what the registry refuses to store -------------------------------------
+  {
+    const fs = mkFs();
+    const registry = openRegistry(fs, { path: REG });
+    // Serialising a caller's object inside the lock runs the caller's code
+    // there. Measured before this was fixed: an object whose toJSON looked at
+    // the lock file saw it held.
+    let sawLock = false;
+    refuses('an object where a run identifier belongs is refused',
+      () => registry.issue({ toJSON() { sawLock = fs.files.has(`${REG}.lock`); return 'x'; } },
+        { inputPath: INPUT, startedAt: 1 }), 'not_a_plain_value');
+    check('and the caller\'s code never ran inside the lock', () => sawLock === false);
+    refuses('a stage nobody produces is refused', () => {
+      registry.issue('run-stage', { inputPath: INPUT, startedAt: 1 });
+      return registry.advance('run-stage', 'invented');
+    }, 'unknown_stage');
+  }
+
+  // --- a read failure is not an empty registry ---------------------------------
+  {
+    const fs = mkFs();
+    const registry = openRegistry(fs, { path: REG });
+    registry.issue('run-kept', { inputPath: INPUT, startedAt: 1 });
+    const contents = fs.files.get(REG);
+    fs.read = (p) => { const e = new Error('denied'); e.code = 'EACCES'; throw e; };
+    // Read as "no registry yet", this would write a fresh array over a file
+    // still holding every identifier ever given out, and say nothing.
+    refuses('a registry that cannot be read is not an empty one',
+      () => openRegistry(fs, { path: REG }).records(), 'registry_unreadable');
+    check('the file still holds what it held', () => fs.files.get(REG) === contents);
+  }
+
+  // --- a parseable file is not a valid one -------------------------------------
+  {
+    for (const [label, body] of [
+      ['a null record', '[null]'],
+      ['a record missing a field', '[{"runId":"a","inputPath":"/x","pid":1,"startedAt":1}]'],
+      ['a record with a field nobody reads',
+        '[{"runId":"a","inputPath":"/x","pid":1,"startedAt":1,"stage":"inspect","extra":1}]'],
+      ['a stage nobody produces',
+        '[{"runId":"a","inputPath":"/x","pid":1,"startedAt":1,"stage":"invented"}]'],
+      ['a pid that is a string',
+        '[{"runId":"a","inputPath":"/x","pid":"1","startedAt":1,"stage":"inspect"}]'],
+    ]) {
+      const fs = mkFs();
+      fs.files.set(REG, body);
+      refuses(`${label} is refused rather than reaching the caller as a TypeError`,
+        () => openRegistry(fs, { path: REG }).records(), 'registry_unreadable');
+    }
+  }
+
+  // --- two real processes, one registry file ----------------------------------
+  // Everything above runs sequentially against an in-memory map, where a lock
+  // covering too little still passes. This is the case §20.2 actually names.
+  const crossProcess = (async () => {
+    const dir = mkdtempSync(`${tmpdir()}/beforeshare-registry-`);
+    const path = `${dir}/runs.json`;
+    const fixture = new URL('./fixtures/issue-one-run.mjs', import.meta.url).pathname;
+    const startAt = Date.now() + 400;   // both children aim at the same moment
+    const run = (runId) => new Promise((resolve) => {
+      execFile(process.execPath, [fixture, path, runId, String(startAt)],
+        (error, stdout) => resolve((stdout ?? '').trim() || `crashed ${error?.message}`));
+    });
+    try {
+      const [a, b] = await Promise.all([run('run-one'), run('run-two')]);
+      check('both processes issued their run', () => a === 'ok run-one' && b === 'ok run-two',
+        `${a} / ${b}`);
+      const onDisk = JSON.parse(readFileSync(path, 'utf8'));
+      check('the registry holds both records, not one overwritten by the other',
+        () => onDisk.length === 2
+          && new Set(onDisk.map((r) => r.runId)).size === 2,
+        JSON.stringify(onDisk));
+      check('no lock is left behind by either process', () => !existsSync(`${path}.lock`));
+      check('nothing is left half-written beside it',
+        () => !existsSync(`${path}.writing`));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  })();
+
   // --- every declared refusal is reachable ------------------------------------
   const unreached = REGISTRY_REFUSALS.filter((r) => !refused.has(r));
   check('every declared refusal is triggered by a vector',
     unreached.length === 0, `never triggered: ${unreached.join(', ')}`);
+
+  // The cross-process case is the only asynchronous one; everything else has
+  // already run by here.
+  await crossProcess;
+  const stillUnreached = REGISTRY_REFUSALS.filter((r) => !refused.has(r));
+  check('every declared refusal is still triggered after the whole suite',
+    stillUnreached.length === 0, stillUnreached.join(', '));
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  run registry: ${REGISTRY_REFUSALS.length} refusals, ${failures} failure(s)`);
   process.exit(failures === 0 ? 0 : 1);

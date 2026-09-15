@@ -32,6 +32,38 @@ Starting fresh on a parse failure would silently reissue every identifier the fi
 exactly the defect a durable registry exists to prevent. The file is left alone for someone to look
 at.
 
+## Two real processes, not two sequential calls
+
+Every other vector here runs against an in-memory map, in order — where a lock covering too little
+still passes. So the concurrent case §20.2 names is two child processes aiming at the same wall-clock
+moment on one registry file, and the assertions are that both issued, both records survive, and no
+lock or half-written file is left. With the lock disabled it fails every time.
+
+The child that loses the lock race retries, and the retry **waits**. Fifty immediate attempts finish
+in microseconds and can all land inside the other process's critical section — which is how this
+first passed on its own and failed inside the full suite, where the machine is busier. The budget is
+a deadline rather than an attempt count, because what matters is how long the other side may
+reasonably hold the lock. A test that fails now and then is worse than no test: it teaches people to
+run it again.
+
+## Nothing the caller supplies runs inside the lock — including its getters
+
+`JSON.stringify` runs a value's own `toJSON` and its getters. Serialising a caller's object inside
+the lock therefore runs the caller's code there, which is the one thing the lock contract says never
+happens — measured, an object whose `toJSON` looked at the lock file saw it held. Caller values are
+checked and copied to primitives **before** the lock is taken.
+
+## A read failure is not an empty registry
+
+Only "there is no file" means there is no registry. A permissions or I/O failure read as an empty one
+is worse than a crash: the next `issue()` writes a fresh array over a file that still holds every
+identifier ever given out, and nothing says so.
+
+Parsing is not validating either. `[null]` is valid JSON and a valid array, and it reaches the caller
+as a `TypeError` from somewhere else entirely. Every record is checked against the declared fields,
+their types, and the three stage names — and a record carrying a field nobody reads is refused, since
+that is a rule nobody enforces wearing the shape of one that is.
+
 ## The registry is replaced in one step, not written in place
 
 The lock keeps two writers apart. It does nothing about readers, who do not take it — so a registry
@@ -78,4 +110,5 @@ drift, and the duplicate refusal names would have drifted with them.
 | When the registry is compacted, and whether finished runs are ever removed | #39 — an unbounded file is a resource bound |
 | Whether a lock should be waited on with a timeout rather than refused outright | #39 — the wait is a budget, and budgets are its subject |
 | What a resumed run may touch after a crash, beyond knowing it existed | #41 — the boundary suite is where the resumed cases get written |
+| Whether a lock should be broken when its holder is provably gone, which the registry can now answer | #41 — it needs the resumed-run cases to say what breaking one may disturb |
 | Whether the registry should record the output path as well as the input | #41 — nothing needs it yet, and a field nothing reads is a rule nobody enforces |

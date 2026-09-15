@@ -1269,7 +1269,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
         neverHeldAcrossReason: 'prose', acquiredBy: true },
       arbitration: { $comment: 'prose', sameInputInspect: 'prose',
         sameInputSanitize: 'prose', sameOutputName: 'prose' },
-      record: { $comment: 'prose', fields: true, durability: true },
+      record: { $comment: 'prose', fields: true, stages: true, durability: true },
       refusals: { '*': { rationale: 'prose' } },
     },
   });
@@ -1284,6 +1284,10 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
 
   // A registry that forgets at every restart is the in-memory set it replaces.
   check('the registry survives a restart', conc.record.durability.includes('read back on open'));
+  // The three §14.1 names, and the identity binding's own list, must agree -
+  // two spellings of the same three stages is two things that can drift.
+  check('the registry records the same stages the identity binding uses',
+    JSON.stringify(conc.record.stages) === JSON.stringify(STAGES), conc.record.stages.join(', '));
 
   // The lock has to be one two processes cannot both believe they hold, which
   // is the same exclusive create the output protocol reserves names with.
@@ -1291,13 +1295,23 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     conc.lock.acquiredBy.startsWith('exclusive-create'));
 
   // §14.1 allows bounded local threads or processes and rules out a distributed
-  // queue. A word search over the table would have matched the sentence saying
-  // so - it did - which is a check firing on its own explanation. What is
-  // mechanical is what the module can reach: nothing off this machine.
+  // queue. A word search over the table matched the sentence saying so, which
+  // is a check firing on its own explanation; a list of forbidden modules was
+  // no better - it refused child_process and worker_threads, which §14.1
+  // permits, and said nothing about node:tls or a bare fetch.
+  //
+  // A list of what may be imported is decidable, and wrong in the safe
+  // direction: a module reaching for something new has to be added here, which
+  // is the decision being forced rather than avoided.
+  const ALLOWED_IMPORTS = ['node:fs', './temp-files.mjs'];
   const registrySource = withoutComments(
     readFileSync(join(RULE_MODULE_DIR, 'run-registry.mjs'), 'utf8'));
-  const reachesOut = registrySource.match(/node:(net|http|dgram|child_process|worker_threads)|fetch\(/);
-  check('the registry reaches nothing off this machine', reachesOut === null, reachesOut?.[0]);
+  const imported = [...registrySource.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
+  const unexpected = imported.filter((i) => !ALLOWED_IMPORTS.includes(i));
+  check('the registry imports only what it is allowed to', unexpected.length === 0,
+    unexpected.join(', '));
+  check('the import scan found the imports at all, so the list is not vacuous',
+    imported.length >= 2, `${imported.length} imports`);
 }
 
 // --- the temporary file's permissions, place and end -------------------------

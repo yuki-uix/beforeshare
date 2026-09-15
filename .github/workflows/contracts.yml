@@ -215,7 +215,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=44
+          EXPECTED_CASES=47
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -696,7 +696,7 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/run-registry.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('        if (records.some((r) => r.runId === runId)) {','        if (false) {');
+            s=s.replace('        if (records.some((r) => r.runId === id)) {','        if (false) {');
             fs.writeFileSync(p, s);
           "
           expect_failure "a registry that reissues an identifier after a restart" \
@@ -727,6 +727,46 @@ jobs:
           "
           expect_failure "a registry written in place, where a reader can see half of it" \
             "a reader during the write sees the previous registry, whole" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # Two real processes contend for one registry file. Everything else
+          # in that suite is sequential, where a lock covering too little
+          # still passes.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (!fs.createExclusive(lockPath, { mode: 0o600 })) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a lock two processes can both believe they hold" \
+            "the registry holds both records, not one overwritten by the other" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # Read as "no registry yet", a permissions failure lets the next
+          # issue() write a fresh array over every identifier ever given out.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"    if (e?.code !== 'ENOENT') {\",'    if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a read failure taken for an empty registry" \
+            "a registry that cannot be read is not an empty one" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # JSON.stringify runs a value's own toJSON, so serialising a caller's
+          # object inside the lock runs the caller's code there.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"      const id = asPlainString('runId', runId);\",'      const id = runId;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a caller's object serialised inside the lock" \
+            "and the caller's code never ran inside the lock" \
             "tools/run-registry.mjs" \
             "test:registry" || failed=1
 
