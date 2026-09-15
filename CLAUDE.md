@@ -52,7 +52,7 @@ Example `status` fields are **computed, not declared**. That proves the examples
 it does not independently verify the rules. The independent check is the named cases in
 `tools/test-status.mjs`, whose expected values are written by hand from the case study.
 
-## Two habits this repository has had to learn
+## Three habits this repository has had to learn
 
 **Verify the artifacts against their own stated rules, not just against the case study.** The
 recurring defect here has not been misreading the requirements — it has been writing a rule and then
@@ -64,6 +64,22 @@ introduced them.
 trusting a new check, break the thing it guards and confirm it goes red — and confirm it goes red for
 the right reason. A check that accepts any failure as proof of working will accept a missing
 dependency or a syntax error as proof too.
+
+**A review finding names a class of defect, not a location.** Before pushing a fix, look for the same
+defect everywhere else it could be, and say what you searched. A finding fixed only where it was
+reported comes back as a new finding on the next PR, and the rounds do not converge.
+
+This is the same two-way check the safety-gate rule already asks for — *a new guard, are all the
+existing paths covered?* — applied to bug fixes rather than to new code. It has paid twice:
+`identity-rules.json` was reported as comparing a file with itself, and `path-rules.json` turned out
+to carry the identical defect, unreported; a stub that answered every path with the same bytes made
+every vector written against it read as coverage it did not have.
+
+Fixes are also the least reviewed code in the repository: each one is new, and the next review round
+is reading it for the first time. Several defects here were introduced by the fix for the previous
+one — a scoping fix that added a SIGPIPE bug, a coverage fix that suppressed six checks, a registry
+added to stop unregistered ids being claimed and then claimed five in the same PR. Batch the fixes
+for a round, re-run the guards, and scan for siblings before pushing.
 
 ## Tooling
 
