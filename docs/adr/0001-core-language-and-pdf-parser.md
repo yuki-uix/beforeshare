@@ -1,8 +1,8 @@
 # ADR 0001 — The core's language, and the PDF parser under it
 
-**Status:** proposed — awaiting a decision
-**Date:** 2026-09-15
-**Supersedes:** nothing. **Blocks:** #4 (E3), #5 (E4), and the handful of contract questions listed below
+**Status:** accepted
+**Date:** 2026-09-15 (proposed and accepted the same day, by the repository owner)
+**Supersedes:** nothing. **Unblocks:** #4 (E3), #5 (E4), and the contract questions listed below
 
 ---
 
@@ -110,9 +110,12 @@ Judged against the constraints above, not against general merit.
   they were written to be read, with stubs for a filesystem, and their honesty depends on being
   explicitly not the runtime.
 
-## Recommendation
+## Decision
 
 **Rust for the core, Swift for the desktop shell, and `lopdf` (or MuPDF bindings) for PDF.**
+
+Accepted as recommended. What follows is the argument as it was put, kept rather than rewritten so
+that a later reader can judge the reasoning and not only the outcome.
 
 The deciding argument is not performance and not taste. It is that **three of this repository's
 safety claims are currently held by conventions that a type system would hold instead**:
