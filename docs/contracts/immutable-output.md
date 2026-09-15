@@ -65,7 +65,9 @@ Checking first is safe here precisely because of what follows it: a check and an
 ordinary write would leave a window, a check and an exclusive create does not,
 since the create fails on any name that appeared in between.
 
-There is no CI mutation for "the temporary file skipped the gate", and the
+CI does carry the ordering mutation — create before gate, which makes the
+planted link report a busy name instead of an escape. There is no mutation for
+"the temporary file skipped the gate" entirely, and the
 reason is worth stating: it cannot be written. `writeFile` accepts only an
 object the gate issued, so every mutation that removes the gate call breaks the
 write outright rather than sneaking past it. The property is structural, like

@@ -1046,9 +1046,46 @@ function undeclaredKeys(node, shape, where) {
   return found;
 }
 
-/** Source with comments removed, so prose cannot satisfy a coverage check. */
+/**
+ * Source with comments removed, so prose cannot satisfy a coverage check.
+ *
+ * Stripping whole comment lines is not enough: `const x = 0; // someRule` left
+ * the name in the source and a rule nothing implements read as implemented. And
+ * a blunt strip of everything after `//` would eat the contents of strings -
+ * a URL alone would truncate the line - so the scan tracks which literal it is
+ * inside. It is not a JavaScript parser and does not need to be; it needs to
+ * know whether a `//` starts a comment.
+ */
 function withoutComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  let out = '';
+  let state = 'code';   // code | line | block | single | double | template | regex
+  for (let i = 0; i < source.length; i += 1) {
+    const c = source[i];
+    const next = source[i + 1];
+    const prevCode = out.trimEnd().slice(-1);
+    if (state === 'code') {
+      if (c === '/' && next === '/') { state = 'line'; i += 1; out += ' '; }
+      else if (c === '/' && next === '*') { state = 'block'; i += 1; out += ' '; }
+      else if (c === "'") { state = 'single'; out += c; }
+      else if (c === '"') { state = 'double'; out += c; }
+      else if (c === '`') { state = 'template'; out += c; }
+      // A slash after a value is division; after an operator or a bracket that
+      // opens something, it begins a regular expression.
+      else if (c === '/' && !/[\w)\]]/.test(prevCode)) { state = 'regex'; out += c; }
+      else out += c;
+    } else if (state === 'line') {
+      if (c === '\n') { state = 'code'; out += c; }
+    } else if (state === 'block') {
+      if (c === '*' && next === '/') { state = 'code'; i += 1; }
+    } else {
+      out += c;
+      if (c === '\\') { out += source[i + 1] ?? ''; i += 1; continue; }
+      const closes = { single: "'", double: '"', template: '`', regex: '/' };
+      if (c === closes[state]) state = 'code';
+      else if (state === 'regex' && c === '\n') state = 'code';
+    }
+  }
+  return out;
 }
 
 /** Leaf key names declared as rules (shape `true`), which something must read. */
@@ -1155,6 +1192,26 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   // the file is open would be describing a check that runs too late.
   check('every reason applies before the filesystem is touched',
     declared.every((n) => pathRules.rejectionReasons[n].stage.startsWith('before_')));
+}
+
+// --- the comment scanner the rule check leans on -----------------------------
+{
+  // The "every rule is read" check is only as good as this: a rule named in a
+  // trailing comment used to read as implemented, and a blunt strip of
+  // everything after // would eat a URL inside a string and hide a real read.
+  const cases = [
+    ['const x = 0; // someRule', false, 'a trailing comment'],
+    ['/* someRule */ const y = 1;', false, 'a block comment'],
+    ['const u = "https://e.com/someRule";', true, 'a string containing //'],
+    ['const r = /someRule/.test(s);', true, 'a regular expression'],
+    ['const t = `a//someRule`;', true, 'a template literal'],
+    ['const d = a / b; // someRule', false, 'division before a trailing comment'],
+  ];
+  for (const [source, survives, what] of cases) {
+    check(`the comment scanner ${survives ? 'keeps' : 'strips'} ${what}`,
+      withoutComments(source).includes('someRule') === survives,
+      JSON.stringify(withoutComments(source)));
+  }
 }
 
 // --- the output rule table and its implementation stay in step ---------------

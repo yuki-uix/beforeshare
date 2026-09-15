@@ -196,7 +196,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=28
+          EXPECTED_CASES=29
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -472,7 +472,7 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('  if (!fs.createExclusive(temp)) {','  if (false) {');
+            s=s.replace('  if (!fs.createExclusive(resolvedTemp.path)) {','  if (false) {');
             fs.writeFileSync(p, s);
           "
           expect_failure "a temporary file that overwrites another run's" \
@@ -502,6 +502,21 @@ jobs:
           expect_failure "a stub whose exclusive create follows symlinks" \
             "exclusive create on a symlink agrees with node:fs" \
             "tools/test-output-naming.mjs" \
+            "test:output" || failed=1
+
+          # Creating the temporary file before the gate has looked at it also
+          # refuses a planted link, but by creating a file at an unvetted path
+          # first and calling an escape attempt a busy name.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  const resolvedTemp = gate.forWrite(temp, { input: claim.input });','  if (!fs.createExclusive(temp)) { throw new OutputRejected(\'temp_name_taken\', temp); }\n  const resolvedTemp = gate.forWrite(temp, { input: claim.input });');
+            s=s.replace('  if (!fs.createExclusive(resolvedTemp.path)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a temporary file created before the gate has looked at it" \
+            "a link planted at the temporary name is refused" \
+            "tools/output-naming.mjs" \
             "test:output" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without

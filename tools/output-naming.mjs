@@ -119,19 +119,25 @@ export function writeClaimed(fs, gate, claim, bytes, { tempPath } = {}) {
     throw new OutputRejected('temp_outside_destination_directory',
       `${temp} is not beside ${claim.path}`);
   }
-  // The temporary name is claimed the same way the destination is. Writing to
-  // it unconditionally would destroy another run's half-written file, which is
-  // the collision the destination is careful about, one name over.
-  if (!fs.createExclusive(temp)) {
-    throw new OutputRejected('temp_name_taken',
-      `${temp} belongs to another run`);
-  }
   // The temporary file is a path being written, so §13.4 applies to it exactly
-  // as it does to the destination. It is a separate name from the one that was
-  // checked, and a planted symlink at `<destination>.part` would otherwise be
-  // followed - the bytes land wherever it points, and the rename then moves
-  // something else into place.
+  // as it does to the destination: it is a separate name from the one that was
+  // checked, and a link planted at `<destination>.part` points somewhere the
+  // gate would never have authorised.
+  //
+  // The gate runs FIRST. Creating first also refuses the link - O_CREAT|O_EXCL
+  // fails on an existing name and does not follow it - but it creates a file at
+  // a path nothing has vetted before anything looks at it, and it reports an
+  // escape attempt as a busy name. Checking first is safe here because of what
+  // follows: a check and an ordinary write would leave a window, a check and an
+  // exclusive create does not, since the create fails on any name that appeared
+  // in between.
   const resolvedTemp = gate.forWrite(temp, { input: claim.input });
+  // Claimed the same way the destination is: writing unconditionally would
+  // destroy another run's half-written file, the collision the destination is
+  // careful about, one name over.
+  if (!fs.createExclusive(resolvedTemp.path)) {
+    throw new OutputRejected('temp_name_taken', `${temp} belongs to another run`);
+  }
   writeFile(fs, resolvedTemp, bytes);
   fs.rename(resolvedTemp.path, claim.path);
   return claim.path;

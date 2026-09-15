@@ -177,11 +177,13 @@ if (isMain) {
     const fs = mkFs({ [INPUT]: 'original bytes' }, { [`${dest}.part`]: '/etc/passwd' });
     const g = gateFor(fs);
     const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    // The exclusive create comes first and fails on the link without following
-    // it, so this is refused as an occupied name rather than as an escape. The
-    // link is never resolved, which is why nothing lands at its target.
+    // The gate runs before the create, so a planted link is diagnosed as what it
+    // is rather than as a busy name, and no file is created at a path nothing
+    // has vetted.
     rejects('a link planted at the temporary name is refused',
-      () => writeClaimed(fs, g, claim, 'sanitized bytes'), 'temp_name_taken');
+      () => writeClaimed(fs, g, claim, 'sanitized bytes'), 'symlink_escape');
+    check('no file was created at the unvetted temporary name',
+      () => !fs.files.has(`${dest}.part`));
     check('nothing was written outside the authorised roots',
       () => !fs.files.has('/etc/passwd'));
   }
