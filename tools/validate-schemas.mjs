@@ -18,6 +18,7 @@ import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSourc
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
+import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 import { BREAKING_KINDS, ADDITIVE_KINDS, CHANGE_TYPES } from './versioning.mjs';
 
@@ -796,6 +797,14 @@ const enumAt = (file, path) => path.split('.').reduce((n, k) => n[k], read(join(
 
 const MIRRORS = {
   POLICIES: { value: POLICIES, schema: ['evidence.schema.json', 'properties.maskPolicy.enum'] },
+  IDENTITY_REJECTIONS: {
+    value: IDENTITY_REJECTIONS,
+    standalone: 'the binding\'s own vocabulary; identity-rules.json is data, and the validator compares the two directly',
+  },
+  STAGES: {
+    value: STAGES,
+    standalone: 'the three stages §14.1 names; they are not an enum in any schema',
+  },
   REJECTION_REASONS: {
     value: REJECTION_REASONS,
     standalone: 'the gate\'s own vocabulary; path-rules.json is data, and the validator checks the two against each other directly',
@@ -1009,6 +1018,30 @@ for (const file of examples) {
   // the file is open would be describing a check that runs too late.
   check('every reason applies before the filesystem is touched',
     declared.every((n) => pathRules.rejectionReasons[n].stage.startsWith('before_')));
+}
+
+// --- the identity rule table and its implementation stay in step -------------
+{
+  const idRules = read(join(schemaDir, 'identity-rules.json'));
+  const declared = Object.keys(idRules.rejectionReasons);
+  check('the binding exposes exactly the declared rejection reasons',
+    JSON.stringify([...IDENTITY_REJECTIONS].sort()) === JSON.stringify([...declared].sort()),
+    `impl: ${IDENTITY_REJECTIONS.join(', ')} vs table: ${declared.join(', ')}`);
+  for (const [name, r] of Object.entries(idRules.rejectionReasons)) {
+    check(`identity reason ${name} says why it exists`,
+      typeof r.rationale === 'string' && r.rationale.length > 20, JSON.stringify(r));
+  }
+  check('the stages are the three §14.1 names, in order',
+    JSON.stringify(idRules.stages) === JSON.stringify(['inspect', 'sanitize', 'verify']));
+  // A structural guarantee is not a rejection reason: a reason describes a check
+  // that can fire, and one that never can is an enforcement claim the code does
+  // not make. The table records the claim separately, with how it holds.
+  check('a structural guarantee is recorded as one, not as a reason',
+    typeof idRules.orderingIsStructural?.claim === 'string'
+    && typeof idRules.orderingIsStructural?.howItHolds === 'string'
+    && !declared.includes('bytes_read_before_hashing'));
+  check('the hash algorithm matches what the result schema requires',
+    idRules.hash.algorithm === 'sha256' && idRules.hash.encoding === 'lowercase-hex');
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  ${Object.keys(manifest).length} examples (${examples.length} inspection), ${negatives.length}+${verifyNegatives.length}+${capNegatives.length} negative cases (inspection/verification/capability), ${enumCats.length} categories, ${failures} failure(s)`);

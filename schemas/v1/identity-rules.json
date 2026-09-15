@@ -1,0 +1,36 @@
+{
+  "$comment": "How the three stages are bound to one file (§14.1, §17.3). Data rather than prose so the implementation, the vectors and the documentation read the same table, and so that adding a way for the binding to break forces a vector that reaches it.",
+  "schemaVersion": "1.0",
+  "stages": [
+    "inspect",
+    "sanitize",
+    "verify"
+  ],
+  "rejectionReasons": {
+    "unknown_run": {
+      "rationale": "The run identifier names nothing this process issued. §20.2 lists a stale run identifier as a required safety test; accepting one would let an approval outlive the result it was granted against."
+    },
+    "stage_out_of_order": {
+      "rationale": "Sanitize before inspect, or verify before sanitize. Each stage's input is the previous stage's output, so an order that skips one has nothing to bind to."
+    },
+    "input_changed_since_inspection": {
+      "rationale": "§17.3 requires zero stale approvals to be accepted. The user reviewed findings about a file; if the bytes changed, the findings describe something else and the approval was never given for this content."
+    },
+    "input_replaced_during_inspection": {
+      "rationale": "The file changed while it was being read, so the result describes neither the old file nor the new one. §20.1 requires a test for files changing during inspection."
+    },
+    "output_not_from_this_run": {
+      "rationale": "Verification was handed a sanitized file the cited run did not produce. Confirming removals on the wrong file is worse than not confirming them."
+    }
+  },
+  "hash": {
+    "algorithm": "sha256",
+    "encoding": "lowercase-hex",
+    "$comment": "Computed over the complete file bytes at intake, before any adapter reads. Re-computed when the run finishes so a file replaced mid-read is detectable: a single hash taken at the start cannot tell a stable file from one swapped halfway through."
+  },
+  "orderingIsStructural": {
+    "claim": "The hash covers the bytes before any adapter can see them.",
+    "howItHolds": "intake() reads once, hashes that read, and only then creates the record. Bytes are reachable only through a record, so there is no ordering for an adapter to get wrong.",
+    "$comment": "This is deliberately NOT a rejection reason. A reason describes a runtime check that can fire, and this one never could - the ordering is enforced by construction, not detected afterwards. Listing it made the rule table claim an enforcement the implementation does not perform, which the vector-coverage check caught: no vector could reach it. What a structural guarantee needs is a test that the structure still holds, and that is `intake performs exactly one read` plus the record brand."
+  }
+}
