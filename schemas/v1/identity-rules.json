@@ -24,6 +24,9 @@
     },
     "duplicate_run_id": {
       "rationale": "common.schema.json says a run identifier is unique per inspection run. A repeat lets a second run inherit the first one's approvals: the id matches, the content may match, and nothing records that they were different runs."
+    },
+    "not_the_path_inspected": {
+      "rationale": "a re-read was handed a path the record was not taken from. Reusing stage_out_of_order for this said the stages ran in the wrong order, which is a different diagnosis and sends whoever reads it looking in the wrong place."
     }
   },
   "hash": {

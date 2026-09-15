@@ -1018,8 +1018,30 @@ function reasonsThrownIn(moduleFile, constructorName) {
   return thrown;
 }
 
-function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed,
-                          topLevelKeys, reasonKeys }) {
+/**
+ * Every key at every level, checked against a declared shape.
+ *
+ * A node whose shape is not declared is reported rather than skipped: adding a
+ * nested object to a rule table must force a decision about what may live in
+ * it, the same way adding an enum value forces a row in the drift tables.
+ */
+function undeclaredKeys(node, shape, where) {
+  if (shape === undefined) return [`${where}: nothing declares what may appear here`];
+  const found = [];
+  for (const [k, v] of Object.entries(node)) {
+    const allowed = shape['*'] ?? shape[k];
+    if (allowed === undefined) { found.push(`${where}.${k}`); continue; }
+    const isNode = v && typeof v === 'object' && !Array.isArray(v);
+    // true declares a leaf. An object arriving under one would carry keys the
+    // walk never reaches, so the shape has to be widened deliberately rather
+    // than outgrown silently.
+    if (isNode && allowed === true) { found.push(`${where}.${k}: an object where a leaf was declared`); }
+    else if (isNode) { found.push(...undeclaredKeys(v, allowed, `${where}.${k}`)); }
+  }
+  return found;
+}
+
+function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape }) {
   const declared = Object.keys(table.rejectionReasons);
   const thrown = reasonsThrownIn(moduleFile, constructorName);
 
@@ -1041,14 +1063,14 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     JSON.stringify([...exposed].sort()) === JSON.stringify([...declared].sort()),
     `impl: ${exposed.join(', ')} vs table: ${declared.join(', ')}`);
 
-  // An unknown key is a rule nothing reads. It looks like it is in force.
-  const strayTop = Object.keys(table).filter((k) => !topLevelKeys.includes(k));
-  check(`${file} carries no keys the validator does not check`, strayTop.length === 0,
-    strayTop.join(', '));
-  for (const [name, r] of Object.entries(table.rejectionReasons)) {
-    const stray = Object.keys(r).filter((k) => !reasonKeys.includes(k));
-    check(`${file} reason ${name} carries no unknown keys`, stray.length === 0, stray.join(', '));
-  }
+  // An unknown key is a rule nothing reads. It looks, to anyone opening the
+  // file, like one in force. Checking only the top level and the reasons left
+  // the nested objects - hash, orderingIsStructural, identity - accepting
+  // anything, so the walk covers every level and a nested object whose shape
+  // nobody declared fails rather than passing by default.
+  const stray = undeclaredKeys(table, shape, file);
+  check(`${file} carries no keys the validator does not check`, stray.length === 0,
+    stray.join(' / '));
 }
 
 // --- the path rule table and its implementation stay in step ----------------
@@ -1058,8 +1080,11 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   checkRuleTable({
     file: 'path-rules.json', table: pathRules, module: 'path-gate.mjs',
     constructorName: 'Rejected', exposed: REJECTION_REASONS,
-    topLevelKeys: ['$comment', 'schemaVersion', 'rejectionReasons', 'identity'],
-    reasonKeys: ['stage', 'rationale'],
+    shape: {
+      $comment: true, schemaVersion: true,
+      rejectionReasons: { '*': { stage: true, rationale: true } },
+      identity: { $comment: true, unicodeNormalization: true, caseInsensitiveDefault: true },
+    },
   });
   for (const [name, r] of Object.entries(pathRules.rejectionReasons)) {
     check(`rejection reason ${name} names when it applies and why`,
@@ -1079,9 +1104,12 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   checkRuleTable({
     file: 'identity-rules.json', table: idRules, module: 'file-identity.mjs',
     constructorName: 'IdentityRejected', exposed: IDENTITY_REJECTIONS,
-    topLevelKeys: ['$comment', 'schemaVersion', 'stages', 'rejectionReasons', 'hash',
-      'orderingIsStructural'],
-    reasonKeys: ['rationale'],
+    shape: {
+      $comment: true, schemaVersion: true, stages: true,
+      rejectionReasons: { '*': { rationale: true } },
+      hash: { algorithm: true, encoding: true, $comment: true },
+      orderingIsStructural: { claim: true, howItHolds: true, $comment: true },
+    },
   });
   for (const [name, r] of Object.entries(idRules.rejectionReasons)) {
     check(`identity reason ${name} says why it exists`,

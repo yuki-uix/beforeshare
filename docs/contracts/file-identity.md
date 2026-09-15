@@ -33,7 +33,9 @@ so this was invisible until a review asked about Buffers — and a real read ret
 
 ## What the approval carries
 
-An approval names the run, the **input hash**, and the actions it covers. It does not name the path.
+An approval names the run, the **input hash**, the path it was granted for, and the actions it
+covers. The hash is what binds identity; the path only stops the approval being spent on a different
+file whose bytes happen to agree.
 
 A user reviewed findings about specific bytes. If the bytes change, the findings describe something
 else and the approval was never given for this content — so `checkSanitizeAllowed` re-hashes the file
@@ -62,6 +64,7 @@ depends on what the gate's handles can offer.
 | `input_changed_since_inspection` | the approved bytes are not the current bytes |
 | `input_replaced_during_inspection` | the file changed while it was being read |
 | `duplicate_run_id` | a run identifier already naming another inspection — a repeat lets the second run inherit the first one's approvals, because every check it meets compares the id and finds a match |
+| `not_the_path_inspected` | a re-read was handed a path the record was not taken from — reusing `stage_out_of_order` for this reported the wrong diagnosis, and sent whoever read it looking in the wrong place |
 | `output_not_from_this_run` | verification handed a file this run did not produce — confirming removals on the wrong file is worse than not confirming them |
 
 Every reason is triggered by a vector, and seven mutations against the implementation — dropping the
@@ -96,6 +99,24 @@ The suite could not have found this: its filesystem stub answered every path
 with the same bytes, so no vector could tell two files apart. A stub that cannot
 express the difference makes every check over it read as coverage.
 
+## A run identifier is spent, not borrowed
+
+Releasing an identifier drops the record; it does not free the name. Freeing it
+let an approval outlive the run that earned it — retire the id, start a new run
+under it, and the old approval still passed every check, because brand, run id,
+path and hash all still matched. What a person approved for one run then
+authorised another.
+
+The record can be forgotten. That the identifier was used cannot.
+
+## The record hashes a copy, not the adapter's buffer
+
+`readFile` returns whatever the adapter returned. An adapter that keeps that
+reference and writes through it after intake would leave the record's hash
+describing bytes nobody can still obtain, while `bytesOf()` served the rewritten
+ones — which is precisely the claim this module makes untrue. So intake copies
+on the way in, as `bytesOf()` already did on the way out.
+
 ## The rule table is checked against the source, not against itself
 
 `IDENTITY_REJECTIONS` is `Object.keys` over `identity-rules.json`, so comparing
@@ -116,6 +137,7 @@ consults still reads, to anyone opening the file, as one in force.
 |---|---|
 | Where issued run identifiers live across processes, so a restart does not forget them | #37 — it is the same durability question as crash recovery |
 | Whether a re-read at the end is enough, or the file must be held open for the whole inspection | #34 — the gate owns handles; this builds on whatever it can offer |
+| A retired run identifier is remembered for the life of the process, so the set only grows | #39 — it is a resource bound, and trading the authorisation defect for an unbounded set is the right order |
 | Hashing cost on large files, and whether it can share a pass with the adapters | #39 — it belongs with the resource limits |
 | Reading the whole file into memory, which this implementation does and a product build cannot | #39 — streaming the hash is the same decision as the size limits |
 | Who owns the set of issued run identifiers: the checks compare against what the caller supplies, so a caller with a wrong set defeats them | #37 — the registry has to survive a restart to be worth anything |

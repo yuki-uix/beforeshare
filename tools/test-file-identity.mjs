@@ -192,6 +192,24 @@ if (isMain) {
     check('an approval must name the actions it covers', noActions);
   }
 
+  // --- the adapter's own reference cannot reach into the record ----------------
+  {
+    // readFile hands back whatever the adapter returned. An adapter that keeps
+    // that reference and writes through it after intake would leave the record
+    // hashing bytes nobody can still obtain. The earlier vectors only mutated
+    // the copy bytesOf returns, which cannot see this.
+    const held = Buffer.from('original bytes');
+    const fsHolding = {
+      realpath: (p) => p, isDirectory: () => false, read: () => held, write: () => true,
+    };
+    const r = intake(fsHolding, gateFor(fsHolding).forRead(INPUT), { runId: 'run-alias' });
+    held.write('EVIL', 0);
+    check('the adapter writing through its own reference does not change the record',
+      () => contentMatchesHash(r));
+    check('bytes taken from the record are the ones it hashed',
+      () => bytesOf(r).toString() === 'original bytes');
+  }
+
   // --- a re-read compares the file the record is for ---------------------------
   {
     const fs = mkFs('original');
@@ -209,11 +227,11 @@ if (isMain) {
     rejects('an approval does not authorise sanitizing an identical other file',
       () => checkSanitizeAllowed(fsTwins, approvalForInput, gTwins.forRead(twin),
         { runIds: new Set(['run-twin']) }),
-      'stage_out_of_order');
+      'not_the_path_inspected');
 
     rejects('confirming against a different path is refused',
       () => confirmUnchanged(fs, r, g.forRead('/Users/u/Documents/other.pdf')),
-      'stage_out_of_order');
+      'not_the_path_inspected');
   }
 
   // --- a run identifier names exactly one inspection ---------------------------
@@ -236,8 +254,10 @@ if (isMain) {
 
     check('releasing an identifier is reported',
       () => releaseRunId('run-unique') === true && releaseRunId('run-unique') === false);
-    check('a released identifier can be issued again',
-      () => intake(fs, g.forRead(INPUT), { runId: 'run-unique' }).runId === 'run-unique');
+    // Reissuing it would let an approval outlive the run that earned it: the old
+    // approval keeps its brand, and run id, path and hash all still match.
+    rejects('a released identifier is still refused',
+      () => intake(fs, g.forRead(INPUT), { runId: 'run-unique' }), 'duplicate_run_id');
   }
 
   // --- verification is handed the file this run produced -----------------------

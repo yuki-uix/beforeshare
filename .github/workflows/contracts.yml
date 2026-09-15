@@ -193,7 +193,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=20
+          EXPECTED_CASES=22
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -406,6 +406,28 @@ jobs:
           "
           expect_failure "an approval honoured for a file it was not granted for" \
             "an approval does not authorise sanitizing an identical other file" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (retiredRunIds.has(runId)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a spent run identifier handed out again" \
+            "a released identifier is still refused" \
+            "tools/file-identity.mjs" \
+            "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/file-identity.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('const bytes = copyOf(readFile(fs, resolvedPath));','const bytes = readFile(fs, resolvedPath);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a record hashing the adapter's own mutable buffer" \
+            "the adapter writing through its own reference does not change the record" \
             "tools/file-identity.mjs" \
             "test:identity" || failed=1
 

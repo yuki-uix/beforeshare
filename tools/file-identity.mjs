@@ -44,6 +44,8 @@ const contents = new WeakMap();
  * runs.
  */
 const issuedRunIds = new Map();
+/** Identifiers that have been used and released. A spent id is never reissued. */
+const retiredRunIds = new Set();
 
 export class IdentityRejected extends Error {
   constructor(reason, detail) {
@@ -76,7 +78,16 @@ export function intake(fs, resolvedPath, { runId }) {
     throw new IdentityRejected('duplicate_run_id',
       `${runId} is already in use by an inspection of ${issuedRunIds.get(runId).path}`);
   }
-  const bytes = readFile(fs, resolvedPath);
+  if (retiredRunIds.has(runId)) {
+    throw new IdentityRejected('duplicate_run_id',
+      `${runId} has already been used by a finished run`);
+  }
+  // A copy, because readFile hands back whatever the adapter returned. An
+  // adapter that keeps its own reference and writes through it later would
+  // leave the record's hash describing bytes nobody can still obtain, while
+  // bytesOf() served the rewritten ones. The whole claim of this module is that
+  // the hash covers the bytes the adapters see.
+  const bytes = copyOf(readFile(fs, resolvedPath));
   const record = {
     runId,
     path: resolvedPath.path,
@@ -112,7 +123,11 @@ function assertRecord(record) {
  */
 export function bytesOf(record) {
   assertRecord(record);
-  const bytes = contents.get(record);
+  return copyOf(contents.get(record));
+}
+
+/** Strings are already immutable; anything else is detached from its caller. */
+function copyOf(bytes) {
   if (typeof bytes === 'string') return bytes;
   return Uint8Array.prototype.slice.call(bytes);
 }
@@ -129,14 +144,25 @@ export function bytesOf(record) {
 function assertSamePath(subject, resolvedPath) {
   const record = subject;
   if (!resolvedPath || resolvedPath.path !== record.path) {
-    throw new IdentityRejected('stage_out_of_order',
+    throw new IdentityRejected('not_the_path_inspected',
       `this record is for ${record.path}, not ${resolvedPath?.path ?? '(none)'}`);
   }
 }
 
-/** Release a run identifier, so a finished run does not hold it forever. */
+/**
+ * Retire a run identifier: drop the reference to its record, keep the id spent.
+ *
+ * Deleting the id outright made approvals outlive the run that earned them. A
+ * caller could retire an id, start a new run under it, and the old approval
+ * still passed every check - same brand, same run id, same path, same hash -
+ * so a new run inherited actions a person approved for a different one. The
+ * record can be forgotten; the fact that the id was used cannot.
+ */
 export function releaseRunId(runId) {
-  return issuedRunIds.delete(runId);
+  if (!issuedRunIds.has(runId)) return false;
+  issuedRunIds.delete(runId);
+  retiredRunIds.add(runId);
+  return true;
 }
 
 /** Whether the stored content still hashes to what the record claims. */
