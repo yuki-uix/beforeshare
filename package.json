@@ -9,11 +9,12 @@
     "test:masking": "node tools/test-masking.mjs",
     "test:status": "node tools/test-status.mjs",
     "test:contracts": "node tools/test-contracts.mjs",
-    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts && npm run test:path-gate && npm run test:identity && npm run test:output && npm run test:failure",
+    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts && npm run test:path-gate && npm run test:identity && npm run test:output && npm run test:failure && npm run test:temp",
     "test:path-gate": "node tools/test-path-gate.mjs",
     "test:identity": "node tools/test-file-identity.mjs",
     "test:output": "node tools/test-output-naming.mjs",
-    "test:failure": "node tools/test-failure-semantics.mjs"
+    "test:failure": "node tools/test-failure-semantics.mjs",
+    "test:temp": "node tools/test-temp-files.mjs"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

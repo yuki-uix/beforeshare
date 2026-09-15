@@ -19,6 +19,9 @@ import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFI
 import { POLICIES } from './masking.mjs';
 import { OUTPUT_REJECTIONS } from './output-naming.mjs';
 import { FAILURE_CODES, INTERRUPTION_POINTS, CANCELLATION_CHECKPOINTS } from './failure-semantics.mjs';
+import {
+  THREATS, TEMP_REFUSALS, TEMP_MODE, readableByOthers,
+} from './temp-files.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -807,6 +810,14 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  TEMP_REFUSALS: {
+    value: TEMP_REFUSALS,
+    standalone: 'what the temporary-file rules refuse; temp-rules.json is data, and the validator checks the two against each other directly',
+  },
+  THREATS: {
+    value: THREATS,
+    standalone: 'the temporary file\'s threat entries; temp-rules.json is data, and the validator checks the two against each other directly',
+  },
   FAILURE_CODES: {
     value: FAILURE_CODES,
     standalone: 'the failure table\'s own vocabulary; failure-rules.json is data, and the validator checks the two against each other directly',
@@ -1138,7 +1149,8 @@ function proseLeaves(node, shape, where = '', found = []) {
 
 function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape,
                           reasonsKey = 'rejectionReasons', extraProducers = [] }) {
-  const declared = Object.keys(table[reasonsKey]);
+  // A comment inside the section is not one of the names: it explains them.
+  const declared = Object.keys(table[reasonsKey]).filter((k) => k !== '$comment');
   const thrown = reasonsThrownIn(moduleFile, constructorName, extraProducers);
 
   check(`${file} every declared reason is thrown somewhere in ${moduleFile}`,
@@ -1234,6 +1246,63 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       withoutComments(source).includes('someRule') === survives,
       JSON.stringify(withoutComments(source)));
   }
+}
+
+// --- the temporary file's permissions, place and end -------------------------
+{
+  const tempRules = read(join(schemaDir, 'temp-rules.json'));
+  checkRuleTable({
+    file: 'temp-rules.json', table: tempRules, module: 'temp-files.mjs',
+    // The refusals are what this module throws. The threats below are the other
+    // kind of entry - nothing throws a threat - so they are checked by their
+    // own rules rather than squeezed through a scan for throw sites.
+    constructorName: 'TempRefused', exposed: TEMP_REFUSALS, reasonsKey: 'refusals',
+    // The sweep reports rather than throws: a kept file carries the same
+    // vocabulary in `because`, so that is a producing site too.
+    extraProducers: ["because: '([a-z_]+)'"],
+    shape: {
+      $comment: true, schemaVersion: true,
+      incompleteMarker: true,
+      mode: { $comment: 'prose', octal: true, setAtCreation: true },
+      location: { $comment: 'prose', policy: true, reason: 'prose', residualRisk: 'prose' },
+      reclamation: { $comment: 'prose', requiresProofOwnerIsGone: true,
+        ownerToken: 'prose', ageIsNotProof: 'prose', discovery: true },
+      content: { $comment: 'prose', holds: true, neverHolds: true },
+      refusals: { $comment: 'prose', '*': { rationale: 'prose' } },
+      threats: { '*': { likelihood: 'prose', impact: 'prose', mitigation: 'prose',
+        residualRisk: 'prose', testCoverage: true } },
+    },
+  });
+
+  // §15: each threat carries likelihood, impact, mitigation, residual risk and
+  // test coverage. A threat listed without all five is a threat someone looked
+  // at, not one that was answered.
+  for (const [name, t] of Object.entries(tempRules.threats)) {
+    const missing = ['likelihood', 'impact', 'mitigation', 'residualRisk', 'testCoverage']
+      .filter((k) => typeof t[k] !== 'string' || t[k].length < 20);
+    check(`threat ${name} answers all five §15 questions`, missing.length === 0,
+      missing.join(', '));
+  }
+
+  // Whether the named check ran is asserted by the suite itself, which knows
+  // the names it executed; a search for the text here would be satisfied by a
+  // comment, the way the rule-table scan nearly was by its own explanation.
+  // What is left here is that a name was given at all.
+  for (const [name, t] of Object.entries(tempRules.threats)) {
+    check(`threat ${name} names something as its coverage`,
+      typeof t.testCoverage === 'string' && t.testCoverage.length > 10, t.testCoverage);
+  }
+
+  check('the mode is owner-only', () => !readableByOthers(TEMP_MODE) && TEMP_MODE === 0o600);
+  check('the mode is set at creation, not afterwards', tempRules.mode.setAtCreation === true);
+  // Age would delete work in progress, which is the cleanup becoming the loss.
+  check('reclamation needs proof, not a clock',
+    tempRules.reclamation.requiresProofOwnerIsGone === true);
+  // A sweep handed its list protects whatever the caller remembered to include.
+  check('the sweep finds its own candidates',
+    tempRules.reclamation.discovery.startsWith('by marker'));
+  check('the marker is the one the failure rules use',
+    tempRules.incompleteMarker === read(join(schemaDir, 'failure-rules.json')).incompleteMarker);
 }
 
 // --- the failure table and what the publish actually does stay in step -------
