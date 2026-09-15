@@ -109,6 +109,6 @@ drift, and the duplicate refusal names would have drifted with them.
 |---|---|
 | When the registry is compacted, and whether finished runs are ever removed | #39 — an unbounded file is a resource bound |
 | Whether a lock should be waited on with a timeout rather than refused outright | #39 — the wait is a budget, and budgets are its subject |
-| What a resumed run may touch after a crash, beyond knowing it existed | #41 — the boundary suite is where the resumed cases get written |
-| Whether a lock should be broken when its holder is provably gone, which the registry can now answer | #41 — it needs the resumed-run cases to say what breaking one may disturb |
-| Whether the registry should record the output path as well as the input | #41 — nothing needs it yet, and a field nothing reads is a rule nobody enforces |
+| What a resumed run may touch after a crash, beyond knowing it existed | #52 — the registry it would read is that task's subject |
+| Whether a lock should be broken when its holder is provably gone, which the registry can now answer | #52 — with the resumed-run cases that say what breaking one may disturb |
+| Whether the registry should record the output path as well as the input | #52 — nothing needs it yet, and a field nothing reads is a rule nobody enforces |

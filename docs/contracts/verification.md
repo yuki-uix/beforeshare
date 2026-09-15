@@ -116,7 +116,7 @@ the result will say so, which is why the CLI and MCP contracts require the calle
 
 | Question | Owner |
 |---|---|
-| Which readers actually satisfy `independent`, and how the build keeps their dependency graphs disjoint from the writer's | E7 |
+| Which readers actually satisfy `independent`, and how the build keeps their dependency graphs disjoint from the writer's | E7 (#8) — disjointness is a property of the built graph, and only the pipeline that builds it can show it |
 
 This schema defines what has to be recorded; it cannot by itself stop someone labelling a shared
 reader as independent.

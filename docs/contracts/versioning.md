@@ -107,5 +107,5 @@ compare against and passed vacuously — which is the only state a new schema is
 
 | Question | Owner |
 |---|---|
-| Which parsers and detectors actually exist | E3 (#4), E4 (#5), E5 (#6) |
+| Which parsers and detectors actually exist | E3 (#4), E4 (#5), E5 (#6) — a version is recorded here and earned there |
 | Whether a stale result is re-run automatically or only flagged | E9 (#10) — it is a product decision about what the user is shown |

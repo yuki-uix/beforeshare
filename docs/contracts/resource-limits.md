@@ -129,10 +129,10 @@ The method is committed so the figures can be taken again there.
 
 | Question | Owner |
 |---|---|
-| The real `expansionRatio`, `graphDepth` and `wallClockMs`, which need format fixtures | #41 |
-| Cancellation latency and the §17.4 numbers on the reference Mac | #41 — the same machine settles all of them |
-| Streaming the hash so a run holds one copy instead of two, which moves the measured multiplier | #41 — it changes #35's intake and #36's entry copy together |
-| Whether the registry file is compacted, and when | #41 — an unbounded file is a bound nobody set |
-| Whether a lock should be waited on with a timeout rather than refused | #41 — the wait is a budget and needs the same treatment |
-| Durability: syncing the temporary file before the link and the directory after, and what it costs | #41 — measurable once there is a machine to measure on |
-| A backup-exclusion attribute on the temporary file, and encryption at rest | #41 — both are costs, and neither has a number yet |
+| The real `expansionRatio`, `graphDepth` and `wallClockMs`, which need format fixtures | #56 — the fixtures need a parser, so the numbers wait on one |
+| Cancellation latency and the §17.4 numbers on the reference Mac | #55 — the same machine settles all of them |
+| Streaming the hash so a run holds one copy instead of two, which moves the measured multiplier | #51 — it changes #35's intake and #36's entry copy together |
+| Whether the registry file is compacted, and when | #52 — an unbounded file is a bound nobody set |
+| Whether a lock should be waited on with a timeout rather than refused | #52 — the wait is a budget and needs the same treatment |
+| Durability: syncing the temporary file before the link and the directory after, and what it costs | #53 — the claim §17.5 makes stops at process death until this is answered |
+| A backup-exclusion attribute on the temporary file, and encryption at rest | #54 — the threat is E13's, and neither option has a number yet |

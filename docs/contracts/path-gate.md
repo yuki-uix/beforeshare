@@ -160,6 +160,6 @@ with nothing else.
 | Closing handles: who closes, when, and what happens on an error path | #38 — it belongs with temporary-file lifetime |
 | Whether a build without `open()` should be refused outright rather than allowed in the weaker mode | #3 — the reference implementation demonstrates both on purpose; a product build may not deserve the choice |
 | An `open()` that refuses to follow a symlink at the final component, so the unbound fallback is not merely narrower but safe | #37 — it lands with atomic write |
-| Collision-safe output names once a destination is accepted | #36 |
-| What the gate does when a path becomes invalid mid-run | #37 |
+| Collision-safe output names once a destination is accepted | #36 — the gate decides whether a path may be written, not which path to pick |
+| What the gate does when a path becomes invalid mid-run | #37 — it is a failure during work, and that task owns what a failure leaves behind |
 | Whether the core's language can make a forged path fail to compile rather than at runtime | E2 (#3) — it belongs with the gate, and waits on the core language ADR |

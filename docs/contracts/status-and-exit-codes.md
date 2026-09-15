@@ -201,7 +201,7 @@ coherent, which by definition cannot be read off the result it failed to produce
 
 | Question | Owner |
 |---|---|
-| The CLI's argument parsing, output formatting, and the actual `--approve` flag names | #9 |
+| The CLI's argument parsing, output formatting, and the actual `--approve` flag names | #9 — the table here maps a result to a code, and the surface that carries it is built there |
 | Whether a `--json` run's exit code contradicts the JSON on its stdout | #9 — moved from #24, because observing it needs a real process |
 
 This document defines what the codes mean, not how the command line spells them. The semantics the

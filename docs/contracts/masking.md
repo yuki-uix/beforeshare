@@ -79,8 +79,8 @@ from it.
 
 | Question | Owner |
 |---|---|
-| How the user reveals a full value in the local UI, and what that path may touch | E9 (#10) |
-| Keeping revealed values out of logs, telemetry and support bundles | E13 (#14) |
+| How the user reveals a full value in the local UI, and what that path may touch | E9 (#10) — revealing is an interaction, and the rule here only says what a stored value may be |
+| Keeping revealed values out of logs, telemetry and support bundles | E13 (#14) — same threat as the temporary file, a different exit |
 
 The rule the schema enforces is narrower and absolute: **the full value has no representation in a
 serialised result**, so no amount of mishandling downstream can turn a result into a disclosure.

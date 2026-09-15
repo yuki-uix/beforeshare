@@ -218,7 +218,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=53
+          EXPECTED_CASES=54
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -852,6 +852,19 @@ jobs:
           expect_failure "a coverage value the result schema does not have" \
             "timeout has a coverage the result schema knows" \
             "schemas/v1/limit-rules.json" \
+            "validate" || failed=1
+
+          # An owner with no reason is the shape of a question parked on
+          # whichever issue happened to be open.
+          node -e "
+            const fs=require('fs'), p='docs/contracts/resource-limits.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('| Whether the registry file is compacted, and when | #52 — an unbounded file is a bound nobody set |','| Whether the registry file is compacted, and when | #52 |');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a handoff owner with no reason beside it" \
+            "resource-limits.md every handoff row says why that owner" \
+            "docs/contracts/resource-limits.md" \
             "validate" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without

@@ -133,7 +133,7 @@ the same "partial reads as complete" failure the statuses were added to prevent.
 
 | Question | Owner |
 |---|---|
-| Which detectors actually exist, and their adapters | E3 (#4), E4 (#5), E5 (#6) |
-| Which remediation actions exist | E6 (#7) |
-| Which independent verifiers exist | E7 (#8) |
-| Maximum tested sizes, on a named reference machine | E3 / E4, once an adapter can open a file |
+| Which detectors actually exist, and their adapters | E3 (#4), E4 (#5), E5 (#6) — a detector is declared here and built there, so the registry can only say what has been claimed |
+| Which remediation actions exist | E6 (#7) — the enum is closed here and the eight actions are implemented there |
+| Which independent verifiers exist | E7 (#8) — a verifier that shares a reader with the detector is not independent, and only the pipeline can tell |
+| Maximum tested sizes, on a named reference machine | #55 — the reference machine settles every §17.4 number at once, and an adapter has to exist first |
