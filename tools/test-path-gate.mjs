@@ -357,6 +357,20 @@ if (isMain) {
     checkOk('a replaced component does not change what a bound read returns',
       () => readFile(bound.withHandles, rb) === `content-of:${ROOT2}/sub/a.pdf`);
 
+    // open() without readHandle() must not produce a handle the access cannot
+    // use. Keying issuance off open() alone made readFile call a missing method.
+    const halfBound = {
+      realpath: (p) => p,
+      isDirectory: () => false,
+      open: (p) => ({ boundTo: p }),
+      read: (p) => `path-read:${p}`,
+      write: () => true,
+    };
+    check('a filesystem with open but no readHandle is not treated as bound', !bindsToHandles(halfBound));
+    checkOk('a half-implemented handle interface falls back to the path rather than crashing',
+      () => readFile(halfBound, createGate({ fs: halfBound, authorisedRoots: [ROOT2] }).forRead(`${ROOT2}/a.pdf`))
+        === `path-read:${ROOT2}/a.pdf`);
+
     const unbound = mkSwappable();
     check('a filesystem without handles is recognised as such', !bindsToHandles(unbound.pathOnly));
     const gu = createGate({ fs: unbound.pathOnly, authorisedRoots: [ROOT2] });
@@ -371,9 +385,15 @@ if (isMain) {
   // them takes an authorisation decision with the wrong comparison for some.
   {
     const mixed = { ...stubFs(), isCaseInsensitive: (root) => root === '/case-insensitive' };
-    let refused = false;
-    try { createGate({ fs: mixed, authorisedRoots: ['/case-insensitive', '/case-sensitive'] }); } catch { refused = true; }
-    check('roots on volumes with different case rules are refused', refused);
+    // Checking the message, not merely that something threw: an unrelated
+    // regression in createGate would otherwise satisfy this case and hide that
+    // the per-root probe had stopped working.
+    let refusal = null;
+    try { createGate({ fs: mixed, authorisedRoots: ['/case-insensitive', '/case-sensitive'] }); }
+    catch (e) { refusal = e.message; }
+    check('roots on volumes with different case rules are refused',
+      typeof refusal === 'string' && refusal.includes('different case rules'),
+      `threw: ${refusal}`);
     checkOk('roots sharing a case rule are accepted',
       () => createGate({ fs: mixed, authorisedRoots: ['/case-insensitive'] })
         .forRead('/CASE-INSENSITIVE/a.pdf').path === '/CASE-INSENSITIVE/a.pdf');

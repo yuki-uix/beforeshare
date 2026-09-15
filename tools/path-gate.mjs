@@ -98,6 +98,13 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
   // and one rule applied to all of them takes an authorisation decision with the
   // wrong comparison for some. Until the API can carry a rule per root, a mixed
   // set is refused rather than silently resolved to one of them.
+  // A handle is only issued when the matching access exists. Keying both off
+  // `open` alone let a filesystem with open() but no readHandle() receive a
+  // handle it could not use: the access took the handle branch, called a missing
+  // method, and crashed — neither using the handle nor falling back to the path.
+  const canReadHandle = typeof fs.open === 'function' && typeof fs.readHandle === 'function';
+  const canWriteHandle = typeof fs.open === 'function' && typeof fs.writeHandle === 'function';
+
   const probe = (root) => (typeof fs.isCaseInsensitive === 'function'
     ? fs.isCaseInsensitive(root)
     : IDENTITY.caseInsensitiveDefault);
@@ -186,7 +193,7 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
       // the check and the open — the window is small, but §13.4's guarantee is
       // about where the bytes come from, not about where they came from a moment
       // ago. A filesystem without open() gets the old behaviour and says so.
-      const handle = typeof fs.open === 'function' ? fs.open(path, 'read') : undefined;
+      const handle = canReadHandle ? fs.open(path, 'read') : undefined;
       return issue({ path, mode: 'read', handle });
     },
 
@@ -207,7 +214,7 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
       if (fs.isDirectory(path)) {
         throw new Rejected('output_is_directory', path);
       }
-      const handle = typeof fs.open === 'function' ? fs.open(path, 'write') : undefined;
+      const handle = canWriteHandle ? fs.open(path, 'write') : undefined;
       return issue({ path, mode: 'write', handle });
     },
   };

@@ -101,6 +101,10 @@ So `forRead` and `forWrite` take a handle at resolution time, and `readFile` and
 handle rather than the path. §13.4's guarantee is about where the bytes come from, not where they
 came from a moment ago.
 
+A handle is issued only when the matching access exists: `open()` without `readHandle()` produces no
+handle, because issuing one the access cannot use meant calling a missing method — neither using the
+handle nor falling back.
+
 A filesystem that offers no `open()` falls back to passing the path, and `bindsToHandles(fs)` reports
 which behaviour a build has. A caller that needs the guarantee can ask instead of assuming, and the
 vectors assert both shapes — including that the unbound one really does follow the replacement, so
@@ -116,6 +120,11 @@ carries only a default.
 The probe is **per root**. Roots can sit on volumes with different rules, and one rule applied to all
 of them is wrong for some. Until the interface can carry a rule per root, a mixed set is refused at
 construction rather than quietly resolved to one of them.
+
+This is a real cost, not a free win: authorising a folder in Documents alongside one on an external
+disk is ordinary, and the two can be formatted differently. Refusing that is a usability regression
+taken deliberately, because the alternative is an authorisation decision made with the wrong
+comparison. The row above hands the proper fix to #3.
 
 ## The stub is checked against the filesystem it stands in for
 
@@ -148,6 +157,8 @@ with nothing else.
 | Question | Owner |
 |---|---|
 | Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root |
+| Closing handles: who closes, when, and what happens on an error path | #38 — it belongs with temporary-file lifetime |
+| Whether a build without `open()` should be refused outright rather than allowed in the weaker mode | #3 — the reference implementation demonstrates both on purpose; a product build may not deserve the choice |
 | An `open()` that refuses to follow a symlink at the final component, so the unbound fallback is not merely narrower but safe | #37 — it lands with atomic write |
 | Collision-safe output names once a destination is accepted | #36 |
 | What the gate does when a path becomes invalid mid-run | #37 |
