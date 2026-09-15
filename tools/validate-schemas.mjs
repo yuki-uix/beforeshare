@@ -7,7 +7,7 @@
  * positive examples would still pass. Each negative case names the rule it is
  * pinning, and the run fails if a case that must be rejected is accepted.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ import {
   THREATS, TEMP_REFUSALS, TEMP_MODE, readableByOthers,
 } from './temp-files.mjs';
 import { REGISTRY_REFUSALS, RECORD_FIELDS } from './run-registry.mjs';
+import { LIMIT_REFUSALS, OUTCOMES, BASIS_KINDS, budgetsWithoutBasis } from './limits.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -811,6 +812,18 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  LIMIT_REFUSALS: {
+    value: LIMIT_REFUSALS,
+    standalone: 'what the limit rules refuse; limit-rules.json is data, and the validator checks the two against each other directly',
+  },
+  OUTCOMES: {
+    value: OUTCOMES,
+    standalone: 'the three names an overrun can take, drawn from two existing enums and mapped here',
+  },
+  BASIS_KINDS: {
+    value: BASIS_KINDS,
+    standalone: 'how a budget default may be accounted for; not an enum in any schema',
+  },
   REGISTRY_REFUSALS: {
     value: REGISTRY_REFUSALS,
     standalone: 'the run registry\'s own vocabulary; concurrency-rules.json is data, and the validator checks the two against each other directly',
@@ -1255,6 +1268,90 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       withoutComments(source).includes('someRule') === survives,
       JSON.stringify(withoutComments(source)));
   }
+}
+
+// --- what a run may consume, and what an overrun is called --------------------
+{
+  const limits = read(join(schemaDir, 'limit-rules.json'));
+  checkRuleTable({
+    file: 'limit-rules.json', table: limits, module: 'limits.mjs',
+    constructorName: 'LimitRefused', exposed: LIMIT_REFUSALS, reasonsKey: 'refusals',
+    shape: {
+      $comment: true, schemaVersion: true,
+      outcomes: { $comment: 'prose', '*': { coverage: true, decidedBefore: true,
+        rationale: 'prose' } },
+      budgets: { $comment: 'prose', '*': { default: true, unit: true, basis: true,
+        measurement: true, note: 'prose', owner: 'prose' } },
+      measurement: { $comment: 'prose', runs: true, records: true,
+        instrument: 'prose', notTheReferenceMachine: 'prose' },
+      basisKinds: { $comment: 'prose', measured: 'prose', decided: 'prose',
+        provisional: 'prose' },
+      refusals: { '*': { rationale: 'prose' } },
+    },
+  });
+
+  // The three names come from enums that already existed. Inventing a fourth
+  // here would give the same overrun two vocabularies, which is how one gets
+  // reported as a skip in one place and a failure in another.
+  const skipReasons = enumAt('enums.schema.json', '$defs.coverageSkipReason.enum');
+  const failureCodes = enumAt('enums.schema.json', '$defs.detectorFailureCode.enum');
+  for (const [name, o] of Object.entries(limits.outcomes)) {
+    if (name === '$comment') continue;
+    const home = o.coverage === 'skipped' ? skipReasons : failureCodes;
+    check(`${name} is a name the result schema already has`, home.includes(name),
+      `${o.coverage} vocabulary is ${home.join(', ')}`);
+  }
+
+  // The discriminator, enforced rather than described. A skip is only honest
+  // when nothing was attempted, so an outcome decided before work starts is a
+  // skip and every other one is a failure - which is the whole boundary #39
+  // asks to be settled, in one assertion.
+  for (const [name, o] of Object.entries(limits.outcomes)) {
+    if (name === '$comment') continue;
+    const beforeAnyWork = o.decidedBefore === 'any work starts';
+    check(`${name} is a skip exactly when it is decided before work starts`,
+      beforeAnyWork === (o.coverage === 'skipped'),
+      `${o.coverage} but decided before ${o.decidedBefore}`);
+  }
+
+  // A number with no unit is a number two people will read differently.
+  for (const [name, b] of Object.entries(limits.budgets)) {
+    if (name === '$comment') continue;
+    check(`${name} says what its number counts`,
+      typeof b.unit === 'string' && b.unit.length > 0, JSON.stringify(b.unit));
+  }
+
+  // §17.1: unsupported or failed checks mislabelled as completed, 0 cases.
+  check('no overrun is reported as a completed check',
+    Object.entries(limits.outcomes).filter(([k]) => k !== '$comment')
+      .every(([, o]) => o.coverage !== 'completed'));
+
+  // A default nobody has to account for is a guess that gets defended later as
+  // though it had been measured. Enforced here rather than as a refusal,
+  // because nothing reads a basis while working.
+  const unaccounted = budgetsWithoutBasis();
+  check('every budget default names where it came from', unaccounted.length === 0,
+    unaccounted.join(', '));
+  for (const [name, b] of Object.entries(limits.budgets)) {
+    if (name === '$comment') continue;
+    if (b.basis === 'measured') {
+      check(`${name} names the measurement it came from`,
+        limits.measurement.records.includes(b.measurement), b.measurement);
+    }
+    if (b.basis === 'provisional') {
+      check(`${name} names who owes the real number`,
+        typeof b.owner === 'string' && /#\d+/.test(b.owner), b.owner);
+    }
+    if (b.basis === 'decided') {
+      // A decision is allowed. Pretending it was forced is not, so it has to
+      // say what the measurement did and did not settle.
+      check(`${name} says what the measurement did not settle`,
+        typeof b.note === 'string' && b.note.length > 100, b.note?.slice(0, 40));
+    }
+  }
+  check('the measurement names a file that exists',
+    existsSync(join(RULE_MODULE_DIR, limits.measurement.runs.replace('tools/', ''))),
+    limits.measurement.runs);
 }
 
 // --- what two runs on one machine may do at once -----------------------------

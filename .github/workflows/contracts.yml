@@ -109,6 +109,9 @@ jobs:
       - name: Test run registry
         run: npm run test:registry
 
+      - name: Test resource limits
+        run: npm run test:limits
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -215,7 +218,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=47
+          EXPECTED_CASES=51
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -769,6 +772,60 @@ jobs:
             "and the caller's code never ran inside the lock" \
             "tools/run-registry.mjs" \
             "test:registry" || failed=1
+
+          # A bomb is small: an absolute byte ceiling set high enough for a
+          # large legitimate file lets it through, and the ratio is what sees it.
+          node -e "
+            const fs=require('fs'), p='tools/limits.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('      if (consumed > 0 && produced / consumed > budgets.expansionRatio) {','      if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a decompression ratio nobody checks" \
+            "a stream that expands past its ratio is stopped" \
+            "tools/limits.mjs" \
+            "test:limits" || failed=1
+
+          # A PDF object graph can contain a cycle; a walk without a bound does
+          # not return, and a test over a tree would never notice.
+          node -e "
+            const fs=require('fs'), p='tools/limits.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('      if (depth > budgets.graphDepth) {','      if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a graph walk with no depth bound" \
+            "a cycle is stopped by depth rather than running for ever" \
+            "tools/limits.mjs" \
+            "test:limits" || failed=1
+
+          # §17.1: a check that stopped must never read as one that completed.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/limit-rules.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.outcomes.resource_limit_exceeded.coverage='skipped';
+            fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "an overrun found while working reported as a skip" \
+            "resource_limit_exceeded is a skip exactly when it is decided before work starts" \
+            "schemas/v1/limit-rules.json" \
+            "validate" || failed=1
+
+          # arrayBuffers is a process-wide total: release a sample and the
+          # collector reclaims it partway through the next size, whose baseline
+          # already counted it. The multiplier then falls with file size, which
+          # reads as a finding about large files and is the instrument
+          # measuring itself.
+          node -e "
+            const fs=require('fs'), p='tools/measure-budgets.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    keepAlive.push(original, copy, digest);','    keepAlive.push(original[0], copy[0], digest.length);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a memory measurement that contaminates its own baseline" \
+            "the multiplier does not vary with the size of the input" \
+            "tools/measure-budgets.mjs" \
+            "test:limits" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
