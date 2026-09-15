@@ -103,6 +103,9 @@ jobs:
       - name: Test failure semantics
         run: npm run test:failure
 
+      - name: Test temporary file lifetime
+        run: npm run test:temp
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -209,7 +212,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=34
+          EXPECTED_CASES=38
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -485,7 +488,7 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('    if (fs.createExclusive(temp.path)) {','    if (true) { fs.createExclusive(temp.path);');
+            s=s.replace('    if (fs.createExclusive(temp.path, { mode: TEMP_MODE })) {','    if (true) { fs.createExclusive(temp.path, { mode: TEMP_MODE });');
             fs.writeFileSync(p, s);
           "
           expect_failure "a reservation that takes a temporary name already in use" \
@@ -523,7 +526,8 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });\n    if (fs.createExclusive(temp.path)) {','    if (!fs.createExclusive(\`\${candidates[i].path}.part\`)) { continue; }\n    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });\n    if (true) {');
+            s=s.replace('    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });','    if (!fs.createExclusive(\`\${candidates[i].path}.part\`, { mode: TEMP_MODE })) { continue; }\n    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });');
+            s=s.replace('    if (fs.createExclusive(temp.path, { mode: TEMP_MODE })) {','    if (true) {');
             fs.writeFileSync(p, s);
           "
           expect_failure "a temporary name claimed before the gate saw it" \
@@ -594,6 +598,56 @@ jobs:
             "every declared cancellation checkpoint was reached by a vector" \
             "tools/output-naming.mjs" \
             "test:failure" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('fs.createExclusive(temp.path, { mode: TEMP_MODE })','fs.createExclusive(temp.path)');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a temporary file created with whatever mode the adapter likes" \
+            "the temporary file is created with a mode at all" \
+            "tools/output-naming.mjs" \
+            "test:temp" || failed=1
+
+          # Age would delete work in progress, which is the cleanup becoming the
+          # loss it exists to prevent.
+          node -e "
+            const fs=require('fs'), p='tools/temp-files.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  return host.processIsRunning(owner) === false;','  return true;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a sweep that reclaims without proof the owner is gone" \
+            "a temporary file whose owner may be alive is never reclaimed" \
+            "tools/temp-files.mjs" \
+            "test:temp" || failed=1
+
+          # A threat answered with a vector that does not exist is the sentence
+          # that stops anyone looking again.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/temp-rules.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.threats.another_local_user_reads_the_temporary_file.testCoverage='a vector nobody wrote';
+            fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
+          "
+          expect_failure "a threat whose named test coverage does not exist" \
+            "the vector named by another_local_user_reads_the_temporary_file exists" \
+            "schemas/v1/temp-rules.json" \
+            "validate" || failed=1
+
+          # A sweep handed its list protects whatever the caller remembered to
+          # include, which is the same failure as a registry the caller fills in.
+          node -e "
+            const fs=require('fs'), p='tools/temp-files.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"  if (typeof fs.list !== 'function') {\",'  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a sweep that accepts a host which cannot enumerate" \
+            "a host that cannot list a directory is refused, not handed a list" \
+            "tools/temp-files.mjs" \
+            "test:temp" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

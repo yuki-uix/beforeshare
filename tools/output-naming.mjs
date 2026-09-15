@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { writeFile } from './path-gate.mjs';
 import { WriteFailed, classify } from './failure-semantics.mjs';
+import { TEMP_MODE } from './temp-files.mjs';
 
 const RULES = JSON.parse(
   readFileSync(new URL('../schemas/v1/output-rules.json', import.meta.url), 'utf8'),
@@ -68,7 +69,7 @@ function basenameOf(path) {
  * Reserve a destination beside the input, and hand back the only thing writing
  * accepts.
  *
- * @param {object} fs            needs createExclusive(path): true, or false if taken
+ * @param {object} fs            needs createExclusive(path, { mode }): true, or false if taken
  * @param {object} gate          the path gate; every candidate goes through it
  * @param {object} input         the ResolvedPath being sanitized
  * @param {object} [opts]        { explicitPath } from §12.1's explicit output path
@@ -105,7 +106,12 @@ export function claimOutputPath(fs, gate, input, { explicitPath } = {}) {
   // other direction.
   for (let i = 0; i < candidates.length; i += 1) {
     const temp = gate.forWrite(`${candidates[i].path}.part`, { input });
-    if (fs.createExclusive(temp.path)) {
+    // Owner-only, and at creation. Creating it readable and narrowing it after
+    // leaves it world-readable for the interval between, which is the whole of
+    // the window someone waiting for it needs. The mode is passed, not assumed:
+    // an adapter that ignores it is a different defect, and one the vectors
+    // check against a real filesystem.
+    if (fs.createExclusive(temp.path, { mode: TEMP_MODE })) {
       return issueClaim(candidates.slice(i), temp, input);
     }
   }

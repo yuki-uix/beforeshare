@@ -1,0 +1,63 @@
+{
+  "$comment": "The temporary file's permissions, place, and end. §15 names 'another local user reading temporary artifacts' as a threat and requires likelihood, impact, mitigation, residual risk and test coverage for each one, so the threat entries below carry all five and the validator checks that the named vector exists. Data, not prose: tools/temp-files.mjs is checked against this table by the validator, in both directions.",
+  "schemaVersion": "1.0",
+  "mode": {
+    "$comment": "Owner-only, and set at creation rather than afterwards: a file created 0644 and chmodded to 0600 is world-readable for the interval between, which is the whole of the window an attacker is waiting for.",
+    "octal": "0600",
+    "setAtCreation": true
+  },
+  "location": {
+    "$comment": "Beside the destination, which is the user's own directory - not a private cache.",
+    "policy": "beside-destination",
+    "reason": "The publish is a link, and a link only works within one filesystem. A private temporary directory may be on another volume, where the publish would silently become a copy - and a half-copied file wearing the destination's name is the one thing §12.1 says must never appear. Atomicity is the stronger guarantee, so it wins, and what it costs is written down rather than left out.",
+    "residualRisk": "The user's directory may be backed up, synchronised or indexed, so a temporary file can be copied off the machine or read by an indexer during its life. Owner-only permissions do not stop a backup agent running as that same user."
+  },
+  "reclamation": {
+    "$comment": "An orphan is a temporary file whose run is gone. Deleting one that is still being written is worse than leaving it: the run loses its work and may publish nothing, so the rule is never to reclaim while the owner may be alive.",
+    "requiresProofOwnerIsGone": true,
+    "ownerToken": "the creating process's identity and start time, so a recycled process id is not mistaken for the original owner",
+    "ageIsNotProof": "An old temporary file is not an abandoned one - a large input can take longer than any age threshold worth setting. Age alone would delete live work.",
+    "discovery": "by marker, listed from the directory rather than supplied by the caller"
+  },
+  "content": {
+    "$comment": "What the temporary file is allowed to hold.",
+    "holds": "the sanitized output only",
+    "neverHolds": "the original input, extracted evidence values, or anything §21.2 keeps out of logs"
+  },
+  "refusals": {
+    "$comment": "What the module refuses, as opposed to what it defends against. The threats below are the second kind and are checked differently: nothing throws a threat.",
+    "owner_not_identifiable": {
+      "rationale": "the file records no owner this build can check, and a sweep that cannot identify an owner cannot prove one is gone. Reclaiming it anyway would be the age rule wearing another name."
+    },
+    "liveness_unknown": {
+      "rationale": "the host cannot say whether a process is running. Guessing here deletes work in progress, so a host that cannot answer gets no reclamation at all."
+    },
+    "cannot_enumerate": {
+      "rationale": "the host cannot list a directory. A sweep that only sees the paths it was handed protects whatever the caller remembered to include, which is the same failure as a registry the caller fills in."
+    }
+  },
+  "threats": {
+    "another_local_user_reads_the_temporary_file": {
+      "likelihood": "low on a single-user Mac, higher on shared or managed machines where another account exists",
+      "impact": "the sanitized output is derived from the input, so reading it discloses document content the user had not yet chosen to share",
+      "mitigation": "created 0600 at creation time, and removed on every exit from the publish - success, failure and cancellation alike",
+      "residualRisk": "root and the user's own agents are not excluded, and a process crash leaves the file until something reclaims it",
+      "testCoverage": "a temporary file is owner-only, and not readable by group or other"
+    },
+    "a_backup_or_indexer_copies_the_temporary_file": {
+      "likelihood": "high - the destination directory is the user's own, and Time Machine, cloud sync and Spotlight all watch it",
+      "impact": "a copy of the sanitized output leaves the machine or enters an index the user did not intend, which §5.1's local-by-default principle is about",
+      "mitigation": "the file's life is bounded by the publish, which is one write and one link; nothing waits on user input while it exists",
+      "residualRisk": "a sync client can copy a file that exists for milliseconds, and this build does not set any exclusion attribute",
+      "testCoverage": "the temporary file does not outlive the publish"
+    },
+    "a_sweep_deletes_a_temporary_file_still_being_written": {
+      "likelihood": "certain if reclamation is by age, because a large input can take longer to process than any age threshold worth setting",
+      "impact": "the run loses its output and may publish nothing, turning a cleanup into the data loss it was meant to prevent",
+      "mitigation": "reclamation requires proof the owning process is gone; age is not proof",
+      "residualRisk": "proving a process is gone depends on the host, and a host that cannot answer must refuse to reclaim rather than guess",
+      "testCoverage": "a temporary file whose owner may be alive is never reclaimed"
+    }
+  },
+  "incompleteMarker": ".part"
+}
