@@ -12,6 +12,20 @@ import { pathToFileURL } from 'node:url';
 
 import { createGate, readFile, writeFile, identityKey, sameFile, REJECTION_REASONS } from './path-gate.mjs';
 
+// A suite that dies instead of failing reports nothing about the case it died
+// on. Anything reading this output for failures — the CI guard among them —
+// sees no FAIL line and concludes the guard stopped working, or worse, that
+// nothing went wrong. Any escape becomes one FAIL line and a non-zero exit.
+process.on('uncaughtException', (e) => {
+  console.error(`FAIL  the suite aborted instead of reporting a failure\n        ${e?.stack ?? e}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(`FAIL  the suite aborted on a rejected promise\n        ${e?.stack ?? e}`);
+  process.exit(1);
+});
+
+
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 if (isMain) {
   let failures = 0;

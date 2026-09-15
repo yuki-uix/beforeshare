@@ -21,6 +21,20 @@ import { REJECTION_REASONS } from './path-gate.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
 import { BREAKING_KINDS, ADDITIVE_KINDS, CHANGE_TYPES } from './versioning.mjs';
 
+// A suite that dies instead of failing reports nothing about the case it died
+// on. Anything reading this output for failures — the CI guard among them —
+// sees no FAIL line and concludes the guard stopped working, or worse, that
+// nothing went wrong. Any escape becomes one FAIL line and a non-zero exit.
+process.on('uncaughtException', (e) => {
+  console.error(`FAIL  the suite aborted instead of reporting a failure\n        ${e?.stack ?? e}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(`FAIL  the suite aborted on a rejected promise\n        ${e?.stack ?? e}`);
+  process.exit(1);
+});
+
+
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const schemaDir = join(root, 'schemas', 'v1');
 const exampleDir = join(schemaDir, 'examples');
@@ -50,8 +64,25 @@ const fail = (msg, errors) => {
   if (errors) for (const e of errors) console.error(`        ${e.instancePath || '/'} ${e.message}`);
 };
 
+/**
+ * An assertion whose expression throws must fail, not kill the run.
+ *
+ * `check(name, subject())` evaluates its argument first, so a throwing subject
+ * escapes before check runs: the process dies with a stack trace, no FAIL line
+ * is printed, and the CI guard reading that output for failures sees none. A
+ * run that dies instead of failing reports nothing about the case it died on.
+ *
+ * Passing a function defers the call to inside the try; plain values still work.
+ */
 const check = (name, cond, detail) => {
-  if (cond) console.log(`ok    ${name}`);
+  let value;
+  try {
+    value = typeof cond === 'function' ? cond() : cond;
+  } catch (e) {
+    fail(name, [{ instancePath: '', message: `threw instead of returning: ${e?.message ?? e}` }]);
+    return;
+  }
+  if (value) console.log(`ok    ${name}`);
   else fail(name, detail ? [{ instancePath: '', message: detail }] : undefined);
 };
 

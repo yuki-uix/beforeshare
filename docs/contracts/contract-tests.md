@@ -66,6 +66,18 @@ exempt: requiring a limitation for "this PNG has no EXIF block" would bury the r
 The converse is checked too, scoped by impact — a `coverage_incomplete` limitation may not name a
 detector that completed, while an `evidence_degraded` one legitimately can.
 
+## A suite that dies reports nothing
+
+Every suite installs an `uncaughtException` and `unhandledRejection` handler that prints one `FAIL`
+line and exits non-zero. Without it, a subject that throws escapes before the assertion runs: the
+process dies with a stack trace, no `FAIL` line is printed, and the CI guard reading that output for
+failures sees none — concluding either that the guard stopped checking, or that nothing went wrong.
+
+Found by mutation, not by reading: making `mask`, `computeStatus` and `canConsume` throw showed three
+of the four suites dying silently. Only the one whose assertions had already been converted to thunks
+survived, and converting assertions one at a time would have left the next one exposed. The handler
+covers the whole suite, including assertions not written yet.
+
 ## Not decided here
 
 | Question | Owner |
