@@ -143,7 +143,12 @@ if (isMain) {
       return writeClaimed(fs, g, claim, `sanitized by ${runId}`);
     });
 
-    check('neither run believes it published where the other did',
+    // Not "the publish arbitrated": these two never contend. The reservation
+    // separated them, each candidate carrying its own temporary name, so by the
+    // time either publishes there is nothing to arbitrate. Saying this tested
+    // contention would claim a case the scenario cannot reach - a replacing
+    // publish leaves it green.
+    check('two runs separated at reservation stay separated at publish',
       () => published[0] !== published[1], published.join(' / '));
     check('both outputs are complete and are their own',
       () => fs.files.get(published[0]) === 'sanitized by run-p'
@@ -153,6 +158,28 @@ if (isMain) {
     check('nothing half-written is left behind',
       () => ![...fs.files.keys()].some((k) => k.endsWith('.part')));
     check('the registry knows both runs', () => knownRunIds(registry).size >= 2);
+  }
+
+  // --- and when they do contend, exactly one wins -----------------------------
+  {
+    // Contention needs a name taken between the claim and the publish - by
+    // another run, or by anything else on the machine. This is the case where
+    // two processes could both believe they succeeded, which #40 puts at zero.
+    const fs = mkFs();
+    const g = gateFor(fs);
+    const registry = openRegistry(fs, { path: REG });
+    registry.issue('run-slow', { inputPath: INPUT, startedAt: 1 });
+    const slow = claimOutputPath(fs, g, g.forRead(INPUT));
+    const wanted = slow.path;
+
+    fs.files.set(wanted, 'published by somebody else');
+
+    const landed = writeClaimed(fs, g, slow, 'sanitized by run-slow');
+    check('the loser does not land on the name it wanted', () => landed !== wanted);
+    check('the winner keeps what it published',
+      () => fs.files.get(wanted) === 'published by somebody else');
+    check('and the loser has a complete file of its own',
+      () => fs.files.get(landed) === 'sanitized by run-slow');
   }
 
   // --- the set the identity checks use comes from here ------------------------

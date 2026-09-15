@@ -1,0 +1,93 @@
+{
+  "$comment": "§20.2's safety boundaries, and what covers each one. The list is NOT written here: it is read out of the case study at check time, because a list transcribed into this file would be checked against my own copy rather than against the requirement. What is written here is the claim about each boundary - a check that must have run, or an issue that owes it.",
+  "schemaVersion": "1.0",
+  "source": {
+    "$comment": "Where the boundaries come from, and how they are found. A boundary added to the case study appears here with nothing claiming it, and the suite fails until something does.",
+    "document": "docs/product-case-study.md",
+    "section": "20.2",
+    "shape": "a bullet list, one boundary per line"
+  },
+  "claims": {
+    "$comment": "Keyed by the boundary's text as the case study writes it. Each names either checks that must have run - as \"suite:check name\", because a bare name can appear in more than one suite and a boundary would then be covered by whichever check happened to share a name - or an owner who owes it. Never both, and never neither.",
+    "output path equals input": {
+      "coveredBy": [
+        "test:path-gate:an output equal to the input is refused",
+        "test:output:an explicit destination naming the input is refused by the gate",
+        "test:path-gate:an output resolved without declaring its input is refused"
+      ]
+    },
+    "case-insensitive path collision": {
+      "coveredBy": [
+        "test:path-gate:an output differing only in case is refused",
+        "test:path-gate:an output differing only in Unicode normalisation is refused",
+        "test:path-gate:a case-insensitive volume treats a differently-cased root as the same root"
+      ]
+    },
+    "symlink escape": {
+      "coveredBy": [
+        "test:path-gate:a symlink leaving the root is refused",
+        "test:path-gate:a symlinked directory component leaving the root is refused",
+        "test:output:a link planted at the temporary name is refused"
+      ]
+    },
+    "cancellation during write": {
+      "coveredBy": [
+        "test:failure:after_reserve: the run stops and says it was cancelled",
+        "test:failure:after_write: a cancel between the write and the publish is honoured",
+        "test:failure:during_publish: a cancel between candidates is honoured by name",
+        "test:failure:a cancelled attempt releases the name it reserved too"
+      ]
+    },
+    "disk-full behavior": {
+      "coveredBy": [
+        "test:failure:ENOSPC is reported as disk_full",
+        "test:failure:EDQUOT is reported as disk_full",
+        "test:failure:a refusal at the publish is reported, not stepped over"
+      ]
+    },
+    "application crash during remediation": {
+      "coveredBy": [
+        "test:failure:during_write: the crash really did leave the partial bytes behind",
+        "test:failure:after_publish: the destination holds the whole result",
+        "test:temp:a crash leaves an orphan that the sweep reclaims"
+      ]
+    },
+    "permissions failure": {
+      "coveredBy": [
+        "test:failure:EACCES is reported as permission_denied",
+        "test:failure:EPERM is reported as permission_denied",
+        "test:failure:EROFS is reported as permission_denied"
+      ]
+    },
+    "temporary-file cleanup": {
+      "coveredBy": [
+        "test:temp:the temporary file does not outlive the publish",
+        "test:failure:a failed attempt releases the name it reserved",
+        "test:temp:a temporary file whose owner may be alive is never reclaimed",
+        "test:temp:a path without the marker is not deleted, whoever owns it"
+      ]
+    },
+    "concurrent requests for the same input and output": {
+      "coveredBy": [
+        "test:registry:both processes issued their run",
+        "test:registry:the registry holds both records, not one overwritten by the other",
+        "test:registry:the loser does not land on the name it wanted",
+        "test:registry:a second run can be issued while the first waits for a person"
+      ]
+    },
+    "stale run identifier or changed input hash": {
+      "coveredBy": [
+        "test:identity:an approval does not survive a change to the input",
+        "test:identity:an approval from a run this process did not issue is refused",
+        "test:identity:a run identifier already in use is refused",
+        "test:identity:a released identifier is still refused"
+      ]
+    },
+    "extracted content containing prompt injection": {
+      "owedBy": "#11 — the exit is the MCP tool boundary, not the file gate: content reaches an agent through a tool result, and nothing in E2 reads document text at all"
+    },
+    "log and error redaction": {
+      "owedBy": "#14 — the exit is the log, not the file. §21.2 lists what default logs must not contain, and E2 writes no logs"
+    }
+  }
+}

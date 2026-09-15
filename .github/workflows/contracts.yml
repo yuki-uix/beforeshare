@@ -112,6 +112,10 @@ jobs:
       - name: Test resource limits
         run: npm run test:limits
 
+      # Last, because it runs the others and reads what they reported.
+      - name: Every §20.2 boundary is covered or owed
+        run: npm run test:boundaries
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -218,7 +222,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=54
+          EXPECTED_CASES=57
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -866,6 +870,48 @@ jobs:
             "resource-limits.md every handoff row says why that owner" \
             "docs/contracts/resource-limits.md" \
             "validate" || failed=1
+
+          # A boundary added to §20.2 must arrive with nothing claiming it.
+          # The list is read from the case study, so this is the case that
+          # matters most: a list copied into a file of ours would be compared
+          # with itself and notice nothing.
+          node -e "
+            const fs=require('fs'), p='docs/product-case-study.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('- log and error redaction.','- log and error redaction;\\n- a boundary nobody has claimed yet.');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a new §20.2 boundary that nothing claims" \
+            "a boundary nobody has claimed yet" \
+            "docs/product-case-study.md" \
+            "test:boundaries" || failed=1
+
+          # Coverage is "a check that ran", not "a check that exists": rename one
+          # and the boundary loses its cover.
+          node -e "
+            const fs=require('fs'), p='tools/test-path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"'an output equal to the input is refused'\",\"'an output equal to the input is rejected'\");
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a renamed check that a boundary still claims" \
+            "output path equals input is covered by checks that ran" \
+            "tools/test-path-gate.mjs" \
+            "test:boundaries" || failed=1
+
+          # Three suites carry "every declared refusal is triggered by a
+          # vector". A claim on a bare name is covered by whichever check
+          # happened to share it.
+          node -e "
+            const fs=require('fs'), p='tools/test-boundaries.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('if (m) passed.add(\`\${script}:\${m[1]}\`);','if (m) passed.add(m[1]);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "coverage credited to a check name without its suite" \
+            "output path equals input is covered by checks that ran" \
+            "tools/test-boundaries.mjs" \
+            "test:boundaries" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
