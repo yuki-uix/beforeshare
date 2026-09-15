@@ -94,9 +94,26 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
   // filesystem actually compares names. Folding case on a case-sensitive volume
   // would let /ROOT/secret count as inside /root. APFS is case-insensitive by
   // default but can be formatted either way, so this is probed, not assumed.
-  const folding = caseInsensitive ?? (typeof fs.isCaseInsensitive === 'function'
-    ? fs.isCaseInsensitive()
+  // Probed per root, not once. Roots can sit on volumes with different rules,
+  // and one rule applied to all of them takes an authorisation decision with the
+  // wrong comparison for some. Until the API can carry a rule per root, a mixed
+  // set is refused rather than silently resolved to one of them.
+  const probe = (root) => (typeof fs.isCaseInsensitive === 'function'
+    ? fs.isCaseInsensitive(root)
     : IDENTITY.caseInsensitiveDefault);
+  let folding;
+  if (caseInsensitive !== undefined) {
+    folding = caseInsensitive;
+  } else {
+    const perRoot = authorisedRoots.map((r) => probe(r));
+    if (new Set(perRoot).size > 1) {
+      throw new Error(
+        'authorised roots span volumes with different case rules; '
+        + 'one comparison cannot be correct for all of them',
+      );
+    }
+    folding = perRoot[0];
+  }
   const key = (p) => identityKey(p, { caseInsensitive: folding });
   const same = (a, b) => sameFile(a, b, { caseInsensitive: folding });
   if (!Array.isArray(authorisedRoots) || authorisedRoots.length === 0) {
@@ -164,7 +181,13 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
     /** @returns {{[RESOLVED]: true, path: string}} */
     forRead(raw) {
       const path = resolve(raw);
-      return issue({ path, mode: 'read' });
+      // A handle is taken here, while the path is the one that was checked.
+      // Passing the string to the read would let a component be replaced between
+      // the check and the open — the window is small, but §13.4's guarantee is
+      // about where the bytes come from, not about where they came from a moment
+      // ago. A filesystem without open() gets the old behaviour and says so.
+      const handle = typeof fs.open === 'function' ? fs.open(path, 'read') : undefined;
+      return issue({ path, mode: 'read', handle });
     },
 
     /**
@@ -184,7 +207,8 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
       if (fs.isDirectory(path)) {
         throw new Rejected('output_is_directory', path);
       }
-      return issue({ path, mode: 'write' });
+      const handle = typeof fs.open === 'function' ? fs.open(path, 'write') : undefined;
+      return issue({ path, mode: 'write', handle });
     },
   };
 }
@@ -242,13 +266,28 @@ function assertResolved(value) {
 export function readFile(fs, resolved) {
   assertResolved(resolved);
   if (resolved.mode !== 'read') throw new Error('this path was resolved for writing');
+  if (resolved.handle !== undefined) return fs.readHandle(resolved.handle);
   return fs.read(resolved.path);
 }
 
 export function writeFile(fs, resolved, bytes) {
   assertResolved(resolved);
   if (resolved.mode !== 'write') throw new Error('this path was resolved for reading');
+  if (resolved.handle !== undefined) return fs.writeHandle(resolved.handle, bytes);
   return fs.write(resolved.path, bytes);
+}
+
+/**
+ * Whether this build closes the window between check and use.
+ *
+ * A filesystem without open()/readHandle() falls back to passing the checked
+ * path, which re-resolves at access time: a component replaced in between is
+ * followed. Callers that need the guarantee can ask instead of assuming.
+ */
+export function bindsToHandles(fs) {
+  return typeof fs.open === 'function'
+    && typeof fs.readHandle === 'function'
+    && typeof fs.writeHandle === 'function';
 }
 
 export { Rejected };

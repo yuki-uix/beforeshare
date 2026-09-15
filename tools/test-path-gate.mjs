@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { createGate, readFile, writeFile, identityKey, sameFile, REJECTION_REASONS } from './path-gate.mjs';
+import { createGate, readFile, writeFile, identityKey, sameFile, bindsToHandles, REJECTION_REASONS } from './path-gate.mjs';
 
 // A suite that dies instead of failing reports nothing about the case it died
 // on. Anything reading this output for failures — the CI guard among them —
@@ -320,6 +320,63 @@ if (isMain) {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+
+  // --- the window between check and use ---------------------------------------
+  // resolve() checks the path it was given; the access must reach the file that
+  // was checked, not whatever the path names by then. A component replaced in
+  // between is followed by anything that re-resolves the string.
+  {
+    const ROOT2 = ROOT;
+    const mkSwappable = () => {
+      let swapped = false;
+      const deref = (p) => (swapped && p.startsWith(`${ROOT2}/sub`) ? `/etc${p.slice(`${ROOT2}/sub`.length)}` : p);
+      return {
+        swap() { swapped = true; },
+        withHandles: {
+          realpath: deref,
+          isDirectory: () => false,
+          open: (p) => ({ boundTo: deref(p) }),
+          readHandle: (h) => `content-of:${h.boundTo}`,
+          writeHandle: () => true,
+        },
+        pathOnly: {
+          realpath: deref,
+          isDirectory: () => false,
+          read: (p) => `content-of:${deref(p)}`,
+          write: () => true,
+        },
+      };
+    };
+
+    const bound = mkSwappable();
+    check('a filesystem offering handles is recognised', bindsToHandles(bound.withHandles));
+    const gb = createGate({ fs: bound.withHandles, authorisedRoots: [ROOT2] });
+    const rb = gb.forRead(`${ROOT2}/sub/a.pdf`);
+    bound.swap();
+    checkOk('a replaced component does not change what a bound read returns',
+      () => readFile(bound.withHandles, rb) === `content-of:${ROOT2}/sub/a.pdf`);
+
+    const unbound = mkSwappable();
+    check('a filesystem without handles is recognised as such', !bindsToHandles(unbound.pathOnly));
+    const gu = createGate({ fs: unbound.pathOnly, authorisedRoots: [ROOT2] });
+    const ru = gu.forRead(`${ROOT2}/sub/a.pdf`);
+    unbound.swap();
+    checkOk('without handles the window is open, and the suite says so rather than pretending',
+      () => readFile(unbound.pathOnly, ru) === 'content-of:/etc/a.pdf');
+  }
+
+  // --- case rules are probed per root -----------------------------------------
+  // Roots can sit on volumes with different rules. One rule applied to all of
+  // them takes an authorisation decision with the wrong comparison for some.
+  {
+    const mixed = { ...stubFs(), isCaseInsensitive: (root) => root === '/case-insensitive' };
+    let refused = false;
+    try { createGate({ fs: mixed, authorisedRoots: ['/case-insensitive', '/case-sensitive'] }); } catch { refused = true; }
+    check('roots on volumes with different case rules are refused', refused);
+    checkOk('roots sharing a case rule are accepted',
+      () => createGate({ fs: mixed, authorisedRoots: ['/case-insensitive'] })
+        .forRead('/CASE-INSENSITIVE/a.pdf').path === '/CASE-INSENSITIVE/a.pdf');
   }
 
   // --- case folding follows the volume, not a constant ------------------------

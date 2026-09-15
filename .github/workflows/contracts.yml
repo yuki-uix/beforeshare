@@ -190,7 +190,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=14
+          EXPECTED_CASES=15
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -335,6 +335,17 @@ jobs:
           "
           expect_failure "a gate trusting the lexical path when the leaf is missing" \
             "a missing file under an escaping link is refused for writing" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (resolved.handle !== undefined) return fs.readHandle(resolved.handle);','');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a read that re-resolves the path instead of using its handle" \
+            "a replaced component does not change what a bound read returns" \
             "tools/path-gate.mjs" \
             "test:path-gate" || failed=1
 

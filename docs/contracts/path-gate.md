@@ -90,12 +90,32 @@ location, then checks that. Walking back only one level is not enough: several l
 at once, and stopping at the first absent directory learns nothing about a link above it. Both the
 single-level and multi-level cases have vectors, and the mutation that walks back one level fails.
 
+## The check and the access must reach the same file
+
+`resolve` checks the path it was handed. If the access then passes that string to the filesystem, the
+string is resolved a second time — and a component replaced in between is followed. Reproduced: with
+`<root>/sub/a.pdf` resolved while `sub` was a real directory, replacing `sub` with a link to `/etc`
+afterwards made the read return `/etc/a.pdf`.
+
+So `forRead` and `forWrite` take a handle at resolution time, and `readFile` and `writeFile` use the
+handle rather than the path. §13.4's guarantee is about where the bytes come from, not where they
+came from a moment ago.
+
+A filesystem that offers no `open()` falls back to passing the path, and `bindsToHandles(fs)` reports
+which behaviour a build has. A caller that needs the guarantee can ask instead of assuming, and the
+vectors assert both shapes — including that the unbound one really does follow the replacement, so
+the weaker mode is documented by a test rather than by silence.
+
 ## Case folding follows the volume
 
 `caseInsensitive` was a constant. On a case-sensitive volume that makes `/ROOT/secret` count as
 inside `/root` — an authorisation decision taken with the wrong comparison. APFS is case-insensitive
-by default but can be formatted either way, so the gate probes the filesystem where it can and the
-rule table carries only a default.
+by default but can be formatted either way, so the gate probes the filesystem and the rule table
+carries only a default.
+
+The probe is **per root**. Roots can sit on volumes with different rules, and one rule applied to all
+of them is wrong for some. Until the interface can carry a rule per root, a mixed set is refused at
+construction rather than quietly resolved to one of them.
 
 ## The stub is checked against the filesystem it stands in for
 
@@ -127,7 +147,8 @@ with nothing else.
 
 | Question | Owner |
 |---|---|
-| Binding the resolved path to a file identity that survives replacement between check and open | #35 — hashes are what close the TOCTOU window, not paths |
+| Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root |
+| An `open()` that refuses to follow a symlink at the final component, so the unbound fallback is not merely narrower but safe | #37 — it lands with atomic write |
 | Collision-safe output names once a destination is accepted | #36 |
 | What the gate does when a path becomes invalid mid-run | #37 |
 | Whether the core's language can make a forged path fail to compile rather than at runtime | E2 (#3) — it belongs with the gate, and waits on the core language ADR |
