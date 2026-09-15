@@ -1,0 +1,45 @@
+{
+  "$comment": "What two runs on one machine may do at once. §14.1 allows bounded local threads or processes and rules out a distributed queue, so this is a single-machine registry and nothing more. Data, not prose: tools/run-registry.mjs is checked against this table by the validator, in both directions.",
+  "schemaVersion": "1.0",
+  "lock": {
+    "$comment": "A lock exists to make a registry change atomic across processes, and for nothing else.",
+    "scope": "one registry mutation",
+    "neverHeldAcross": "waiting for a person",
+    "neverHeldAcrossReason": "§11.1 requires per-finding review, which means a run stops and waits for someone to read it. A lock held across that wait turns one open confirmation dialog into a machine-wide stall, and the person who could clear it is looking at a different window. The approval is made safe by the input hash instead - a stale approval is refused on content, which needs no lock at all.",
+    "acquiredBy": "exclusive-create of a lock file, so two processes cannot both believe they hold it"
+  },
+  "arbitration": {
+    "$comment": "What happens when two runs want the same thing.",
+    "sameInputInspect": "allowed, concurrently - inspection does not write, and two readers of one file need no arbitration",
+    "sameInputSanitize": "allowed, and each gets its own destination - the naming protocol already settles the name, and the input hash already settles whether an approval still applies",
+    "sameOutputName": "exactly one wins, decided by the publish, not by the registry - a link refuses an existing name atomically and the loser steps to the next candidate"
+  },
+  "record": {
+    "$comment": "What the registry stores for each run. Read back after a restart, so it holds no object references. Liveness is not defined here: the temporary-file rules already answer \"is that process still there\", and one implementation of it is better than two kept in step.",
+    "fields": [
+      "runId",
+      "inputPath",
+      "pid",
+      "startedAt",
+      "stage"
+    ],
+    "durability": "written to a file, read back on open, so a run issued before a restart is still known afterwards"
+  },
+  "refusals": {
+    "duplicate_run_id": {
+      "rationale": "the registry has already issued this identifier, now or in a previous process. Reissuing it would let one run inherit another's approvals, and an in-memory set forgets that at every restart."
+    },
+    "registry_unreadable": {
+      "rationale": "the registry file exists but cannot be parsed. Starting fresh would silently reissue every identifier it held, so an unreadable registry stops the run rather than quietly becoming an empty one."
+    },
+    "lock_held": {
+      "rationale": "another process holds the registry lock. Waiting forever would let one stuck process stop the machine, so the caller is told rather than blocked."
+    },
+    "unknown_run": {
+      "rationale": "a run identifier that was never issued. Advancing or asking about one is a caller mistake, and answering as though it existed would make the registry agree with whatever it was told."
+    },
+    "not_a_registry": {
+      "rationale": "a value that did not come from openRegistry(). The identity checks take their set of known identifiers from here, so accepting anything shaped like a registry would put the caller back in charge of the set they are being checked against."
+    }
+  }
+}
