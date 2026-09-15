@@ -13,6 +13,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { writeFile } from './path-gate.mjs';
+import { WriteFailed, classify } from './failure-semantics.mjs';
 
 const RULES = JSON.parse(
   readFileSync(new URL('../schemas/v1/output-rules.json', import.meta.url), 'utf8'),
@@ -133,28 +134,71 @@ function issueClaim(candidates, temp, input) {
  * filesystem, and a half-written file wearing the destination's name is the one
  * thing §12.1 says must never appear.
  */
-export function writeClaimed(fs, gate, claim, bytes) {
+export function writeClaimed(fs, gate, claim, bytes, { cancellation } = {}) {
   if (!claim || typeof claim !== 'object' || !claims.has(claim)) {
     throw new Error('writing needs a claim from claimOutputPath()');
   }
-  writeFile(fs, claim.temp, bytes);
+  const stop = cancellation?.throwIfCancelled?.bind(cancellation) ?? (() => {});
 
-  // Publish by linking, not by renaming. A link refuses an existing name, and
-  // does so atomically, so a destination that appeared after the claim is
-  // stepped over rather than replaced. A rename would have overwritten it -
-  // §9.3's silent overwrite arriving through the back door.
-  for (const destination of claim.candidates) {
-    if (fs.link(claim.temp.path, destination.path)) {
-      fs.unlink(claim.temp.path);
-      return destination.path;
+  // One place releases the reservation, for every way out. Releasing it beside
+  // each throw missed the cancellations, because those are raised outside the
+  // block that catches filesystem errors - so every cancelled run consumed a
+  // destination name for good, which is the accumulation this is here to stop.
+  try {
+    // The interruption points are named, and each one is asked. A run that only
+    // checks before starting and after finishing answers a cancel with the
+    // whole job still to do, which §17.4 would measure as the worst latency the
+    // build can produce.
+    stop('after_reserve');
+    try {
+      writeFile(fs, claim.temp, bytes);
+    } catch (e) {
+      throw new WriteFailed(classify(e), `writing ${claim.temp.path}: ${e?.message ?? e}`);
     }
+    stop('after_write');
+
+    // Publish by linking, not by renaming. A link refuses an existing name, and
+    // does so atomically, so a destination that appeared after the claim is
+    // stepped over rather than replaced. A rename would have overwritten it -
+    // §9.3's silent overwrite arriving through the back door.
+    //
+    // It is also what makes an interrupted run harmless: the destination comes
+    // into existence in one step, after every byte is in the temporary file, so
+    // there is no interval in which a partial file wears the finished name.
+    for (const destination of claim.candidates) {
+      let published = false;
+      try {
+        published = fs.link(claim.temp.path, destination.path);
+      } catch (e) {
+        throw new WriteFailed(classify(e), `publishing ${destination.path}: ${e?.message ?? e}`);
+      }
+      // Past this point the work is done. A cancel arriving now is answered by
+      // the finished file, not by tearing it up - the user asked to stop, not
+      // to lose what was already theirs.
+      if (published) return destination.path;
+      stop('during_publish');
+    }
+    if (claim.candidates.length === 1) {
+      throw new OutputRejected('destination_exists', claim.candidates[0].path);
+    }
+    throw new OutputRejected('no_free_name',
+      `${NAMING.maxAttempts} names beside ${basenameOf(claim.input.path)} were taken`);
+  } finally {
+    discard(fs, claim);
   }
-  fs.unlink(claim.temp.path);
-  if (claim.candidates.length === 1) {
-    throw new OutputRejected('destination_exists', claim.candidates[0].path);
-  }
-  throw new OutputRejected('no_free_name',
-    `${NAMING.maxAttempts} names beside ${basenameOf(claim.input.path)} were taken`);
+}
+
+
+/**
+ * Remove the reservation, and never turn a failure into a different one.
+ *
+ * A cleanup that throws replaces the diagnosis with its own - the caller is
+ * told the unlink failed and never hears about the disk being full. What the
+ * unlink leaves behind still carries the incomplete marker, so it is debris
+ * under a name nobody was told to look at rather than a result.
+ */
+function discard(fs, claim) {
+  try { fs.unlink(claim.temp.path); } catch { /* the marker is the fallback */ }
 }
 
 export { OutputRejected };
