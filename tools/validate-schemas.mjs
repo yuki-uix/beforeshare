@@ -1019,14 +1019,31 @@ for (const file of examples) {
 // enforced nowhere. What a document does NOT decide is the part a reader needs
 // most, and the part most easily lost when the document grows.
 {
-  const docsDir = join(schemaDir, '..', '..', 'docs', 'contracts');
+  // All of docs/, not docs/contracts/. The comment below worried about a
+  // document in a subdirectory and stopped one level short: the first ADR
+  // went into docs/adr/ and skipped the rule entirely, carrying a handoff
+  // row that named a closed issue with nothing able to see it.
+  //
+  // The case study is the exception, and the only one: it records what is
+  // required rather than what was decided, so it owes no account of what
+  // it left open.
+  const docsDir = join(schemaDir, '..', '..', 'docs');
+  const NOT_A_DECISION_RECORD = ['product-case-study.md'];
   // Recursive: readdirSync sees direct children only, so a document in a
   // subdirectory would have skipped the handoff rule entirely while the check
   // reported itself as covering the contract documents.
   const collectDocs = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? collectDocs(join(dir, e.name), `${prefix}${e.name}/`)
       : e.name.endsWith('.md') ? [`${prefix}${e.name}`] : []);
-  const docs = collectDocs(docsDir);
+  const allDocs = collectDocs(docsDir);
+  const docs = allDocs.filter((f) => !NOT_A_DECISION_RECORD.includes(f));
+  // An exception naming a file that is not there excludes nothing while
+  // reading like an exemption someone considered.
+  check('the exception names a document that is there',
+    NOT_A_DECISION_RECORD.every((f) => allDocs.includes(f)),
+    NOT_A_DECISION_RECORD.join(', '));
+  check('documents outside docs/contracts are checked too',
+    docs.some((f) => !f.startsWith('contracts/')), docs.join(', '));
   check('contract documents were found to check', docs.length > 0);
   for (const file of docs) {
     const text = readFileSync(join(docsDir, file), 'utf8');
