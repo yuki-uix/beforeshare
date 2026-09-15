@@ -18,6 +18,7 @@ import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSourc
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
 import { OUTPUT_REJECTIONS } from './output-naming.mjs';
+import { FAILURE_CODES, INTERRUPTION_POINTS, CANCELLATION_CHECKPOINTS } from './failure-semantics.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -806,6 +807,18 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  FAILURE_CODES: {
+    value: FAILURE_CODES,
+    standalone: 'the failure table\'s own vocabulary; failure-rules.json is data, and the validator checks the two against each other directly',
+  },
+  INTERRUPTION_POINTS: {
+    value: INTERRUPTION_POINTS,
+    standalone: 'where the process can die during a publish; not an enum in any schema',
+  },
+  CANCELLATION_CHECKPOINTS: {
+    value: CANCELLATION_CHECKPOINTS,
+    standalone: 'where the run asks whether to stop; checked against the module\'s stop() calls directly',
+  },
   OUTPUT_REJECTIONS: {
     value: OUTPUT_REJECTIONS,
     standalone: 'the output rules\' own vocabulary; output-rules.json is data, and the validator checks the two against each other directly',
@@ -1015,11 +1028,17 @@ for (const file of examples) {
 // both places at once. The independent fact is which literals the code actually
 // hands to its rejection constructor, so read those out of the source.
 const RULE_MODULE_DIR = join(schemaDir, '..', '..', 'tools');
-function reasonsThrownIn(moduleFile, constructorName) {
+function reasonsThrownIn(moduleFile, constructorName, extraProducers = []) {
   const src = readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8');
   const thrown = new Set();
-  const re = new RegExp(`new ${constructorName}\\(\\s*['\"]([a-z_]+)['\"]`, 'g');
-  for (const m of src.matchAll(re)) thrown.add(m[1]);
+  // Not every name reaches the caller by being thrown: a failure code can be
+  // decided by a classifier and returned. The producing forms are declared per
+  // table, so the scan still looks at where names are made rather than at
+  // whether the string appears anywhere in the file.
+  const patterns = [`new ${constructorName}\\(\\s*['\"]([a-z_]+)['\"]`, ...extraProducers];
+  for (const pattern of patterns) {
+    for (const m of src.matchAll(new RegExp(pattern, 'g'))) thrown.add(m[1]);
+  }
   return thrown;
 }
 
@@ -1117,9 +1136,10 @@ function proseLeaves(node, shape, where = '', found = []) {
   return found;
 }
 
-function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape }) {
-  const declared = Object.keys(table.rejectionReasons);
-  const thrown = reasonsThrownIn(moduleFile, constructorName);
+function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape,
+                          reasonsKey = 'rejectionReasons', extraProducers = [] }) {
+  const declared = Object.keys(table[reasonsKey]);
+  const thrown = reasonsThrownIn(moduleFile, constructorName, extraProducers);
 
   check(`${file} every declared reason is thrown somewhere in ${moduleFile}`,
     declared.every((r) => thrown.has(r)),
@@ -1214,6 +1234,50 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       withoutComments(source).includes('someRule') === survives,
       JSON.stringify(withoutComments(source)));
   }
+}
+
+// --- the failure table and what the publish actually does stay in step -------
+{
+  const failRules = read(join(schemaDir, 'failure-rules.json'));
+  checkRuleTable({
+    file: 'failure-rules.json', table: failRules, module: 'failure-semantics.mjs',
+    constructorName: 'WriteFailed', exposed: FAILURE_CODES, reasonsKey: 'codes',
+    // classify() decides a code and returns it; that is a producing site too.
+    extraProducers: ["return '([a-z_]+)';"],
+    shape: {
+      $comment: true, schemaVersion: true, incompleteMarker: true,
+      codes: { '*': { rationale: 'prose' } },
+      interruptionPoints: { $comment: 'prose', points: true,
+        afterPublishIsComplete: true, afterPublishReason: 'prose' },
+      cancellationCheckpoints: { $comment: 'prose', points: true, notAfterPublish: 'prose' },
+      invariants: { $comment: 'prose', originalUnchanged: 'prose',
+        destinationAbsentOrComplete: 'prose', incompleteWorkIsMarked: 'prose' },
+    },
+  });
+
+  // A checkpoint is only a checkpoint if the code asks there. Declared lists
+  // drift away from the code silently - the list still reads as coverage, and
+  // the run answers a cancel later and later - so the two are compared.
+  const publishSource = withoutComments(
+    readFileSync(join(RULE_MODULE_DIR, 'output-naming.mjs'), 'utf8'));
+  const asked = [...publishSource.matchAll(/stop\('([a-z_]+)'\)/g)].map((m) => m[1]);
+  check('the publish asks at exactly the declared cancellation checkpoints',
+    JSON.stringify([...asked].sort()) === JSON.stringify([...CANCELLATION_CHECKPOINTS].sort()),
+    `code: ${asked.join(', ')} vs table: ${CANCELLATION_CHECKPOINTS.join(', ')}`);
+
+  // §12.1: cancellation must not leave a file that appears successfully
+  // sanitized. Past the link there is no such file to leave - it is finished -
+  // so asking there would throw away work the user already has.
+  check('no cancellation checkpoint runs after the publish',
+    !CANCELLATION_CHECKPOINTS.includes('after_publish')
+    && failRules.interruptionPoints.afterPublishIsComplete === true);
+
+  // Crashes happen where they happen; cancels are noticed where the run asks.
+  // Every interruption point must be interrupted by a vector, which the suite
+  // asserts - here we only require the two lists to stay distinguishable.
+  check('the interruption points cover the write itself, which no checkpoint can',
+    INTERRUPTION_POINTS.includes('during_write')
+    && !CANCELLATION_CHECKPOINTS.includes('during_write'));
 }
 
 // --- the output rule table and its implementation stay in step ---------------

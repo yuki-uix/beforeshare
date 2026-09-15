@@ -100,6 +100,9 @@ jobs:
       - name: Test immutable output
         run: npm run test:output
 
+      - name: Test failure semantics
+        run: npm run test:failure
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -206,7 +209,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=29
+          EXPECTED_CASES=32
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -447,7 +450,7 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('      fs.unlink(claim.temp.path);','      fs.write(claim.input.path, bytes);\n      fs.unlink(claim.temp.path);');
+            s=s.replace('      if (published) return destination.path;','      if (published) { fs.write(claim.input.path, bytes); return destination.path; }');
             fs.writeFileSync(p, s);
           "
           expect_failure "a publish that also lands on the original" \
@@ -460,7 +463,7 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('    if (fs.link(claim.temp.path, destination.path)) {','    if (fs.write(destination.path, bytes) || true) {');
+            s=s.replace('      published = fs.link(claim.temp.path, destination.path);','      published = fs.write(destination.path, bytes) || true;');
             fs.writeFileSync(p, s);
           "
           expect_failure "a publish that replaces whatever is at the destination" \
@@ -527,6 +530,43 @@ jobs:
             "a link planted at the temporary name is refused" \
             "tools/output-naming.mjs" \
             "test:output" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/failure-semantics.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') return 'permission_denied';\",'');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a permission failure folded into the unclassified one" \
+            "EACCES is reported as permission_denied" \
+            "tools/failure-semantics.mjs" \
+            "test:failure" || failed=1
+
+          # §17.4 reports cancellation latency. Zero for a run that never
+          # stopped would make the least responsive build look like the fastest.
+          node -e "
+            const fs=require('fs'), p='tools/failure-semantics.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('return requestedAt === null || observedAt === null ? null : observedAt - requestedAt;','return requestedAt === null ? null : (observedAt ?? requestedAt) - requestedAt;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a cancellation latency of zero for a run that never stopped" \
+            "a cancel that is never noticed reports no latency, not zero" \
+            "tools/failure-semantics.mjs" \
+            "test:failure" || failed=1
+
+          # A reservation left behind by every failed attempt makes that
+          # destination name unreachable for good.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  } finally {\n    discard(fs, claim);\n  }','  } finally {\n    /* the reservation is kept */\n  }');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a run that keeps the name it reserved after failing or being cancelled" \
+            "a failed attempt releases the name it reserved" \
+            "tools/output-naming.mjs" \
+            "test:failure" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

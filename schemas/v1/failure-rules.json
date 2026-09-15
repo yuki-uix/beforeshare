@@ -1,0 +1,45 @@
+{
+  "$comment": "What an interruption is allowed to leave behind. §17.5 puts interrupted remediation producing an apparently valid final output at 0 cases, and §6.3 requires a partially written output to be deleted or clearly marked incomplete. Data, not prose: tools/failure-semantics.mjs is checked against this table by the validator, in both directions.",
+  "schemaVersion": "1.0",
+  "interruptionPoints": {
+    "$comment": "Every point at which the process can die: before any bytes, part way through them, with the temporary file complete, and past the publish. The suite interrupts each one and asserts the invariants below. These are not the same as the cancellation checkpoints - a crash happens where it happens, a cancel is only noticed where the run asks - and conflating the two lists makes one of them untested.",
+    "points": [
+      "after_reserve",
+      "during_write",
+      "after_write",
+      "after_publish"
+    ],
+    "afterPublishIsComplete": true,
+    "afterPublishReason": "Past the link the destination exists and holds every byte, so an interruption there has produced a finished file. The temporary name outliving it is untidy, not incomplete."
+  },
+  "invariants": {
+    "$comment": "Checked at every interruption point, not at a chosen one.",
+    "originalUnchanged": "The input hash is the same before and after, whatever failed.",
+    "destinationAbsentOrComplete": "The destination is created by a link, which is atomic and runs only once every byte is in the temporary file. There is no interval in which a partial file wears the destination's name - the guarantee is structural, not a cleanup step that has to run.",
+    "incompleteWorkIsMarked": "Anything left behind carries the incomplete marker and is never at a name the user was told to look at."
+  },
+  "incompleteMarker": ".part",
+  "codes": {
+    "cancelled": {
+      "rationale": "the user asked to stop. §12.1 says cancellation must not leave a file that appears successfully sanitized, so this is a failure outcome and never a quiet success."
+    },
+    "disk_full": {
+      "rationale": "the filesystem refused the write for space. §20.2 lists disk-full behaviour as a boundary that must be tested, and a write that stops halfway is exactly the partial output §6.3 is about."
+    },
+    "permission_denied": {
+      "rationale": "the filesystem refused the write for permissions. It is a distinct diagnosis from being out of space, and telling a user to free space when they need access sends them the wrong way."
+    },
+    "write_failed": {
+      "rationale": "the write failed for a reason this build does not classify. Folding it into one of the others would report a cause nobody established; folding it into success would be §17.5's apparently valid output."
+    }
+  },
+  "cancellationCheckpoints": {
+    "$comment": "Where the run asks whether it should stop. §17.4 reports cancellation latency, which is the distance between asking and stopping: a run that only checks before it starts answers with the whole job still to do. The validator checks these against the literals the module passes to its stop() calls, so a checkpoint that is removed from the code cannot go on being declared here.",
+    "points": [
+      "after_reserve",
+      "after_write",
+      "during_publish"
+    ],
+    "notAfterPublish": "Past the link the file exists and is complete. A cancel arriving then is answered by the finished file rather than by tearing it up: the user asked to stop, not to lose what was already theirs."
+  }
+}
