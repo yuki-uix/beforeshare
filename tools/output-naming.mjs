@@ -73,32 +73,55 @@ function basenameOf(path) {
  * @param {object} [opts]        { explicitPath } from §12.1's explicit output path
  */
 export function claimOutputPath(fs, gate, input, { explicitPath } = {}) {
+  const directory = dirnameOf(input.path);
+  const candidates = [];
   if (explicitPath !== undefined) {
     // An explicit path says where to write. It does not say "replace what is
     // there": §9.3 forbids that, and a user naming a file they forgot about is
-    // the case the rule exists for.
-    const resolved = gate.forWrite(explicitPath, { input });
-    if (!fs.createExclusive(resolved.path)) {
-      throw new OutputRejected('destination_exists', resolved.path);
+    // the case the rule exists for. One candidate and no fallback - writing
+    // beside the name someone chose would be its own surprise.
+    candidates.push(gate.forWrite(explicitPath, { input }));
+  } else {
+    const fileName = basenameOf(input.path);
+    for (let n = 1; n <= NAMING.maxAttempts; n += 1) {
+      candidates.push(gate.forWrite(`${directory}/${candidateName(fileName, n)}`, { input }));
     }
-    return issueClaim(resolved, input);
   }
 
-  const directory = dirnameOf(input.path);
-  const fileName = basenameOf(input.path);
-  for (let n = 1; n <= NAMING.maxAttempts; n += 1) {
-    const candidate = `${directory}/${candidateName(fileName, n)}`;
-    const resolved = gate.forWrite(candidate, { input });
-    // Creating it IS the reservation. A free-name check followed by a write
-    // would let two processes agree on the same answer.
-    if (fs.createExclusive(resolved.path)) return issueClaim(resolved, input);
+  // The reservation is the temporary file, not the destination.
+  //
+  // Reserving the destination with an empty placeholder and renaming over it
+  // later cannot be made safe without handles: between the placeholder and the
+  // rename another process can delete it and put its own file there, and an
+  // ordinary rename replaces that file without noticing. Re-reading the path
+  // first only narrows the window. So the destination is never created early -
+  // it comes into existence at publish, by a link that refuses to replace.
+  // Each candidate has its own temporary name, and the first one this process
+  // can create is the reservation. Tying the temporary file to the first
+  // candidate alone meant a second run could not start at all while the first
+  // was still writing - its temporary name was taken and every free name behind
+  // it was unreachable, which is the concurrent case in §20.2 failing in the
+  // other direction.
+  for (let i = 0; i < candidates.length; i += 1) {
+    const temp = gate.forWrite(`${candidates[i].path}.part`, { input });
+    if (fs.createExclusive(temp.path)) {
+      return issueClaim(candidates.slice(i), temp, input);
+    }
+  }
+  if (candidates.length === 1) {
+    throw new OutputRejected('temp_name_taken', `${candidates[0].path}.part belongs to another run`);
   }
   throw new OutputRejected('no_free_name',
-    `${NAMING.maxAttempts} names beside ${fileName} were taken`);
+    `${NAMING.maxAttempts} names beside ${basenameOf(input.path)} are busy`);
 }
 
-function issueClaim(resolvedPath, input) {
-  const claim = Object.freeze({ path: resolvedPath.path, resolvedPath, input });
+function issueClaim(candidates, temp, input) {
+  const claim = Object.freeze({
+    path: candidates[0].path,   // where it lands if nothing takes the name first
+    candidates: Object.freeze(candidates),
+    temp,
+    input,
+  });
   claims.add(claim);
   return claim;
 }
@@ -110,37 +133,28 @@ function issueClaim(resolvedPath, input) {
  * filesystem, and a half-written file wearing the destination's name is the one
  * thing §12.1 says must never appear.
  */
-export function writeClaimed(fs, gate, claim, bytes, { tempPath } = {}) {
+export function writeClaimed(fs, gate, claim, bytes) {
   if (!claim || typeof claim !== 'object' || !claims.has(claim)) {
     throw new Error('writing needs a claim from claimOutputPath()');
   }
-  const temp = tempPath ?? `${claim.path}.part`;
-  if (dirnameOf(temp) !== dirnameOf(claim.path)) {
-    throw new OutputRejected('temp_outside_destination_directory',
-      `${temp} is not beside ${claim.path}`);
+  writeFile(fs, claim.temp, bytes);
+
+  // Publish by linking, not by renaming. A link refuses an existing name, and
+  // does so atomically, so a destination that appeared after the claim is
+  // stepped over rather than replaced. A rename would have overwritten it -
+  // §9.3's silent overwrite arriving through the back door.
+  for (const destination of claim.candidates) {
+    if (fs.link(claim.temp.path, destination.path)) {
+      fs.unlink(claim.temp.path);
+      return destination.path;
+    }
   }
-  // The temporary file is a path being written, so §13.4 applies to it exactly
-  // as it does to the destination: it is a separate name from the one that was
-  // checked, and a link planted at `<destination>.part` points somewhere the
-  // gate would never have authorised.
-  //
-  // The gate runs FIRST. Creating first also refuses the link - O_CREAT|O_EXCL
-  // fails on an existing name and does not follow it - but it creates a file at
-  // a path nothing has vetted before anything looks at it, and it reports an
-  // escape attempt as a busy name. Checking first is safe here because of what
-  // follows: a check and an ordinary write would leave a window, a check and an
-  // exclusive create does not, since the create fails on any name that appeared
-  // in between.
-  const resolvedTemp = gate.forWrite(temp, { input: claim.input });
-  // Claimed the same way the destination is: writing unconditionally would
-  // destroy another run's half-written file, the collision the destination is
-  // careful about, one name over.
-  if (!fs.createExclusive(resolvedTemp.path)) {
-    throw new OutputRejected('temp_name_taken', `${temp} belongs to another run`);
+  fs.unlink(claim.temp.path);
+  if (claim.candidates.length === 1) {
+    throw new OutputRejected('destination_exists', claim.candidates[0].path);
   }
-  writeFile(fs, resolvedTemp, bytes);
-  fs.rename(resolvedTemp.path, claim.path);
-  return claim.path;
+  throw new OutputRejected('no_free_name',
+    `${NAMING.maxAttempts} names beside ${basenameOf(claim.input.path)} were taken`);
 }
 
 export { OutputRejected };

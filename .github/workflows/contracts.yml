@@ -180,6 +180,16 @@ jobs:
           # git checkout fails silently on a path git does not track. A mutation
           # that is never undone poisons every later case AND the control, which
           # is how this script first went wrong locally. Restoration is verified.
+          # Every case restores with `git checkout --`, which discards whatever is
+          # in the working tree. In CI the tree is always clean; run locally on a
+          # dirty one and it deletes the work being tested. That has happened
+          # twice here, and the second time took a whole protocol rewrite with
+          # it, so the script refuses rather than relying on remembering.
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "::error::the working tree has uncommitted changes; this script restores with git checkout and would discard them"
+            exit 1
+          fi
+
           restore() {
             local f="$1"
             if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
@@ -437,10 +447,10 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('  fs.rename(resolvedTemp.path, claim.path);','  fs.rename(resolvedTemp.path, claim.input.path);');
+            s=s.replace('      fs.unlink(claim.temp.path);','      fs.write(claim.input.path, bytes);\n      fs.unlink(claim.temp.path);');
             fs.writeFileSync(p, s);
           "
-          expect_failure "a write that lands on the original instead of the claim" \
+          expect_failure "a publish that also lands on the original" \
             "remove_pdf_metadata_field leaves the original unchanged" \
             "tools/output-naming.mjs" \
             "test:output" || failed=1
@@ -450,11 +460,11 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('    if (fs.createExclusive(resolved.path)) return issueClaim(resolved, input);','    if (!fs.files || !fs.files.has(resolved.path)) { fs.createExclusive(resolved.path); return issueClaim(resolved, input); }');
+            s=s.replace('    if (fs.link(claim.temp.path, destination.path)) {','    if (fs.write(destination.path, bytes) || true) {');
             fs.writeFileSync(p, s);
           "
-          expect_failure "a destination checked for freedom instead of claimed" \
-            "a name lost to another process is not claimed anyway" \
+          expect_failure "a publish that replaces whatever is at the destination" \
+            "a destination that appeared after the claim is not replaced" \
             "tools/output-naming.mjs" \
             "test:output" || failed=1
 
@@ -472,11 +482,11 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('  if (!fs.createExclusive(resolvedTemp.path)) {','  if (false) {');
+            s=s.replace('    if (fs.createExclusive(temp.path)) {','    if (true) { fs.createExclusive(temp.path);');
             fs.writeFileSync(p, s);
           "
-          expect_failure "a temporary file that overwrites another run's" \
-            "a temporary name belonging to another run is refused" \
+          expect_failure "a reservation that takes a temporary name already in use" \
+            "a busy temporary name moves the run to the next candidate" \
             "tools/output-naming.mjs" \
             "test:output" || failed=1
 
@@ -510,11 +520,10 @@ jobs:
           node -e "
             const fs=require('fs'), p='tools/output-naming.mjs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('  const resolvedTemp = gate.forWrite(temp, { input: claim.input });','  if (!fs.createExclusive(temp)) { throw new OutputRejected(\'temp_name_taken\', temp); }\n  const resolvedTemp = gate.forWrite(temp, { input: claim.input });');
-            s=s.replace('  if (!fs.createExclusive(resolvedTemp.path)) {','  if (false) {');
+            s=s.replace('    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });\n    if (fs.createExclusive(temp.path)) {','    if (!fs.createExclusive(\`\${candidates[i].path}.part\`)) { continue; }\n    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });\n    if (true) {');
             fs.writeFileSync(p, s);
           "
-          expect_failure "a temporary file created before the gate has looked at it" \
+          expect_failure "a temporary name claimed before the gate saw it" \
             "a link planted at the temporary name is refused" \
             "tools/output-naming.mjs" \
             "test:output" || failed=1

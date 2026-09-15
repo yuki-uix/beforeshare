@@ -11,11 +11,11 @@
     "extensionRuleLimit": "A name with two meaningful extensions, archive.tar.gz, becomes 'archive.tar (sanitized).gz'. The MVP media types in §8.1 all carry one extension, so this is stated and vectored rather than solved here."
   },
   "writeProtocol": {
-    "$comment": "A name is claimed by creating it exclusively, not by asking whether it exists. Asking leaves a window in which another process answers the same question the same way, which is exactly the concurrent case §20.2 requires.",
+    "$comment": "A name is claimed by creating the temporary file exclusively, not by asking whether the destination is free. The destination is never created early: reserving it with a placeholder cannot be made safe without handles, because another process can delete the placeholder and put its own file there, and an ordinary rename replaces that file without noticing. Publishing by link refuses an existing name atomically instead.",
     "claim": "exclusive-create",
-    "then": "write-temp-then-rename",
+    "then": "write-temp-then-link",
     "tempLocation": "same-directory-as-destination",
-    "tempLocationReason": "A rename is atomic only within one filesystem. A temp file elsewhere degrades silently into a copy, and a partially copied file that carries the destination's name is the one thing §12.1 says must never appear."
+    "tempLocationReason": "The temporary file is derived from the destination, so it is always in the same directory: a link is only possible within one filesystem, and a caller-supplied temporary path elsewhere would fail at publish after all the work was done."
   },
   "rejectionReasons": {
     "destination_exists": {
@@ -23,9 +23,6 @@
     },
     "no_free_name": {
       "rationale": "the sequence was exhausted without claiming a name. Continuing without a claim would mean writing to a name nothing reserved."
-    },
-    "temp_outside_destination_directory": {
-      "rationale": "the temporary file is not beside its destination, so the rename would cross filesystems and stop being atomic. A copy that fails halfway leaves a file wearing the destination's name."
     },
     "temp_name_taken": {
       "rationale": "the temporary name belongs to another run. Writing to it anyway would destroy a half-written file - the collision the destination is careful about, one name over."

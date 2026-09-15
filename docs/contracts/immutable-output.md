@@ -43,47 +43,56 @@ refusal again — the same hole, reached by forwarding a missing optional argume
 rather than by omitting the key — so anything else must be a ResolvedPath the
 gate issued.
 
-## Temp beside the destination, then rename
+## The reservation is the temporary file; the publish is a link
 
-A rename is atomic within one filesystem and not across them. A temp file elsewhere degrades
-silently into a copy, and a half-copied file wearing the destination's name is the thing §12.1 says
-must never appear. The temp path is refused when it is not in the destination's directory.
+Reserving the destination with an empty placeholder and renaming over it later
+cannot be made safe without handles. Between the placeholder and the rename,
+another process can delete it and put its own file there — and an ordinary
+rename replaces that file without noticing, which is §9.3's silent overwrite
+arriving through the back door. Re-reading the path first only narrows the
+window; it does not close it.
 
-**The temporary file is a path being written**, so §13.4 applies to it exactly as to the
-destination: it is a *different name* from the one that was checked, and a symlink planted at
-`<destination>.part` would otherwise be followed — the bytes land wherever it points and the rename
-then moves something else into place. It goes through the gate.
+So the destination is never created early. The temporary file is the
+reservation, created exclusively beside the destination, and the destination
+comes into existence at publish by a **link**, which refuses an existing name
+atomically. A name taken after the claim is stepped over, not replaced.
 
-The temporary name goes through the gate **first** and is claimed exclusively
-**second**, and that order is deliberate. Claiming first works — `O_CREAT |
-O_EXCL` fails on an existing name and never follows a symlink there — but it
-refuses a planted link as a busy name and leaves the gate call unreachable,
-which CI caught by removing the gate call and finding nothing failed. A guard
-nothing can exercise is worse than no guard.
+| | |
+|---|---|
+| reserve | the first `<candidate>.part` this process can `createExclusive` — gated first, so a link planted there is refused as an escape before any work is done |
+| write | into the temporary file |
+| publish | `link(temp, destination)`, advancing to the next candidate on refusal, then `unlink(temp)` |
 
-Checking first is safe here precisely because of what follows it: a check and an
-ordinary write would leave a window, a check and an exclusive create does not,
-since the create fails on any name that appeared in between.
+Every candidate carries its own temporary name, and the run starts from the one
+it reserved. Tying the reservation to the first candidate alone stopped a second
+run from starting at all while the first was writing — its temporary name was
+taken and every free name behind it was unreachable, which is §20.2's concurrent
+case failing in the other direction. An explicit path has one candidate and
+nowhere to step to, so a busy temporary name is the answer rather than a detour.
 
-CI does carry the ordering mutation — create before gate, which makes the
-planted link report a busy name instead of an escape. There is no mutation for
-"the temporary file skipped the gate" entirely, and the
-reason is worth stating: it cannot be written. `writeFile` accepts only an
-object the gate issued, so every mutation that removes the gate call breaks the
-write outright rather than sneaking past it. The property is structural, like
-the gate's own, and the mutation that protects it is the gate's brand check.
+The temporary name is derived rather than supplied, so it is always beside the
+destination — a link only works within one filesystem, and a temporary file
+elsewhere would fail at publish with all the work already done. That retired
+`temp_outside_destination_directory`: nothing can express the violation now, and
+a rejection reason nothing can reach is a claim about enforcement that does not
+happen.
 
-The claim also protects another run's half-written file, which writing to the
-temporary name unconditionally would destroy — the collision the destination is
-careful about, one name over.
+The stub these vectors run against is compared with `node:fs` on a real
+temporary directory: exclusive create on a free name, an existing file and a
+symlink; that a refused create left the link pointing where it did; and that a
+link onto a free name publishes while a link onto an occupied one refuses and
+leaves the occupant alone. This repository has been wrong about a filesystem's
+behaviour before — `realpath` was documented as returning null for a missing
+path, which nothing does, and every vector ran against the stub that did.
 
-The stub these vectors run against is compared with `node:fs` directly, on a
-real temporary directory: exclusive create on a free name, on an existing file
-and on a symlink, that a refused create left the link pointing where it did, and
-that rename replaces the destination and removes the source. This repository has
-been wrong about a filesystem's behaviour before — `realpath` was documented as
-returning null for a missing path, which nothing does, and every vector ran
-against the stub that did.
+## What a path-based claim still cannot promise
+
+`createExclusive` takes a path. A parent component swapped between the gate's
+check and the create can still land outside the authorised roots. Closing that
+needs handle-relative primitives — open the directory, create relative to the
+handle, never follow a link — which this reference implementation does not have.
+It is the same handle question the gate already carries, and it is recorded
+below rather than described as solved.
 
 ## A rule nobody reads is decoration
 
@@ -117,9 +126,11 @@ module fails the suite, and the assertion itself is checked against finding no w
 
 | Question | Owner |
 |---|---|
-| What happens when the write is cancelled or the process dies between claim and rename — the claimed empty file survives | #37 — it owns cancellation, crash and write-failure semantics |
+| What happens when the write is cancelled or the process dies between the claim and the publish — the temporary file survives and holds its name | #37 — it owns cancellation, crash and write-failure semantics |
 | How long the temporary file lives, what permissions it carries, and who else can read it | #38 — the temp file's lifetime and side channels are its subject |
 | Arbitration when two runs want the same input, beyond the naming race closed here | #40 — this settles the name, not the work |
 | Whether a claimed-but-unwritten name should be released, and how that interacts with a retried run | #37 — releasing it is only meaningful once failure has a defined shape |
 | Disk-full and permission failures during the temp write | #37 — §20.2 lists them with the other write failures |
-| A claimed temporary name left behind by a dead run blocks the next one forever | #37 — reclaiming it needs failure to have a defined shape first |
+| A publish whose `unlink` of the temporary file fails, leaving a second hard link to the same bytes | #37 — it owns what a partial failure leaves behind |
+| A temporary file left behind by a dead run blocks that destination name forever | #37 — reclaiming it needs failure to have a defined shape first |
+| A parent directory component swapped between the gate's check and the exclusive create | #34 — the gate owns handles, and handle-relative creation is the only thing that closes it |

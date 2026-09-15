@@ -1103,13 +1103,15 @@ function leafNames(node, shape, found = new Set()) {
 }
 
 /** Leaves declared as explanation (shape `'prose'`), which nothing executes. */
-function proseLeaves(node, shape, found = []) {
+function proseLeaves(node, shape, where = '', found = []) {
   for (const [k, v] of Object.entries(node)) {
     const allowed = shape['*'] ?? shape[k];
-    if (allowed === 'prose') found.push([k, v]);
+    // Named by its full path: eight rows all reporting "rationale" say nothing
+    // about which one is empty.
+    if (allowed === 'prose') found.push([`${where}${k}`, v]);
     else if (allowed !== undefined && allowed !== true
       && v && typeof v === 'object' && !Array.isArray(v)) {
-      proseLeaves(v, allowed, found);
+      proseLeaves(v, allowed, `${where}${k}.`, found);
     }
   }
   return found;
@@ -1179,7 +1181,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     constructorName: 'Rejected', exposed: REJECTION_REASONS,
     shape: {
       $comment: true, schemaVersion: true,
-      rejectionReasons: { '*': { stage: true, rationale: true } },
+      rejectionReasons: { '*': { stage: true, rationale: 'prose' } },
       identity: { $comment: true, unicodeNormalization: true, caseInsensitiveDefault: true },
     },
   });
@@ -1222,7 +1224,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     constructorName: 'OutputRejected', exposed: OUTPUT_REJECTIONS,
     shape: {
       $comment: true, schemaVersion: true,
-      rejectionReasons: { '*': { rationale: true } },
+      rejectionReasons: { '*': { rationale: 'prose' } },
       naming: {
         $comment: true, marker: true, sequenceSeparator: true, firstSequenceNumber: true,
         maxAttempts: true, extensionRule: true, extensionRuleLimit: 'prose',
@@ -1242,8 +1244,8 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     outRules.writeProtocol.claim === 'exclusive-create');
   check('the temporary file lives beside its destination, so the rename is atomic',
     outRules.writeProtocol.tempLocation === 'same-directory-as-destination');
-  check('the write goes through a temporary file and a rename',
-    outRules.writeProtocol.then === 'write-temp-then-rename');
+  check('the write goes through a temporary file and a link that cannot replace',
+    outRules.writeProtocol.then === 'write-temp-then-link');
   // splitExtension hard-codes last-dot, so this is the only thing the table may
   // say. A table describing a rule the code does not implement is worse than no
   // table: it reads as the specification.
@@ -1260,7 +1262,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     constructorName: 'IdentityRejected', exposed: IDENTITY_REJECTIONS,
     shape: {
       $comment: true, schemaVersion: true, stages: true,
-      rejectionReasons: { '*': { rationale: true } },
+      rejectionReasons: { '*': { rationale: 'prose' } },
       hash: { algorithm: true, encoding: true, $comment: true },
       orderingIsStructural: { claim: true, howItHolds: true, $comment: true },
     },

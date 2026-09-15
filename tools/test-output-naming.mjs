@@ -5,7 +5,7 @@
  * in the enum, not a sample. The list comes from enums.schema.json, so a ninth
  * action joins it without anyone remembering to.
  */
-import { readFileSync, mkdtempSync, writeFileSync, symlinkSync, openSync, closeSync, renameSync, existsSync, rmSync, readlinkSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, symlinkSync, openSync, closeSync, linkSync, rmSync, readlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { createGate } from './path-gate.mjs';
@@ -74,7 +74,12 @@ if (isMain) {
       createExclusive: (p) => (
         files.has(p) || Object.hasOwn(links, p) ? false : (files.set(p, ''), true)
       ),
-      rename: (from, to) => { files.set(to, files.get(from)); files.delete(from); return true; },
+      // link refuses an existing name and never follows a symlink to one, which
+      // is what makes it a publish that cannot replace.
+      link: (from, to) => (
+        files.has(to) || Object.hasOwn(links, to) ? false : (files.set(to, files.get(from)), true)
+      ),
+      unlink: (p) => files.delete(p),
     };
   };
   const gateFor = (fs) => createGate({ fs, authorisedRoots: [ROOT] });
@@ -102,43 +107,42 @@ if (isMain) {
     const fs = mkFs({ [INPUT]: 'original bytes', [`${ROOT}/report (sanitized).pdf`]: 'someone else' });
     const g = gateFor(fs);
     const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    check('an occupied name is skipped', () => claim.path === `${ROOT}/report (sanitized) 2.pdf`);
+    const written = writeClaimed(fs, g, claim, 'mine');
+    check('an occupied name is skipped', () => written === `${ROOT}/report (sanitized) 2.pdf`);
     check('the occupant is untouched',
       () => fs.files.get(`${ROOT}/report (sanitized).pdf`) === 'someone else');
   }
 
-  // --- the name is claimed by creating it, not by asking ----------------------
+  // --- the destination is never replaced, whenever it appeared ----------------
   {
     const fs = mkFs();
     const g = gateFor(fs);
-    // Another process wins the first name in the window a check-then-write would
-    // have left open: createExclusive is called, and by then the name is taken.
-    const realCreate = fs.createExclusive;
-    let raced = false;
-    fs.createExclusive = (p) => {
-      if (!raced && p === `${ROOT}/report (sanitized).pdf`) {
-        raced = true;
-        fs.files.set(p, 'the other process');   // it got there first
-        return false;
-      }
-      return realCreate(p);
-    };
     const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    check('a name lost to another process is not claimed anyway',
-      () => claim.path === `${ROOT}/report (sanitized) 2.pdf`);
-    check('the other process keeps what it wrote',
-      () => fs.files.get(`${ROOT}/report (sanitized).pdf`) === 'the other process');
+    // Another process takes the name after the claim and before the publish. A
+    // placeholder plus a rename would have overwritten this file: the
+    // placeholder is gone, and rename does not ask what it is replacing.
+    fs.files.set(`${ROOT}/report (sanitized).pdf`, 'appeared after the claim');
+    const written = writeClaimed(fs, g, claim, 'mine');
+    check('a destination that appeared after the claim is not replaced',
+      () => fs.files.get(`${ROOT}/report (sanitized).pdf`) === 'appeared after the claim');
+    check('the result goes to the next free name instead',
+      () => written === `${ROOT}/report (sanitized) 2.pdf` && fs.files.get(written) === 'mine');
+    check('the temporary file does not survive the publish',
+      () => ![...fs.files.keys()].some((k) => k.endsWith('.part')));
   }
 
   // --- an explicit path does not mean permission to replace -------------------
   {
     const fs = mkFs({ [INPUT]: 'original bytes', [`${ROOT}/chosen.pdf`]: 'already here' });
     const g = gateFor(fs);
+    // One candidate, no fallback, and the answer is authoritative at publish.
+    const claim = claimOutputPath(fs, g, g.forRead(INPUT), { explicitPath: `${ROOT}/chosen.pdf` });
     rejects('an explicit destination that exists is refused',
-      () => claimOutputPath(fs, g, g.forRead(INPUT), { explicitPath: `${ROOT}/chosen.pdf` }),
-      'destination_exists');
+      () => writeClaimed(fs, g, claim, 'mine'), 'destination_exists');
     check('the existing file is untouched',
       () => fs.files.get(`${ROOT}/chosen.pdf`) === 'already here');
+    check('the temporary file is cleaned up when the publish is refused',
+      () => ![...fs.files.keys()].some((k) => k.endsWith('.part')));
 
     let sameFile = false;
     try { claimOutputPath(fs, g, g.forRead(INPUT), { explicitPath: INPUT }); }
@@ -156,9 +160,11 @@ if (isMain) {
     check('a hand-built claim cannot be written through', unclaimed);
 
     const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    rejects('a temporary file away from its destination is refused',
-      () => writeClaimed(fs, g, claim, 'sanitized', { tempPath: '/Users/u/Documents/sub/x.part' }),
-      'temp_outside_destination_directory');
+    // The temporary name is derived, not supplied, so it is always beside the
+    // destination: a link only works within one filesystem, and a temporary
+    // file elsewhere would fail at publish with all the work already done.
+    check('the temporary file sits beside the destination it will become',
+      () => claim.temp.path === `${claim.path}.part`);
 
     const written = writeClaimed(fs, g, claim, 'sanitized bytes');
     check('the bytes arrive at the claimed name',
@@ -170,18 +176,16 @@ if (isMain) {
   // --- the temporary file is a path too ---------------------------------------
   {
     // The destination was checked. `<destination>.part` is a different name, so
-    // a link planted there is followed unless it goes through the gate as well:
-    // the bytes land outside the authorised roots, and the rename then moves
+    // a link planted there is followed unless it goes through the gate too: the
+    // bytes land outside the authorised roots, and the publish then moves
     // whatever is at that name into place.
     const dest = `${ROOT}/report (sanitized).pdf`;
     const fs = mkFs({ [INPUT]: 'original bytes' }, { [`${dest}.part`]: '/etc/passwd' });
     const g = gateFor(fs);
-    const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    // The gate runs before the create, so a planted link is diagnosed as what it
-    // is rather than as a busy name, and no file is created at a path nothing
-    // has vetted.
+    // The reservation is the temporary file, so the gate sees it before any
+    // work is done: the link is refused as what it is, not as a busy name.
     rejects('a link planted at the temporary name is refused',
-      () => writeClaimed(fs, g, claim, 'sanitized bytes'), 'symlink_escape');
+      () => claimOutputPath(fs, g, g.forRead(INPUT)), 'symlink_escape');
     check('no file was created at the unvetted temporary name',
       () => !fs.files.has(`${dest}.part`));
     check('nothing was written outside the authorised roots',
@@ -193,11 +197,25 @@ if (isMain) {
     const dest = `${ROOT}/report (sanitized).pdf`;
     const fs = mkFs({ [INPUT]: 'original bytes', [`${dest}.part`]: 'another run, mid-write' });
     const g = gateFor(fs);
+    // Each candidate carries its own temporary name, so a busy one is stepped
+    // over. Tying the reservation to the first candidate alone stopped a second
+    // run from starting at all while the first was writing, with every free
+    // name behind it unreachable.
     const claim = claimOutputPath(fs, g, g.forRead(INPUT));
-    rejects('a temporary name belonging to another run is refused',
-      () => writeClaimed(fs, g, claim, 'mine'), 'temp_name_taken');
+    check('a busy temporary name moves the run to the next candidate',
+      () => claim.temp.path === `${ROOT}/report (sanitized) 2.pdf.part`);
     check("the other run's bytes survive",
       () => fs.files.get(`${dest}.part`) === 'another run, mid-write');
+    check('two runs on one input reach different destinations',
+      () => writeClaimed(fs, g, claim, 'mine') === `${ROOT}/report (sanitized) 2.pdf`);
+
+    // An explicit path has one candidate, so there is nowhere to step to: the
+    // busy temporary name is the answer rather than a detour.
+    const fs2 = mkFs({ [INPUT]: 'x', [`${ROOT}/chosen.pdf.part`]: 'another run' });
+    const g2 = gateFor(fs2);
+    rejects('an explicit destination whose temporary name is busy is refused',
+      () => claimOutputPath(fs2, g2, g2.forRead(INPUT), { explicitPath: `${ROOT}/chosen.pdf` }),
+      'temp_name_taken');
   }
 
   // --- the original is never resolvable for writing by omission ---------------
@@ -219,8 +237,13 @@ if (isMain) {
     for (let n = 1; n <= 1000; n += 1) seed[`${ROOT}/${candidateName('report.pdf', n)}`] = 'taken';
     const fs = mkFs(seed);
     const g = gateFor(fs);
+    // Every candidate is taken, so the reservation still succeeds - the
+    // temporary names are free - and the publish is where it runs out.
+    const claim = claimOutputPath(fs, g, g.forRead(INPUT));
     rejects('an exhausted sequence is refused rather than guessed at',
-      () => claimOutputPath(fs, g, g.forRead(INPUT)), 'no_free_name');
+      () => writeClaimed(fs, g, claim, 'mine'), 'no_free_name');
+    check('nothing was left behind when no name could be had',
+      () => ![...fs.files.keys()].some((k) => k.endsWith('.part')));
   }
 
   // --- every remediation action leaves the original byte-identical ------------
@@ -250,7 +273,7 @@ if (isMain) {
     // there being exactly one place in this module that writes. That is the part
     // worth asserting, because it is the part a ninth action cannot weaken.
     const src = readFileSync(new URL('./output-naming.mjs', import.meta.url), 'utf8');
-    const writers = [...src.matchAll(/^.*\b(?:writeFile\(|fs\.write\(|fs\.rename\()/gm)]
+    const writers = [...src.matchAll(/^.*\b(?:writeFile\(|fs\.write\(|fs\.link\(|fs\.unlink\()/gm)]
       .map((m) => m[0].trim());
     const inWriteClaimed = src.slice(src.indexOf('export function writeClaimed'));
     const outside = writers.filter((line) => !inWriteClaimed.includes(line));
@@ -293,13 +316,27 @@ if (isMain) {
       check('a refused create did not follow the link',
         () => readlinkSync(linked) === '/etc/passwd');
 
-      const from = `${dir}/from.part`;
-      const onto = `${dir}/onto.pdf`;
-      writeFileSync(from, 'payload');
-      writeFileSync(onto, 'previous');
-      renameSync(from, onto);
-      check('rename replaces the destination and removes the source, as the stub does',
-        () => readFileSync(onto, 'utf8') === 'payload' && !existsSync(from));
+      // The publish primitive matters more than the create: this is the step
+      // that must refuse an existing name rather than replace it.
+      const realLink = (from, to) => {
+        try { linkSync(from, to); return true; } catch { return false; }
+      };
+      const payload = `${dir}/payload.part`;
+      const free = `${dir}/free.pdf`;
+      const occupied = `${dir}/occupied.pdf`;
+      writeFileSync(payload, 'mine');
+      writeFileSync(occupied, 'someone else');
+      const stub2 = mkFs({ [payload]: 'mine', [occupied]: 'someone else' });
+      for (const [name, to] of [['a free name', free], ['an occupied name', occupied]]) {
+        const onDisk = realLink(payload, to);
+        const inStub = stub2.link(payload, to);
+        check(`publishing onto ${name} agrees with node:fs`, onDisk === inStub,
+          `node:fs ${onDisk}, stub ${inStub}`);
+      }
+      check('the occupant was not replaced by the refused publish',
+        () => readFileSync(occupied, 'utf8') === 'someone else');
+      check('the published file carries the payload',
+        () => readFileSync(free, 'utf8') === 'mine');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
