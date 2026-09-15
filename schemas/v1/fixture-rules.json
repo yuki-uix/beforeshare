@@ -1,0 +1,51 @@
+{
+  "$comment": "What a fixture must carry to count as evidence. §16.2 lists nine things the evaluation set must include, and a fixture missing any of them is a file someone will later have to guess about. The §7.1 categories are NOT listed here: they are read out of the case study, because a list copied into this file would be checked against the copy.",
+  "schemaVersion": "1.0",
+  "source": {
+    "$comment": "Where the categories to cover come from. A floor, not a count: adding a disclosure category must not fail, and removing one must not pass.",
+    "document": "docs/product-case-study.md",
+    "section": "7.1",
+    "atLeast": 12
+  },
+  "provenance": {
+    "$comment": "§16.2's nine requirements, as fields every fixture must carry. Counted from the source rather than from memory - §9.1 was miscounted once here, and the wrong number reached an acceptance criterion before anyone noticed.",
+    "required": [
+      "label",
+      "labelDefinition",
+      "generatedBy",
+      "sha256",
+      "annotationInstructions",
+      "expectedCoverage",
+      "expectedRemediation",
+      "expectedStatus",
+      "evalVersion"
+    ],
+    "driftTest": "tools/test-fixtures.mjs regenerates every fixture and compares the hash, so a file edited by hand fails rather than quietly becoming its own label"
+  },
+  "kinds": {
+    "$comment": "Every §7.1 category needs both. A detector that fires on the positive and also on the control has found nothing; §17.1 puts clean controls wrongly given a blocking deterministic finding at 0.",
+    "must_detect": "carries the disclosure the category names, and a detector that misses it is a release blocker (§17.1)",
+    "clean_control": "resembles the positive as closely as possible without carrying the disclosure, and must produce no blocking deterministic finding"
+  },
+  "generation": {
+    "$comment": "Written as raw PDF syntax by a script, not produced by a library. A library's output carries that library's habits - object numbering, compression, metadata it adds unasked - and a fixture is supposed to isolate one thing. Raw syntax is also reviewable in a diff, which a binary is not.",
+    "script": "fixtures/pdf/generate.mjs",
+    "deterministic": "byte-identical across runs and machines; no timestamps, no random object ids, no compression",
+    "noRealData": "§16.1 forbids committing real personal information. Every value here is invented and obviously so."
+  },
+  "refusals": {
+    "category_uncovered": {
+      "rationale": "a §7.1 category has no fixture. The detection rate this repository reports is a fraction, and a category with no fixture is missing from the denominator - which reads as full coverage of a smaller requirement.",
+      "negativeCase": "in_ci"
+    },
+    "provenance_incomplete": {
+      "rationale": "a fixture is missing one of §16.2's nine fields. The missing one is always the one someone needs later, and by then the person who knew has gone.",
+      "negativeCase": "in_suite"
+    },
+    "fixture_drifted": {
+      "rationale": "a fixture's bytes do not match what its generator produces. A fixture edited by hand becomes its own label, and the label it was given stops describing it.",
+      "negativeCase": "in_suite"
+    },
+    "$comment": "Each refusal says where its negative case lives. in_suite means the suite breaks it on a copy and watches the reason come back; in_ci means reaching it requires editing the source of truth, which only a mutation case can do - and the suite then checks the workflow carries one, because a reason whose negative lives nowhere is a claim about enforcement that does not happen."
+  }
+}

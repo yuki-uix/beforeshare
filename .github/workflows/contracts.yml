@@ -112,6 +112,9 @@ jobs:
       - name: Test resource limits
         run: npm run test:limits
 
+      - name: Test PDF fixtures
+        run: npm run test:fixtures
+
       # Last, because it runs the others and reads what they reported.
       - name: Every §20.2 boundary is covered or owed
         run: npm run test:boundaries
@@ -227,7 +230,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=60
+          EXPECTED_CASES=67
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -960,6 +963,105 @@ jobs:
             "has a handoff section" \
             "docs/adr/0001-core-language-and-pdf-parser.md" \
             "validate" || failed=1
+
+          # A fixture edited by hand becomes its own label, and the label it
+          # was given stops describing it.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/files/annotations.positive.pdf';
+            const b=fs.readFileSync(p); b[b.length-20]=0x41; fs.writeFileSync(p,b);
+          "
+          expect_failure "a fixture edited by hand" \
+            "annotations.positive.pdf is byte-identical to what the generator produces" \
+            "fixtures/pdf/files/annotations.positive.pdf" \
+            "test:fixtures" || failed=1
+
+          # A category with no fixture is missing from the denominator of the
+          # detection rate this repository reports.
+          node -e "
+            const fs=require('fs'), p='docs/product-case-study.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('- embedded files;\\n','- embedded files;\\n- a disclosure category nobody made a fixture for;\\n');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a §7.1 category with no fixture" \
+            "a disclosure category nobody made a fixture for" \
+            "docs/product-case-study.md" \
+            "test:fixtures" || failed=1
+
+          # The offsets in the cross-reference table are computed by hand here.
+          # A wrong one makes the file unopenable while the hashes stay
+          # self-consistent, which is how a fixture set passes while covering
+          # nothing - so this mutation regenerates rather than edits.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/pdf-writer.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('offsets.push(header.length + body.length);','offsets.push(header.length + body.length + 1);');
+            fs.writeFileSync(p, s);
+          "
+          npm run --silent fixtures > /dev/null 2>&1 || true
+          expect_failure "fixtures whose cross-reference tables point nowhere" \
+            "has a cross-reference table pointing at real objects" \
+            "fixtures/pdf/pdf-writer.mjs fixtures/pdf/files fixtures/pdf/manifest.json" \
+            "test:fixtures" || failed=1
+
+          # A control that shares no structure with its positive cannot test
+          # §17.1's zero blocking findings on clean files: the detector would
+          # have to be wrong about something it never sees.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/generate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"    clean_control: () => buildPdf(minimalDocument({ pageExtra: ' /Annots []' })),\",'    clean_control: () => buildPdf([\"<< /Type /Catalog >>\"]),');
+            fs.writeFileSync(p, s);
+          "
+          npm run --silent fixtures > /dev/null 2>&1 || true
+          expect_failure "a control that resembles nothing" \
+            "the control is built from the same document as the positive" \
+            "fixtures/pdf/generate.mjs fixtures/pdf/files fixtures/pdf/manifest.json" \
+            "test:fixtures" || failed=1
+
+          # A declared length that disagrees with the data makes the file a
+          # test of malformed streams, whichever category it was meant to be
+          # about. Found here as 44 against 45.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/pdf-writer.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"\${Buffer.byteLength(data, 'binary')}\", \"\${Buffer.byteLength(data, 'binary') - 1}\");
+            fs.writeFileSync(p, s);
+          "
+          npm run --silent fixtures > /dev/null 2>&1 || true
+          expect_failure "a stream whose declared length is not its length" \
+            "declares stream lengths that match the data" \
+            "fixtures/pdf/pdf-writer.mjs fixtures/pdf/files fixtures/pdf/manifest.json" \
+            "test:fixtures" || failed=1
+
+          # /Prev must point at the previous table. Pointing at the end of the
+          # previous file leaves a parser unable to reach the revision the
+          # fixture exists to expose, while every other check still passes.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/generate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('/Prev \${base.xrefOffset}', '/Prev \${base.bytes.length}');
+            fs.writeFileSync(p, s);
+          "
+          npm run --silent fixtures > /dev/null 2>&1 || true
+          expect_failure "an incremental update whose /Prev reaches no table" \
+            "points /Prev at a cross-reference table" \
+            "fixtures/pdf/generate.mjs fixtures/pdf/files fixtures/pdf/manifest.json" \
+            "test:fixtures" || failed=1
+
+          # A duplicated key is undefined in PDF, so the fixture becomes a test
+          # of what this parser happens to do.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/pdf-writer.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('/Resources << /Font << /F1 5 0 R >>\${resourcesExtra} >>','/Resources << /Font << /F1 5 0 R >> >> /Resources << \${resourcesExtra} >>');
+            fs.writeFileSync(p, s);
+          "
+          npm run --silent fixtures > /dev/null 2>&1 || true
+          expect_failure "a page declaring /Resources twice" \
+            "declares no dictionary key twice" \
+            "fixtures/pdf/pdf-writer.mjs fixtures/pdf/files fixtures/pdf/manifest.json" \
+            "test:fixtures" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

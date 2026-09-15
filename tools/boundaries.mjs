@@ -11,6 +11,7 @@
  * runtime. The core language is still undecided.
  */
 import { readFileSync } from 'node:fs';
+import { bulletsUnder } from './case-study.mjs';
 
 const RULES = JSON.parse(
   readFileSync(new URL('../schemas/v1/boundary-rules.json', import.meta.url), 'utf8'),
@@ -33,21 +34,22 @@ export class BoundaryUnclaimed extends Error {
  * empty list.
  */
 export function boundariesFromCaseStudy(text) {
-  const heading = new RegExp(`^###\\s+${RULES.source.section.replace('.', '\\.')}\\s`, 'm');
-  const start = text.search(heading);
-  if (start === -1) {
-    throw new BoundaryUnclaimed('section_not_found',
-      `${RULES.source.section} is not in ${RULES.source.document}`);
+  try {
+    // atLeast 1 here, not the declared floor: this catches a parse that found
+    // nothing, which would report perfect coverage of an empty list. The floor
+    // that says "§20.2 has not shrunk" belongs to the suite, which reports it
+    // as a failed check rather than dying - a suite that aborts says less than
+    // one that names what is wrong.
+    return bulletsUnder(text, RULES.source.section, { atLeast: 1 });
+  } catch (e) {
+    // Re-thrown in this module's vocabulary, because the table declares these
+    // reasons and the two-way check would otherwise find one it never throws.
+    if (e.reason === 'section_not_found') {
+      throw new BoundaryUnclaimed('section_not_found',
+        `${RULES.source.section} is not in ${RULES.source.document}`);
+    }
+    throw new BoundaryUnclaimed('no_boundaries_found', e.message);
   }
-  const rest = text.slice(start);
-  const end = rest.slice(1).search(/^###\s/m);
-  const section = end === -1 ? rest : rest.slice(0, end + 1);
-  const items = [...section.matchAll(/^-\s+(.+?);?\s*$/gm)].map((m) => m[1].replace(/\.$/, ''));
-  if (items.length === 0) {
-    throw new BoundaryUnclaimed('no_boundaries_found',
-      `${RULES.source.section} has no bullet list; a parse that finds nothing reports perfect coverage of nothing`);
-  }
-  return items;
 }
 
 /** What the table claims about one boundary. */
