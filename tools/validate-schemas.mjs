@@ -22,6 +22,7 @@ import { FAILURE_CODES, INTERRUPTION_POINTS, CANCELLATION_CHECKPOINTS } from './
 import {
   THREATS, TEMP_REFUSALS, TEMP_MODE, readableByOthers,
 } from './temp-files.mjs';
+import { REGISTRY_REFUSALS, RECORD_FIELDS } from './run-registry.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -810,6 +811,14 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  REGISTRY_REFUSALS: {
+    value: REGISTRY_REFUSALS,
+    standalone: 'the run registry\'s own vocabulary; concurrency-rules.json is data, and the validator checks the two against each other directly',
+  },
+  RECORD_FIELDS: {
+    value: RECORD_FIELDS,
+    standalone: 'what a run record stores; not an enum in any schema',
+  },
   TEMP_REFUSALS: {
     value: TEMP_REFUSALS,
     standalone: 'what the temporary-file rules refuse; temp-rules.json is data, and the validator checks the two against each other directly',
@@ -1246,6 +1255,63 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       withoutComments(source).includes('someRule') === survives,
       JSON.stringify(withoutComments(source)));
   }
+}
+
+// --- what two runs on one machine may do at once -----------------------------
+{
+  const conc = read(join(schemaDir, 'concurrency-rules.json'));
+  checkRuleTable({
+    file: 'concurrency-rules.json', table: conc, module: 'run-registry.mjs',
+    constructorName: 'RegistryRefused', exposed: REGISTRY_REFUSALS, reasonsKey: 'refusals',
+    shape: {
+      $comment: true, schemaVersion: true,
+      lock: { $comment: 'prose', scope: true, neverHeldAcross: true,
+        neverHeldAcrossReason: 'prose', acquiredBy: true },
+      arbitration: { $comment: 'prose', sameInputInspect: 'prose',
+        sameInputSanitize: 'prose', sameOutputName: 'prose' },
+      record: { $comment: 'prose', fields: true, stages: true, durability: true },
+      refusals: { '*': { rationale: 'prose' } },
+    },
+  });
+
+  // §11.1 requires per-finding review, so a run stops and waits for a person.
+  // A lock held across that turns one open dialog into a machine-wide stall,
+  // and the approval is made safe by the input hash rather than by a lock.
+  check('the lock is never held across waiting for a person',
+    conc.lock.neverHeldAcross === 'waiting for a person');
+  check('the lock covers one registry change and no more',
+    conc.lock.scope === 'one registry mutation');
+
+  // A registry that forgets at every restart is the in-memory set it replaces.
+  check('the registry survives a restart', conc.record.durability.includes('read back on open'));
+  // The three §14.1 names, and the identity binding's own list, must agree -
+  // two spellings of the same three stages is two things that can drift.
+  check('the registry records the same stages the identity binding uses',
+    JSON.stringify(conc.record.stages) === JSON.stringify(STAGES), conc.record.stages.join(', '));
+
+  // The lock has to be one two processes cannot both believe they hold, which
+  // is the same exclusive create the output protocol reserves names with.
+  check('the lock is taken by an exclusive create',
+    conc.lock.acquiredBy.startsWith('exclusive-create'));
+
+  // §14.1 allows bounded local threads or processes and rules out a distributed
+  // queue. A word search over the table matched the sentence saying so, which
+  // is a check firing on its own explanation; a list of forbidden modules was
+  // no better - it refused child_process and worker_threads, which §14.1
+  // permits, and said nothing about node:tls or a bare fetch.
+  //
+  // A list of what may be imported is decidable, and wrong in the safe
+  // direction: a module reaching for something new has to be added here, which
+  // is the decision being forced rather than avoided.
+  const ALLOWED_IMPORTS = ['node:fs', './temp-files.mjs'];
+  const registrySource = withoutComments(
+    readFileSync(join(RULE_MODULE_DIR, 'run-registry.mjs'), 'utf8'));
+  const imported = [...registrySource.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
+  const unexpected = imported.filter((i) => !ALLOWED_IMPORTS.includes(i));
+  check('the registry imports only what it is allowed to', unexpected.length === 0,
+    unexpected.join(', '));
+  check('the import scan found the imports at all, so the list is not vacuous',
+    imported.length >= 2, `${imported.length} imports`);
 }
 
 // --- the temporary file's permissions, place and end -------------------------

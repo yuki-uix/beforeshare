@@ -106,6 +106,9 @@ jobs:
       - name: Test temporary file lifetime
         run: npm run test:temp
 
+      - name: Test run registry
+        run: npm run test:registry
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -212,7 +215,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=40
+          EXPECTED_CASES=47
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -674,6 +677,98 @@ jobs:
             "the publish creates it owner-only on a real filesystem" \
             "tools/output-naming.mjs" \
             "test:temp" || failed=1
+
+          # §11.1 means a run stops and waits for a person to read the findings.
+          # A lock still held there turns one open dialog into a machine stall.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    try { fs.unlink(lockPath); } catch { /* a stale lock is reported, not thrown here */ }','    /* the lock is kept */');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a lock that outlives the change it was taken for" \
+            "a second run can be issued while the first waits for a person" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # An in-memory set forgets at every restart, which is the defect the
+          # durable registry exists to fix.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('        if (records.some((r) => r.runId === id)) {','        if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a registry that reissues an identifier after a restart" \
+            "and its identifier cannot be issued again" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # The identity checks take their known set from here; accepting
+          # anything registry-shaped puts the caller back in charge of it.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (!registries.has(registry)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a hand-built registry accepted as the source of known runs" \
+            "a hand-built registry cannot supply that set" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # A reader takes no lock, so a registry written in place has an
+          # interval in which it is half a JSON document.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  const staging = \`\${path}.writing\`;\n  fs.write(staging, contents);\n  fs.rename(staging, path);','  fs.write(path, contents);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a registry written in place, where a reader can see half of it" \
+            "a reader during the write sees the previous registry, whole" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # Two real processes contend for one registry file. Everything else
+          # in that suite is sequential, where a lock covering too little
+          # still passes.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (!fs.createExclusive(lockPath, { mode: 0o600 })) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a lock two processes can both believe they hold" \
+            "the registry holds both records, not one overwritten by the other" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # Read as "no registry yet", a permissions failure lets the next
+          # issue() write a fresh array over every identifier ever given out.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"    if (e?.code !== 'ENOENT') {\",'    if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a read failure taken for an empty registry" \
+            "a registry that cannot be read is not an empty one" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
+
+          # JSON.stringify runs a value's own toJSON, so serialising a caller's
+          # object inside the lock runs the caller's code there.
+          node -e "
+            const fs=require('fs'), p='tools/run-registry.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"      const id = asPlainString('runId', runId);\",'      const id = runId;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a caller's object serialised inside the lock" \
+            "and the caller's code never ran inside the lock" \
+            "tools/run-registry.mjs" \
+            "test:registry" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
