@@ -17,6 +17,7 @@ import { computeStatus, reducesCoverage } from './status.mjs';
 import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSources } from './capabilities.mjs';
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
+import { OUTPUT_REJECTIONS } from './output-naming.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -805,6 +806,10 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  OUTPUT_REJECTIONS: {
+    value: OUTPUT_REJECTIONS,
+    standalone: 'the output rules\' own vocabulary; output-rules.json is data, and the validator checks the two against each other directly',
+  },
   REJECTION_REASONS: {
     value: REJECTION_REASONS,
     standalone: 'the gate\'s own vocabulary; path-rules.json is data, and the validator checks the two against each other directly',
@@ -1095,6 +1100,36 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   // the file is open would be describing a check that runs too late.
   check('every reason applies before the filesystem is touched',
     declared.every((n) => pathRules.rejectionReasons[n].stage.startsWith('before_')));
+}
+
+// --- the output rule table and its implementation stay in step ---------------
+{
+  const outRules = read(join(schemaDir, 'output-rules.json'));
+  checkRuleTable({
+    file: 'output-rules.json', table: outRules, module: 'output-naming.mjs',
+    constructorName: 'OutputRejected', exposed: OUTPUT_REJECTIONS,
+    shape: {
+      $comment: true, schemaVersion: true,
+      rejectionReasons: { '*': { rationale: true } },
+      naming: {
+        $comment: true, marker: true, sequenceSeparator: true, firstSequenceNumber: true,
+        maxAttempts: true, extensionRule: true, extensionRuleLimit: true,
+      },
+      writeProtocol: {
+        $comment: true, claim: true, then: true, tempLocation: true, tempLocationReason: true,
+      },
+    },
+  });
+  // §5.2 and §9.3 are about the original, so a marker that can be empty would
+  // let the output take the input's name under a spelling the gate allows.
+  check('the sanitized marker is not empty',
+    typeof outRules.naming.marker === 'string' && outRules.naming.marker.trim().length > 0);
+  // Asking whether a name is free and then using it is the concurrent defect
+  // §20.2 names. The table must not be able to describe that protocol.
+  check('a name is claimed by creating it, not by asking whether it is free',
+    outRules.writeProtocol.claim === 'exclusive-create');
+  check('the temporary file lives beside its destination, so the rename is atomic',
+    outRules.writeProtocol.tempLocation === 'same-directory-as-destination');
 }
 
 // --- the identity rule table and its implementation stay in step -------------

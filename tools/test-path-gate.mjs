@@ -144,7 +144,7 @@ if (isMain) {
   // so the lexical path looked inside while the write would land outside.
   rejects('a missing file under an escaping link is refused for writing',
     () => gate({ links: { [`${ROOT}/evil`]: '/private/tmp' }, missing: ['/private/tmp/new.pdf'] })
-      .forWrite(`${ROOT}/evil/new.pdf`),
+      .forWrite(`${ROOT}/evil/new.pdf`, { input: null }),
     'symlink_escape');
 
   checkOk('a symlink staying inside the root is allowed',
@@ -198,18 +198,18 @@ if (isMain) {
     }).forRead(`${ROOT}/a.pdf`),
     'unresolvable');
   checkOk('a path that does not exist yet is allowed for writing',
-    () => gate({ missing: [`${ROOT}/new.pdf`] }).forWrite(`${ROOT}/new.pdf`).path === `${ROOT}/new.pdf`);
+    () => gate({ missing: [`${ROOT}/new.pdf`] }).forWrite(`${ROOT}/new.pdf`, { input: null }).path === `${ROOT}/new.pdf`);
 
   // Several missing levels at once. Walking back only one would stop at a
   // directory that also does not exist and learn nothing about the link above it.
   checkOk('a path several missing levels deep still resolves to its real ancestor',
     () => gate({ missing: [`${ROOT}/a`, `${ROOT}/a/b`, `${ROOT}/a/b/c.pdf`] })
-      .forWrite(`${ROOT}/a/b/c.pdf`).path === `${ROOT}/a/b/c.pdf`);
+      .forWrite(`${ROOT}/a/b/c.pdf`, { input: null }).path === `${ROOT}/a/b/c.pdf`);
   rejects('an escaping link several missing levels above the leaf is refused',
     () => gate({
       links: { [`${ROOT}/evil`]: '/private/tmp' },
       missing: ['/private/tmp/a', '/private/tmp/a/b', '/private/tmp/a/b/c.pdf'],
-    }).forWrite(`${ROOT}/evil/a/b/c.pdf`),
+    }).forWrite(`${ROOT}/evil/a/b/c.pdf`, { input: null }),
     'symlink_escape');
 
   // --- output must not be the input (§12.1) -----------------------------------
@@ -218,6 +218,13 @@ if (isMain) {
     const input = g.forRead(`${ROOT}/report.pdf`);
     rejects('an output equal to the input is refused',
       () => g.forWrite(`${ROOT}/report.pdf`, { input }), 'output_is_input');
+    // Omitting the key used to mean "no input", which is the same shape as
+    // forgetting it - and forgetting it skipped the refusal above entirely.
+    let undeclared = false;
+    try { g.forWrite(`${ROOT}/report.pdf`); } catch (e) { undeclared = /needs \{ input \}/.test(e.message); }
+    check('an output resolved without declaring its input is refused', undeclared);
+    check('stating there is no input is still allowed, explicitly',
+      () => g.forWrite(`${ROOT}/unrelated.pdf`, { input: null }).mode === 'write');
     rejects('an output differing only in case is refused',
       () => g.forWrite(`${ROOT}/Report.PDF`, { input }), 'output_is_input');
     rejects('an output differing only in Unicode normalisation is refused',
@@ -237,7 +244,7 @@ if (isMain) {
   }
 
   rejects('an output naming a directory is refused',
-    () => gate({ dirs: [`${ROOT}/out`] }).forWrite(`${ROOT}/out`), 'output_is_directory');
+    () => gate({ dirs: [`${ROOT}/out`] }).forWrite(`${ROOT}/out`, { input: null }), 'output_is_directory');
 
   // --- the brand: a path that did not come from the gate reaches nothing -------
   {

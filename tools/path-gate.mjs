@@ -199,13 +199,25 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
 
     /**
      * @param {string} raw
-     * @param {object} opts  { input: ResolvedPath } — the file being sanitized,
-     *                       so the output can be refused when it names the same
-     *                       file under any spelling (§12.1).
+     * @param {object} opts  { input } — the ResolvedPath being sanitized, so the
+     *                       output is refused when it names the same file under
+     *                       any spelling (§12.1); or an explicit null for a
+     *                       write that is not derived from an input at all.
+     *
+     * The key is required. It used to default to "no input", which is the same
+     * shape as forgetting it, and forgetting it meant §12.1's refusal quietly
+     * did not run - a caller could resolve the original for writing and
+     * overwrite it, which is the one thing §5.2 and §17.3 do not allow. A
+     * default that can be reached by omission is not a decision.
      */
-    forWrite(raw, { input } = {}) {
+    forWrite(raw, opts) {
+      if (!opts || !('input' in opts)) {
+        throw new Error('forWrite needs { input } — the ResolvedPath being '
+          + 'sanitized, or null to state that this write is not derived from one');
+      }
+      const { input } = opts;
       const path = resolve(raw);
-      if (input !== undefined) {
+      if (input !== null && input !== undefined) {
         assertResolved(input);
         if (same(path, input.path)) {
           throw new Rejected('output_is_input', path);

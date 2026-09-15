@@ -97,6 +97,9 @@ jobs:
       - name: Test file identity binding
         run: npm run test:identity
 
+      - name: Test immutable output
+        run: npm run test:output
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -193,7 +196,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=22
+          EXPECTED_CASES=27
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -430,6 +433,63 @@ jobs:
             "the adapter writing through its own reference does not change the record" \
             "tools/file-identity.mjs" \
             "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  fs.rename(resolvedTemp.path, claim.path);','  fs.rename(resolvedTemp.path, claim.input.path);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a write that lands on the original instead of the claim" \
+            "remove_pdf_metadata_field leaves the original unchanged" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          # Asking whether a name is free and then using it is the concurrent
+          # defect. The vector races the create, so only a real claim survives it.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if (fs.createExclusive(resolved.path)) return issueClaim(resolved, input);','    if (!fs.files || !fs.files.has(resolved.path)) { fs.createExclusive(resolved.path); return issueClaim(resolved, input); }');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a destination checked for freedom instead of claimed" \
+            "a name lost to another process is not claimed anyway" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  const resolvedTemp = gate.forWrite(temp, { input: claim.input });\n  writeFile(fs, resolvedTemp, bytes);\n  fs.rename(resolvedTemp.path, claim.path);','  fs.write(temp, bytes);\n  fs.rename(temp, claim.path);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a temporary file written without passing the gate" \
+            "a link planted at the temporary name is refused" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    forWrite(raw, opts) {','    forWrite(raw, opts = { input: null }) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an output path resolvable for writing without declaring its input" \
+            "an output resolved without declaring its input is refused" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('  if (!fs.createExclusive(temp)) {','  if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a temporary file that overwrites another run's" \
+            "a temporary name belonging to another run is refused" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
