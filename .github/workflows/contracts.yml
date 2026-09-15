@@ -227,7 +227,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=59
+          EXPECTED_CASES=60
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -946,6 +946,19 @@ jobs:
           expect_failure "a boundary floor lowered below what is claimed" \
             "the boundary floor is not below what is claimed" \
             "schemas/v1/boundary-rules.json" \
+            "validate" || failed=1
+
+          # The handoff rule scanned docs/contracts only, so the first ADR
+          # went into docs/adr and skipped it entirely - with a row naming a
+          # closed issue that nothing could see.
+          node -e "
+            const fs=require('fs'), p='docs/adr/0001-core-language-and-pdf-parser.md';
+            let s=fs.readFileSync(p,'utf8');
+            fs.writeFileSync(p, s.split('## Not decided here')[0]);
+          "
+          expect_failure "a decision record outside docs/contracts with no handoff" \
+            "has a handoff section" \
+            "docs/adr/0001-core-language-and-pdf-parser.md" \
             "validate" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
