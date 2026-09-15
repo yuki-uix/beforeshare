@@ -9,6 +9,20 @@
 import { mask, MAX_DISPLAY_CODE_POINTS, POLICIES } from './masking.mjs';
 import { pathToFileURL } from 'node:url';
 
+// A suite that dies instead of failing reports nothing about the case it died
+// on. Anything reading this output for failures — the CI guard among them —
+// sees no FAIL line and concludes the guard stopped working, or worse, that
+// nothing went wrong. Any escape becomes one FAIL line and a non-zero exit.
+process.on('uncaughtException', (e) => {
+  console.error(`FAIL  the suite aborted instead of reporting a failure\n        ${e?.stack ?? e}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (e) => {
+  console.error(`FAIL  the suite aborted on a rejected promise\n        ${e?.stack ?? e}`);
+  process.exit(1);
+});
+
+
 // Only run when invoked directly. tools/validate-schemas.mjs discovers exported
 // arrays by importing every module in this directory; a suite that ran on import
 // would execute itself — and call process.exit — inside that scan.
@@ -17,8 +31,29 @@ if (isMain) {
 
   let failures = 0;
   const cp = (s) => Array.from(s);
+
+  /**
+   * An assertion whose expression throws must fail, not kill the suite.
+   *
+   * `check(name, subject())` evaluates its argument first, so a throwing subject
+   * escapes before check runs: the process dies with a stack trace, no FAIL line
+   * is printed, and anything reading the output for failures — the CI guard among
+   * them — sees none. A suite that dies instead of failing reports nothing about
+   * the case it died on.
+   *
+   * Passing a function defers the call to inside the try. Plain values still work,
+   * so existing call sites are unaffected.
+   */
   const check = (name, cond, detail) => {
-    if (cond) console.log(`ok    ${name}`);
+    let value;
+    try {
+      value = typeof cond === 'function' ? cond() : cond;
+    } catch (e) {
+      failures += 1;
+      console.error(`FAIL  ${name}\n        threw instead of returning: ${e?.reason ?? e?.message ?? e}`);
+      return;
+    }
+    if (value) console.log(`ok    ${name}`);
     else { failures += 1; console.error(`FAIL  ${name}${detail ? `\n        ${detail}` : ''}`); }
   };
 
