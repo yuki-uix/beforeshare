@@ -1,0 +1,84 @@
+{
+  "$comment": "What a run may consume before it stops, and how stopping is reported. §17.1 puts unsupported or failed checks mislabelled as completed at 0, so the boundary between skipped and failed is a rule and not a feeling. Data, not prose: tools/limits.mjs is checked against this table by the validator, in both directions.",
+  "schemaVersion": "1.0",
+  "outcomes": {
+    "$comment": "Three vocabularies already exist for this - coverageSkipReason's input_too_large, and detectorFailureCode's resource_limit_exceeded and timeout. Which one applies is decided by what was known and when, not by which word reads better.",
+    "input_too_large": {
+      "coverage": "skipped",
+      "decidedBefore": "any work starts",
+      "rationale": "the size is knowable before opening the file, so nothing is attempted and nothing partial exists. A skip is an honest account of that: the detector did not run, and the reason is a property of the input rather than of the run."
+    },
+    "resource_limit_exceeded": {
+      "coverage": "failed",
+      "decidedBefore": "nothing - it is found while working",
+      "rationale": "work started and hit a wall: a stream expanded past its budget, or an object graph went deeper than the limit. Something was attempted and abandoned, which is a failure and not a skip - reporting it as skipped would say the detector chose not to look."
+    },
+    "timeout": {
+      "coverage": "failed",
+      "decidedBefore": "nothing - it is found while working",
+      "rationale": "work started and ran out of time rather than space. Separate from resource_limit_exceeded because the remedy differs: a bigger machine does not fix a timeout the way it fixes a memory ceiling, and telling someone to free memory when their file is merely slow sends them the wrong way."
+    }
+  },
+  "budgets": {
+    "$comment": "Every budget carries how its default was arrived at, from a closed set: measured means a number this repository produces and can produce again; decided means a judgement, which is allowed as long as it says so; provisional means neither, and names who owes the answer. A number with no basis is a guess that gets defended later as though it had been measured.",
+    "memoryPerInputByte": {
+      "default": 2.0,
+      "unit": "bytes held per byte of input",
+      "basis": "measured",
+      "measurement": "memory",
+      "note": "The input is read whole and copied on the way into the record (#36), so a run holds twice the file before a detector sees anything. Measured at 8, 32 and 128 MB and flat across them - once the instrument was fixed. rss reported 2.03, then 0.00, then 1.00 on repeated runs, and taking the largest sample hid that by choosing whichever run happened to be right."
+    },
+    "inputBytes": {
+      "default": 268435456,
+      "unit": "bytes",
+      "basis": "decided",
+      "measurement": "memory",
+      "note": "Measurement did not set this: on the machine that ran it, time allowed about 3.2 GB and memory about 3.0 GB, so neither is the binding constraint. The cap is a product decision - a desktop tool that takes a quarter of the machine for one file is a bad neighbour even when it fits, and a 3 GB document is not something anyone is about to share. What the measurement does is say the number is not forced by the machine, which is worth knowing before anyone defends it as though it were."
+    },
+    "expansionRatio": {
+      "default": 100,
+      "unit": "produced bytes per consumed byte",
+      "basis": "provisional",
+      "owner": "#41 - needs the decompression fixtures §20.1 asks for, which need a format adapter"
+    },
+    "graphDepth": {
+      "default": 64,
+      "unit": "nested objects",
+      "basis": "provisional",
+      "owner": "#41 - the PDF fixtures decide this, and none exist yet"
+    },
+    "wallClockMs": {
+      "default": 30000,
+      "unit": "milliseconds",
+      "basis": "provisional",
+      "owner": "#41 - §17.4's p95 target is 5s for a 20-page text PDF, and a ceiling six times that is a placeholder until the reference machine says otherwise"
+    }
+  },
+  "measurement": {
+    "$comment": "What this build can honestly measure today, with no format adapter. Recorded as a method that reruns rather than as numbers someone typed: §17.4 wants figures from one documented reference Mac, and this is not it. The first run already changed an answer - the input cap had been set as though size were bounded by time, and it is not.",
+    "runs": "tools/measure-budgets.mjs",
+    "records": [
+      "machine",
+      "nodeVersion",
+      "hashBytesPerSecond",
+      "readBytesPerSecond",
+      "memory"
+    ],
+    "notTheReferenceMachine": "These come from whatever ran them. They bound what is plausible - a limit that cannot be reached in the time allowed is not a limit - and they do not set the product's published numbers.",
+    "instrument": "process.memoryUsage().arrayBuffers, with every allocated buffer kept alive for the whole run. It is a process-wide total, so releasing a sample lets the collector reclaim it partway through the next one, whose baseline already counted it - which reads as a multiplier that falls with size rather than as the instrument fault it is."
+  },
+  "refusals": {
+    "budget_exceeded": {
+      "rationale": "a budget was passed while working. Which outcome that becomes is decided by the table above, not by the caller, so the same overrun cannot be reported as a skip in one place and a failure in another."
+    },
+    "budget_not_declared": {
+      "rationale": "work was asked to run under a budget nobody declared. Defaulting to unlimited would make the limit an opt-in, and the case it exists for is the one where nobody remembered to opt in."
+    }
+  },
+  "basisKinds": {
+    "$comment": "The closed set a budget's basis may come from. Anything else is a number nobody has to account for. Enforced by the validator rather than by a refusal at runtime: nothing throws when a default lacks a basis, because nothing reads a basis while working - and a rejection reason nothing can reach is a claim about enforcement that does not happen.",
+    "measured": "produced by the measurement harness, and producible again",
+    "decided": "a judgement, stated as one, with what the measurement did and did not settle",
+    "provisional": "neither, with an owner who owes the answer"
+  }
+}
