@@ -185,7 +185,7 @@ boundaries in [contract-tests.md](contract-tests.md).
 
 | Question | Owner |
 |---|---|
-| Which detectors actually emit which category | E3 / E4 / E5 |
+| Which detectors actually emit which category | E3 (#4) / E4 (#5) / E5 (#6) — the taxonomy is closed here, and which detector reaches which category is a property of the detector |
 
 `status` and `versions` appear in this schema because examples cannot be written without them. Their
 *shape* is fixed here; their *semantics* are not.

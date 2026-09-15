@@ -1048,6 +1048,19 @@ for (const file of examples) {
       const owner = cells[cells.length - 1] ?? '';
       return !/#\d+|E\d+/.test(owner);
     });
+    // An owner with no reason is the shape of a question parked on whichever
+    // issue happened to be open. Ten rows here named the same issue because it
+    // was the last one in its epic, not because it owned any of them - and one
+    // of those rows was a bare issue number with nothing after it. The reason
+    // is what makes the choice arguable, so it is required.
+    const unreasoned = rows.filter((l) => {
+      const cells = l.split('|').map((c) => c.trim()).filter((c, i, a) => i > 0 && i < a.length - 1);
+      const owner = cells[cells.length - 1] ?? '';
+      if (!/#\d+|E\d+/.test(owner)) return false;   // ownerless is reported separately
+      return !/[-—]\s*\S/.test(owner);
+    });
+    check(`${file} every handoff row says why that owner`, unreasoned.length === 0,
+      unreasoned.map((l) => l.trim().slice(0, 70)).join(' / '));
     check(`${file} every handoff row names an owner`, ownerless.length === 0,
       ownerless.map((l) => l.trim().slice(0, 60)).join(' / '));
   }

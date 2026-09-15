@@ -82,9 +82,9 @@ covers the whole suite, including assertions not written yet.
 
 | Question | Owner |
 |---|---|
-| Whether the CLI produces the canonical result, and its adapter | #9 |
-| The same for the desktop app | #10 |
-| The same for the MCP server | #11 |
+| Whether the CLI produces the canonical result, and its adapter | #9 — the interface registry names it, and only that build can register an adapter |
+| The same for the desktop app | #10 — same registry, same reason |
+| The same for the MCP server | #11 — same registry, same reason |
 | Whether the three actually agree on one fixture set | #9 / #10 / #11 — the comparison runs as soon as two of them are registered |
 
 Nothing here compares three interfaces, because none exists. The registry checks its own
