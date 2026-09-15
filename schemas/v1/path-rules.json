@@ -40,8 +40,8 @@
     }
   },
   "identity": {
-    "caseInsensitive": true,
     "unicodeNormalization": "NFC",
-    "$comment": "Two paths name the same file when their fully resolved forms match after Unicode normalisation and case folding. Both are required on macOS: APFS is case-insensitive by default, and the same filename is routinely spelled NFC by an application and NFD by the filesystem. Comparing raw strings would let `Report.pdf` and `report.pdf`, or an NFC and NFD spelling of an accented name, pass as different files — which is exactly how an output path sneaks onto its input."
+    "$comment": "Two paths name the same file when their fully resolved forms match after Unicode normalisation and case folding. Both are required on macOS: APFS is case-insensitive by default, and the same filename is routinely spelled NFC by an application and NFD by the filesystem. Comparing raw strings would let `Report.pdf` and `report.pdf`, or an NFC and NFD spelling of an accented name, pass as different files — which is exactly how an output path sneaks onto its input. Case folding is a default, not a constant: the root check is an authorisation decision and must match how the volume actually compares names, so the gate probes the filesystem where it can. APFS is case-insensitive by default but can be formatted either way.",
+    "caseInsensitiveDefault": true
   }
 }

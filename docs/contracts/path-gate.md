@@ -72,13 +72,40 @@ A gate with no authorised roots is not constructible, and neither is one rooted 
 authorise exactly the same thing, so refusing only the empty list would have left §13.4 satisfiable
 by spelling — which it was, until a review found it.
 
+## A missing leaf is not a missing check
+
+`realpath` on a path whose leaf does not exist throws `ENOENT` and says nothing about the directories
+above it. An output path naming a file that does not exist yet is ordinary, so the first version
+treated the lexical path as the answer — which is an authorisation bypass:
+
+```
+<root>/evil/new.pdf    where evil is a link to /etc
+```
+
+is lexically inside the root and actually is not. The gate issued a write authorisation, and the
+write would have landed in `/etc`.
+
+The gate now resolves the nearest **existing** ancestor and appends the missing tail to its real
+location, then checks that. Walking back only one level is not enough: several levels can be missing
+at once, and stopping at the first absent directory learns nothing about a link above it. Both the
+single-level and multi-level cases have vectors, and the mutation that walks back one level fails.
+
+## Case folding follows the volume
+
+`caseInsensitive` was a constant. On a case-sensitive volume that makes `/ROOT/secret` count as
+inside `/root` — an authorisation decision taken with the wrong comparison. APFS is case-insensitive
+by default but can be formatted either way, so the gate probes the filesystem where it can and the
+rule table carries only a default.
+
 ## The stub is checked against the filesystem it stands in for
 
 Vectors run against an injected filesystem, because symlink layouts are awkward and sometimes
 impossible to create on disk. That only works while the stub behaves like the real thing, so the
 suite creates a temporary directory with a real link and a real cycle, and asserts that `node:fs` and
-the stub agree on three behaviours: absence throws `ENOENT`, a cycle throws `ELOOP`, and a link
-dereferences to its target.
+the stub agree on four behaviours: absence throws `ENOENT`, a cycle throws `ELOOP`, a link
+dereferences to its target, and a **relative** target resolves against the directory holding the
+link. The stub resolved relative targets as if they were absolute until a review pointed out that no
+filesystem does — the vectors had agreed with it.
 
 The first version of this module documented `realpath` as returning `null` on absence. No filesystem
 does that, and every vector ran against the stub that did — the checks agreed with each other and

@@ -44,14 +44,14 @@ const issued = new WeakSet();
  * stored NFD. Comparing raw strings would let two spellings of one file look
  * like two files — which is how an output path ends up on its input.
  */
-export function identityKey(path) {
+export function identityKey(path, { caseInsensitive = IDENTITY.caseInsensitiveDefault } = {}) {
   let key = path.normalize(IDENTITY.unicodeNormalization);
-  if (IDENTITY.caseInsensitive) key = key.toLowerCase();
+  if (caseInsensitive) key = key.toLowerCase();
   return key;
 }
 
-export function sameFile(a, b) {
-  return identityKey(a) === identityKey(b);
+export function sameFile(a, b, opts) {
+  return identityKey(a, opts) === identityKey(b, opts);
 }
 
 class Rejected extends Error {
@@ -89,7 +89,16 @@ function normalizeSegments(path) {
  *                     absence" would have been a contract no real filesystem
  *                     honours, and every vector ran against the stub that did.
  */
-export function createGate({ fs, authorisedRoots }) {
+export function createGate({ fs, authorisedRoots, caseInsensitive }) {
+  // §13.4's root check is an authorisation decision, so it has to match how the
+  // filesystem actually compares names. Folding case on a case-sensitive volume
+  // would let /ROOT/secret count as inside /root. APFS is case-insensitive by
+  // default but can be formatted either way, so this is probed, not assumed.
+  const folding = caseInsensitive ?? (typeof fs.isCaseInsensitive === 'function'
+    ? fs.isCaseInsensitive()
+    : IDENTITY.caseInsensitiveDefault);
+  const key = (p) => identityKey(p, { caseInsensitive: folding });
+  const same = (a, b) => sameFile(a, b, { caseInsensitive: folding });
   if (!Array.isArray(authorisedRoots) || authorisedRoots.length === 0) {
     // §13.4: the server must not request unrestricted filesystem access. A gate
     // with no roots would authorise everything, so it is not constructible.
@@ -110,11 +119,11 @@ export function createGate({ fs, authorisedRoots }) {
   if (wide.length > 0) {
     throw new Error('the filesystem root is not an authorised root: §13.4 forbids unrestricted access');
   }
-  const roots = normalisedRoots.map(identityKey);
+  const roots = normalisedRoots.map(key);
 
   const withinRoots = (resolved) => {
-    const key = identityKey(resolved);
-    return roots.some((root) => key === root || key.startsWith(root.endsWith('/') ? root : `${root}/`));
+    const k = key(resolved);
+    return roots.some((root) => k === root || k.startsWith(root.endsWith('/') ? root : `${root}/`));
   };
 
   const resolve = (raw) => {
@@ -133,20 +142,16 @@ export function createGate({ fs, authorisedRoots }) {
 
     // Dereference before deciding anything else: a link in any component can
     // move the target, and the check has to run on where the path actually goes.
-    let real = null;
-    try {
-      real = fs.realpath(collapsed);
-    } catch (e) {
-      // Absence is ordinary — an output path names a file that does not exist
-      // yet — so it falls through to the root check on the collapsed path.
-      // Anything else is the filesystem telling us it cannot answer, and a gate
-      // that cannot resolve a path has not checked it.
-      if (e?.code === 'ELOOP') throw new Rejected('symlink_loop', collapsed);
-      if (e?.code !== 'ENOENT') throw new Rejected('unresolvable', `${collapsed}: ${e?.code ?? e?.message}`);
-    }
-    const target = real ?? collapsed;
+    // An output path names a file that does not exist yet, so ENOENT is ordinary
+    // — but the lexical path is NOT a safe stand-in for it. If a parent
+    // component is a link out of the authorised area, checking the lexical path
+    // authorises a write that lands somewhere else entirely. So the nearest
+    // existing ancestor is resolved and the missing tail appended to its real
+    // location, and that is what gets checked.
+    const target = resolveThroughMissingTail(fs, collapsed);
+    const real = target === collapsed ? maybeRealpath(fs, collapsed) : target;
 
-    if (real !== null && !sameFile(real, collapsed) && !withinRoots(real)) {
+    if (real !== null && !same(real, collapsed) && !withinRoots(real)) {
       throw new Rejected('symlink_escape', `${collapsed} -> ${real}`);
     }
     if (!withinRoots(target)) {
@@ -172,7 +177,7 @@ export function createGate({ fs, authorisedRoots }) {
       const path = resolve(raw);
       if (input !== undefined) {
         assertResolved(input);
-        if (sameFile(path, input.path)) {
+        if (same(path, input.path)) {
           throw new Rejected('output_is_input', path);
         }
       }
@@ -188,6 +193,40 @@ function issue(value) {
   Object.freeze(value);
   issued.add(value);
   return value;
+}
+
+function maybeRealpath(fs, path) {
+  try {
+    return fs.realpath(path);
+  } catch (e) {
+    if (e?.code === 'ELOOP') throw new Rejected('symlink_loop', path);
+    if (e?.code !== 'ENOENT') throw new Rejected('unresolvable', `${path}: ${e?.code ?? e?.message}`);
+    return null;
+  }
+}
+
+/**
+ * Resolve as much of the path as exists, then append what does not.
+ *
+ * `realpath` on a path whose leaf is absent throws ENOENT and tells us nothing
+ * about the directories above it. Treating the lexical path as the answer is an
+ * authorisation bypass: `<root>/link/new.pdf`, where `link` points outside the
+ * root, is lexically inside and actually is not.
+ */
+function resolveThroughMissingTail(fs, path) {
+  const segments = path.split('/').filter(Boolean);
+  const missing = [];
+  for (let i = segments.length; i >= 0; i -= 1) {
+    const candidate = `/${segments.slice(0, i).join('/')}`;
+    const real = maybeRealpath(fs, candidate);
+    if (real !== null) {
+      return missing.length === 0 ? real : `${real === '/' ? '' : real}/${missing.join('/')}`;
+    }
+    if (i > 0) missing.unshift(segments[i - 1]);
+  }
+  // Not even `/` resolves. A filesystem that cannot answer for its own root has
+  // not told us where this path goes.
+  throw new Rejected('unresolvable', `${path}: no ancestor could be resolved`);
 }
 
 function assertResolved(value) {

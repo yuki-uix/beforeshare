@@ -22,6 +22,24 @@ if (isMain) {
   };
 
   /**
+   * For assertions whose expression can throw.
+   *
+   * `check(name, gate().forRead(p).path === q)` evaluates its argument before
+   * check runs, so a rejection escapes the suite entirely: the process dies with
+   * a stack trace, no FAIL line is printed, and anything reading the output for
+   * failures — the CI guard among them — sees none. A suite that can die instead
+   * of failing reports nothing about the case it died on.
+   */
+  const checkOk = (name, fn, detail) => {
+    try {
+      check(name, fn() === true, detail);
+    } catch (e) {
+      failures += 1;
+      console.error(`FAIL  ${name}\n        threw instead of returning: ${e.reason ?? e.message}`);
+    }
+  };
+
+  /**
    * A filesystem described by a symlink map, so a layout needs no disk.
    *
    * It mirrors node:fs rather than a convenient shape: realpath throws with a
@@ -39,7 +57,19 @@ if (isMain) {
         if (!hit) break;
         if (seen.has(cur)) throw err('ELOOP');
         seen.add(cur);
-        cur = cur === hit ? links[hit] : links[hit] + cur.slice(hit.length);
+        // A relative target resolves against the directory holding the link, not
+        // against the process working directory and not as if it were absolute.
+        // Treating it as absolute made the stub describe a filesystem that does
+        // not exist, and the vectors agreed with it.
+        const target = links[hit].startsWith('/')
+          ? links[hit]
+          : `${hit.slice(0, hit.lastIndexOf('/'))}/${links[hit]}`;
+        const joined = cur === hit ? target : target + cur.slice(hit.length);
+        cur = `/${joined.split('/').reduce((acc, seg) => {
+          if (seg === '' || seg === '.') return acc;
+          if (seg === '..') { acc.pop(); return acc; }
+          acc.push(seg); return acc;
+        }, []).join('/')}`;
       }
       if (missing.includes(cur)) throw err('ENOENT');
       return cur;
@@ -72,8 +102,8 @@ if (isMain) {
     () => gate().forRead(`${ROOT}/../../etc/passwd`), 'outside_authorised_roots');
   rejects('a path escaping above / is refused',
     () => gate().forRead('/../../etc/passwd'), 'traversal');
-  check('a .. that stays inside the root is allowed',
-    gate().forRead(`${ROOT}/sub/../a.pdf`).path === `${ROOT}/a.pdf`);
+  checkOk('a .. that stays inside the root is allowed',
+    () => gate().forRead(`${ROOT}/sub/../a.pdf`).path === `${ROOT}/a.pdf`);
 
   // --- symlinks ---------------------------------------------------------------
   rejects('a symlink leaving the root is refused',
@@ -82,8 +112,29 @@ if (isMain) {
   rejects('a symlinked directory component leaving the root is refused',
     () => gate({ links: { [`${ROOT}/sub`]: '/private/tmp' } }).forRead(`${ROOT}/sub/a.pdf`),
     'symlink_escape');
-  check('a symlink staying inside the root is allowed',
-    gate({ links: { [`${ROOT}/link.pdf`]: `${ROOT}/real.pdf` } }).forRead(`${ROOT}/link.pdf`).path
+  // §34 names relative targets explicitly. A relative link resolves against the
+  // directory holding it, so the same spelling can stay inside or leave
+  // depending on where the link lives.
+  checkOk('a relative symlink staying inside the root is allowed',
+    () => gate({ links: { [`${ROOT}/alias.pdf`]: 'real.pdf' } }).forRead(`${ROOT}/alias.pdf`).path
+      === `${ROOT}/real.pdf`);
+  rejects('a relative symlink escaping the root is refused',
+    () => gate({ links: { [`${ROOT}/alias.pdf`]: '../../../etc/passwd' } }).forRead(`${ROOT}/alias.pdf`),
+    'symlink_escape');
+  rejects('a relative symlink in a directory component escaping the root is refused',
+    () => gate({ links: { [`${ROOT}/sub`]: '../../../private/tmp' } }).forRead(`${ROOT}/sub/a.pdf`),
+    'symlink_escape');
+
+  // The bypass this gate was shipped with: a missing leaf under a link that
+  // leaves the root. realpath throws ENOENT and says nothing about the parents,
+  // so the lexical path looked inside while the write would land outside.
+  rejects('a missing file under an escaping link is refused for writing',
+    () => gate({ links: { [`${ROOT}/evil`]: '/private/tmp' }, missing: ['/private/tmp/new.pdf'] })
+      .forWrite(`${ROOT}/evil/new.pdf`),
+    'symlink_escape');
+
+  checkOk('a symlink staying inside the root is allowed',
+    () => gate({ links: { [`${ROOT}/link.pdf`]: `${ROOT}/real.pdf` } }).forRead(`${ROOT}/link.pdf`).path
       === `${ROOT}/real.pdf`);
 
   // --- authorised roots -------------------------------------------------------
@@ -110,17 +161,17 @@ if (isMain) {
   try { createGate({ fs: stubFs(), authorisedRoots: ['Documents'] }); } catch { relRoot = true; }
   check('a relative authorised root is refused at construction', relRoot);
 
-  check('an authorised root is matched after normalisation',
-    createGate({ fs: stubFs(), authorisedRoots: ['/Users/u/caf\u00e9'] })
+  checkOk('an authorised root is matched after normalisation',
+    () => createGate({ fs: stubFs(), authorisedRoots: ['/Users/u/caf\u00e9'] })
       .forRead('/Users/u/cafe\u0301/a.pdf').path === '/Users/u/cafe\u0301/a.pdf');
-  check('an authorised root is matched case-insensitively',
-    createGate({ fs: stubFs(), authorisedRoots: [ROOT] }).forRead('/USERS/U/DOCUMENTS/a.pdf').path
+  checkOk('an authorised root is matched case-insensitively',
+    () => createGate({ fs: stubFs(), authorisedRoots: [ROOT] }).forRead('/USERS/U/DOCUMENTS/a.pdf').path
       === '/USERS/U/DOCUMENTS/a.pdf');
 
-  check('a root spelled with a trailing slash behaves the same',
-    createGate({ fs: stubFs(), authorisedRoots: [`${ROOT}/`] }).forRead(`${ROOT}/a.pdf`).path === `${ROOT}/a.pdf`);
-  check('doubled separators collapse',
-    gate().forRead(`${ROOT}//sub//..//a.pdf`).path === `${ROOT}/a.pdf`);
+  checkOk('a root spelled with a trailing slash behaves the same',
+    () => createGate({ fs: stubFs(), authorisedRoots: [`${ROOT}/`] }).forRead(`${ROOT}/a.pdf`).path === `${ROOT}/a.pdf`);
+  checkOk('doubled separators collapse',
+    () => gate().forRead(`${ROOT}//sub//..//a.pdf`).path === `${ROOT}/a.pdf`);
 
   // --- link cycles and unresolvable paths -------------------------------------
   rejects('a cycle of symlinks is refused',
@@ -132,8 +183,20 @@ if (isMain) {
       authorisedRoots: [ROOT],
     }).forRead(`${ROOT}/a.pdf`),
     'unresolvable');
-  check('a path that does not exist yet is allowed for writing',
-    gate({ missing: [`${ROOT}/new.pdf`] }).forWrite(`${ROOT}/new.pdf`).path === `${ROOT}/new.pdf`);
+  checkOk('a path that does not exist yet is allowed for writing',
+    () => gate({ missing: [`${ROOT}/new.pdf`] }).forWrite(`${ROOT}/new.pdf`).path === `${ROOT}/new.pdf`);
+
+  // Several missing levels at once. Walking back only one would stop at a
+  // directory that also does not exist and learn nothing about the link above it.
+  checkOk('a path several missing levels deep still resolves to its real ancestor',
+    () => gate({ missing: [`${ROOT}/a`, `${ROOT}/a/b`, `${ROOT}/a/b/c.pdf`] })
+      .forWrite(`${ROOT}/a/b/c.pdf`).path === `${ROOT}/a/b/c.pdf`);
+  rejects('an escaping link several missing levels above the leaf is refused',
+    () => gate({
+      links: { [`${ROOT}/evil`]: '/private/tmp' },
+      missing: ['/private/tmp/a', '/private/tmp/a/b', '/private/tmp/a/b/c.pdf'],
+    }).forWrite(`${ROOT}/evil/a/b/c.pdf`),
+    'symlink_escape');
 
   // --- output must not be the input (§12.1) -----------------------------------
   {
@@ -155,8 +218,8 @@ if (isMain) {
         const gl = gate({ links: { [`${ROOT}/alias.pdf`]: `${ROOT}/report.pdf` } });
         return gl.forWrite(`${ROOT}/alias.pdf`, { input: gl.forRead(`${ROOT}/report.pdf`) });
       }, 'output_is_input');
-    check('a different output path is allowed',
-      g.forWrite(`${ROOT}/report (sanitized).pdf`, { input }).path === `${ROOT}/report (sanitized).pdf`);
+    checkOk('a different output path is allowed',
+      () => g.forWrite(`${ROOT}/report (sanitized).pdf`, { input }).path === `${ROOT}/report (sanitized).pdf`);
   }
 
   rejects('an output naming a directory is refused',
@@ -231,9 +294,35 @@ if (isMain) {
         stubCode(() => stub.realpath(join(dir, 'loopA'))) === 'ELOOP');
       check('the stub agrees with node:fs on dereferencing',
         stub.realpath(join(dir, 'link.txt')) === realpathSync(join(dir, 'link.txt')));
+
+      // A relative target resolves against the directory holding the link. The
+      // stub treated it as absolute until a review pointed out that no
+      // filesystem does.
+      symlinkSync('real.txt', join(dir, 'rel.txt'));
+      const relStub = stubFs({ links: { [join(dir, 'rel.txt')]: 'real.txt' } });
+      check('the stub agrees with node:fs on a relative link target',
+        relStub.realpath(join(dir, 'rel.txt')) === realpathSync(join(dir, 'rel.txt')),
+        `${relStub.realpath(join(dir, 'rel.txt'))} vs ${realpathSync(join(dir, 'rel.txt'))}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+
+  // --- case folding follows the volume, not a constant ------------------------
+  // On a case-sensitive filesystem /ROOT/secret is not inside /root, and folding
+  // case would authorise it. §13.4's root check is an authorisation decision, so
+  // it has to match how the volume actually compares names.
+  {
+    const sensitive = { ...stubFs(), isCaseInsensitive: () => false };
+    const g = createGate({ fs: sensitive, authorisedRoots: ['/root'] });
+    let refused = false;
+    try { g.forRead('/ROOT/secret'); } catch (e) { refused = e.reason === 'outside_authorised_roots'; }
+    check('a case-sensitive volume does not fold case for the root check', refused);
+    checkOk('the same volume still allows the exact root', () => g.forRead('/root/a.pdf').path === '/root/a.pdf');
+
+    const insensitive = { ...stubFs(), isCaseInsensitive: () => true };
+    checkOk('a case-insensitive volume treats a differently-cased root as the same root',
+      () => createGate({ fs: insensitive, authorisedRoots: ['/root'] }).forRead('/ROOT/secret').path === '/ROOT/secret');
   }
 
   // --- every declared rejection reason is reachable ---------------------------
