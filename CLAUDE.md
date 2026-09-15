@@ -52,7 +52,7 @@ Example `status` fields are **computed, not declared**. That proves the examples
 it does not independently verify the rules. The independent check is the named cases in
 `tools/test-status.mjs`, whose expected values are written by hand from the case study.
 
-## Three habits this repository has had to learn
+## Four habits this repository has had to learn
 
 **Verify the artifacts against their own stated rules, not just against the case study.** The
 recurring defect here has not been misreading the requirements — it has been writing a rule and then
@@ -80,6 +80,19 @@ is reading it for the first time. Several defects here were introduced by the fi
 one — a scoping fix that added a SIGPIPE bug, a coverage fix that suppressed six checks, a registry
 added to stop unregistered ids being claimed and then claimed five in the same PR. Batch the fixes
 for a round, re-run the guards, and scan for siblings before pushing.
+
+**Commit before mutating, and confirm with `git diff` rather than with memory.** Mutation testing
+restores by discarding the working tree — the CI script with `git checkout --`, and by hand the same
+way. Any edit made since the last commit goes with it. This has happened four times here; twice the
+suite stayed green afterwards, because the vectors proving the lost fix were in the same files and
+were lost with it. What disagreed was the prose: a commit message and a contract document described
+a reordering that was not in the code, and prose is not run.
+
+So: commit, then mutate, then restore from git. And after an edit that matters, look at `git diff`
+or grep the file for what you believe you wrote. "I changed that" is not evidence, and a green suite
+is not evidence either when the change and its test disappeared together.
+
+The guard script now refuses to start on a dirty tree, which covers the script and not the habit.
 
 ## Tooling
 
