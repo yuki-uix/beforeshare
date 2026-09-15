@@ -68,6 +68,20 @@ considered and left alone are named, and the suite checks they still do not bloc
 An escalation must name the default it overrides, the condition, and why. "The detector decided" is
 not a reason to stop someone sharing a file.
 
+## Both directions means both, including the one that leaves debris
+
+Checking that every §7.1 item is mapped is one direction. Checking that every mapping still answers
+to a §7.1 item is the other, and it was missing: **a reworded requirement leaves its old key
+behind**, and that key's categories went on counting as reached. The new wording failed separately,
+for being unmapped — so the run reported one problem while the one that mattered stayed silent, in
+the direction this table exists to check.
+
+Measured: rewording *embedded files* to *embedded files and attachments* left `embedded_file`
+looking reached by a mapping nothing pointed at any more.
+
+The boundary suite had already learned this and called it `staleClaims`. The lesson did not travel
+with me.
+
 ## The fixtures and these rules answer to each other
 
 #60 recorded an expected status per fixture before these rules existed. Four expected

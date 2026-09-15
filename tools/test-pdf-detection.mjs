@@ -13,6 +13,7 @@ import { join, dirname } from 'node:path';
 import { bulletsUnder } from './case-study.mjs';
 import {
   mappingFor, reachableCategories, mayBlock, escalationFor, assertEveryCategoryIsReached,
+  staleMappings,
   DETECTION_REFUSALS, ESCALATABLE, CONSIDERED_AND_NOT_RAISED,
   PDF_DETECTION_RULES as RULES,
 } from './pdf-detection.mjs';
@@ -47,6 +48,10 @@ if (isMain) {
     () => items.length >= RULES.source.atLeast, `${items.length} found`);
 
   const enums = read('schemas/v1/enums.schema.json');
+  // Declared here rather than inside the block that first needs it: the refusal
+  // checks at the end need it too, and a name only the first reader can see is
+  // how a break silently stops breaking anything.
+  let pdfCategories = [];
   const allCategories = enums.$defs.category.enum;
   const locationKinds = read('schemas/v1/location.schema.json').properties.kind.enum;
   const detectors = read('schemas/v1/detector-registry.json').detectors;
@@ -76,12 +81,19 @@ if (isMain) {
   // --- and no category is left that nothing reaches ----------------------------
   {
     const reachable = reachableCategories();
-    const pdfCategories = allCategories.filter((c) => {
+    pdfCategories = allCategories.filter((c) => {
       const d = defaults[c];
       return d !== undefined && d.group === 'document_structure';
     });
+    // A mapping key the case study no longer lists keeps its categories in the
+    // reachable set, so a category nothing reaches looks covered while the new
+    // wording fails separately - two failures, and the one that matters silent.
+    const stale = staleMappings(items);
+    check('no mapping is left for a §7.1 item that was reworded away',
+      stale.length === 0, stale.join(' / '));
+
     let reachedAll = false;
-    try { reachedAll = assertEveryCategoryIsReached(pdfCategories); }
+    try { reachedAll = assertEveryCategoryIsReached(pdfCategories, items); }
     catch (e) { refused.add(e.reason); fail('every document-structure category is reached by some §7.1 item', e.message); }
     if (reachedAll) console.log('ok    every document-structure category is reached by some §7.1 item');
     // The other direction: a mapping naming a category that is not a document
@@ -97,10 +109,13 @@ if (isMain) {
     // text_under_redaction to critical. Saying so here is the point - this
     // epic did not decide it, and a table that implied otherwise would be one
     // epic quietly overruling another in a file the first would not read.
-    const blocksByDefault = Object.entries(defaults)
-      .filter(([, d]) => d.group === 'document_structure'
-        && d.defaultSeverity === 'critical' && d.defaultCertainty === 'deterministic')
-      .map(([c]) => c);
+    // Through mayBlock, not by recomputing its criteria here. A test that
+    // restates the rule agrees with itself: drop the deterministic condition
+    // from mayBlock and nothing would notice, because every PDF category is
+    // deterministic today.
+    const blocksByDefault = allCategories
+      .filter((c) => defaults[c]?.group === 'document_structure')
+      .filter((c) => mayBlock(c, defaults) && !ESCALATABLE.includes(c));
     check('the categories that already block are the two E1 set to critical',
       () => JSON.stringify(blocksByDefault.sort())
         === JSON.stringify(['embedded_file', 'text_under_redaction']),
@@ -108,6 +123,17 @@ if (isMain) {
     check('none of those is listed as needing an escalation',
       () => blocksByDefault.every((c) => !ESCALATABLE.includes(c)),
       blocksByDefault.filter((c) => ESCALATABLE.includes(c)).join(', '));
+
+    // The condition no current category exercises. Blocking is critical AND
+    // deterministic, and with every PDF category deterministic today, dropping
+    // the second half would change nothing visible - so it is given a category
+    // that is critical and probabilistic to answer about.
+    const asProbabilistic = {
+      ...defaults,
+      embedded_file: { ...defaults.embedded_file, defaultCertainty: 'probabilistic' },
+    };
+    check('a critical but probabilistic finding does not block',
+      () => mayBlock('embedded_file', asProbabilistic) === false);
 
     for (const category of ESCALATABLE) {
       // An entry has to name the default it overrides, the condition, and why -
@@ -163,9 +189,48 @@ if (isMain) {
     }
   }
 
-  const unreached = DETECTION_REFUSALS.filter((r) => !refused.has(r));
-  check('every declared refusal has a negative case somewhere',
-    () => unreached.length <= DETECTION_REFUSALS.length, unreached.join(', '));
+  // --- every declared refusal has a negative case that reaches it --------------
+  //
+  // The first version asserted unreached.length <= DETECTION_REFUSALS.length,
+  // which is true of every possible run. Each refusal now says where its
+  // negative lives, and that is checked rather than assumed.
+  {
+    const breaks = {
+      category_unreachable: () => {
+        // Asked with one §7.1 item held back, so its categories are genuinely
+        // out of reach - the shape a reworded item leaves behind.
+        const withoutOne = items.filter((i) => i !== items[3]);
+        try {
+          assertEveryCategoryIsReached(pdfCategories, withoutOne);
+          return null;
+        } catch (e) { return e.reason; }
+      },
+      escalation_unexplained: () => {
+        try { escalationFor('annotation'); return null; }
+        catch (e) { return e.reason; }
+      },
+      item_unmapped: () => {
+        try { mappingFor('an item the case study does not have'); return null; }
+        catch (e) { return e.reason; }
+      },
+    };
+    const workflow = readFileSync(join(repo, '.github/workflows/contracts.yml'), 'utf8');
+    for (const reason of DETECTION_REFUSALS) {
+      const where = RULES.refusals[reason].negativeCase;
+      check(`${reason} says where its negative case lives`,
+        () => ['in_suite', 'in_ci'].includes(where), where);
+      check(`${reason} has a break that reaches it`,
+        () => typeof breaks[reason] === 'function' && breaks[reason]() === reason);
+      if (where === 'in_ci') {
+        // Named, not "there is some mutation in there somewhere". A fixed
+        // string satisfied every reason equally, so mislabelling one as in_ci
+        // passed on a workflow case belonging to another.
+        check(`${reason} has a mutation case in the workflow that names it`,
+          () => workflow.includes(`refusal: ${reason}`),
+          `no expect_failure is tagged "refusal: ${reason}"`);
+      }
+    }
+  }
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  pdf detection rules: ${items.length} items, ${reachableCategories().size} categories, ${failures} failure(s)`);
   process.exit(failures === 0 ? 0 : 1);

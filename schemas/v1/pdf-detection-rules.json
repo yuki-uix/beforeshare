@@ -124,14 +124,18 @@
   },
   "refusals": {
     "item_unmapped": {
-      "rationale": "a §7.1 item has no mapping. The categories a detector may emit are closed, so an unmapped item means the detector either invents a category or drops the item silently - and dropping it silently is the one §17.1 counts."
+      "rationale": "a §7.1 item has no mapping. The categories a detector may emit are closed, so an unmapped item means the detector either invents a category or drops the item silently - and dropping it silently is the one §17.1 counts.",
+      "negativeCase": "in_ci"
     },
     "category_unreachable": {
-      "rationale": "a category exists for PDF and no §7.1 item reaches it. Either the taxonomy has a value nothing produces, or an item's mapping is missing one - both leave a category that looks supported and is not."
+      "rationale": "a category exists for PDF and no §7.1 item reaches it. Either the taxonomy has a value nothing produces, or an item's mapping is missing one - both leave a category that looks supported and is not.",
+      "negativeCase": "in_suite"
     },
     "escalation_unexplained": {
-      "rationale": "a category may be raised to critical without a stated condition. category-defaults.json requires a documented reason, and 'the detector decided' is not one: a blocking finding stops a person from sharing a file."
-    }
+      "rationale": "a category may be raised to critical without a stated condition. category-defaults.json requires a documented reason, and 'the detector decided' is not one: a blocking finding stops a person from sharing a file.",
+      "negativeCase": "in_suite"
+    },
+    "$comment": "Each refusal says where its negative case lives. in_suite means the suite breaks it on a copy and watches the reason come back; in_ci means reaching it needs the case study edited, which only a mutation case can do - and the suite then checks the workflow carries one. A refusal whose negative lives nowhere is a claim about enforcement that does not happen."
   },
   "nonEscalating": {
     "$comment": "Categories this epic considered raising and did not. Recorded because the next person to look will have the same thought, and an absence says nothing about whether anyone thought about it.",

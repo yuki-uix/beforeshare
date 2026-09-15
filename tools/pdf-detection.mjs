@@ -16,7 +16,8 @@ const RULES = JSON.parse(
   readFileSync(new URL('../schemas/v1/pdf-detection-rules.json', import.meta.url), 'utf8'),
 );
 
-export const DETECTION_REFUSALS = Object.keys(RULES.refusals);
+// A comment inside the section explains the names; it is not one of them.
+export const DETECTION_REFUSALS = Object.keys(RULES.refusals).filter((k) => k !== '$comment');
 export const ESCALATABLE = Object.keys(RULES.escalation).filter((k) => k !== '$comment');
 export const CONSIDERED_AND_NOT_RAISED = Object.keys(RULES.nonEscalating).filter((k) => k !== '$comment');
 
@@ -42,11 +43,27 @@ export function mappingFor(item) {
   return entry;
 }
 
-/** Every category some §7.1 item reaches. */
-export function reachableCategories() {
-  return new Set(Object.entries(RULES.mapping)
-    .filter(([k]) => k !== '$comment')
-    .flatMap(([, v]) => v.categories));
+/** Mapping keys the case study no longer lists. */
+export function staleMappings(items) {
+  return Object.keys(RULES.mapping)
+    .filter((k) => k !== '$comment')
+    .filter((k) => !items.includes(k));
+}
+
+/**
+ * Every category some §7.1 item reaches.
+ *
+ * Takes the items rather than trusting the table's keys. A reworded §7.1 item
+ * leaves the old key behind, and its categories went on counting as reached -
+ * so a category nothing actually reaches looked covered while the new wording
+ * failed separately for being unmapped. Two failures, one of them silent, and
+ * the silent one was in the direction this module exists to check.
+ */
+export function reachableCategories(items) {
+  const live = items === undefined
+    ? Object.keys(RULES.mapping).filter((k) => k !== '$comment')
+    : items.filter((i) => RULES.mapping[i] !== undefined);
+  return new Set(live.flatMap((k) => RULES.mapping[k].categories));
 }
 
 /**
@@ -57,8 +74,8 @@ export function reachableCategories() {
  * unreachable category means the taxonomy carries a value nothing produces -
  * a category that looks supported and is not.
  */
-export function assertEveryCategoryIsReached(pdfCategories) {
-  const reachable = reachableCategories();
+export function assertEveryCategoryIsReached(pdfCategories, items) {
+  const reachable = reachableCategories(items);
   const unreachable = pdfCategories.filter((c) => !reachable.has(c));
   if (unreachable.length > 0) {
     throw new MappingRefused('category_unreachable',
@@ -70,10 +87,16 @@ export function assertEveryCategoryIsReached(pdfCategories) {
 /**
  * Whether a finding in this category may block.
  *
- * Blocking is critical AND deterministic, and no PDF category defaults to
- * critical - so blocking is reachable only by an escalation, and only on the
- * condition stated with it. A category absent from the escalation table cannot
- * block, which is a structural fact rather than a policy someone remembers.
+ * Blocking is critical AND deterministic, and there are two ways to get there.
+ * E1 set `embedded_file` and `text_under_redaction` to critical, so those block
+ * on their defaults and need nothing from this epic. Everything else blocks
+ * only through an escalation, on the condition stated with it.
+ *
+ * An earlier version of this comment said no PDF category defaults to critical.
+ * That was true of my assumption and not of category-defaults.json, and it
+ * mattered: reading it would tell you that a category absent from the
+ * escalation table cannot block, which is the opposite of what the first branch
+ * below does.
  */
 export function mayBlock(category, defaults) {
   const byDefault = defaults?.[category];

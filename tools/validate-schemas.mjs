@@ -1329,11 +1329,18 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       escalation: { $comment: 'prose', '*': { e1Default: true, raiseTo: true,
         condition: true, why: 'prose' } },
       nonEscalating: { $comment: 'prose', '*': 'prose' },
-      refusals: { '*': { rationale: 'prose' } },
+      refusals: { $comment: 'prose', '*': { rationale: 'prose', negativeCase: true } },
     },
   });
   // The module reads the section and the floor; the suite reads the document.
   // Asserted here so the field is not a path nobody checks.
+  // Read by the suite, which is a different file, so asserted here - a rule
+  // nobody reads is decoration, and the check does not know about suites.
+  for (const [name, r] of Object.entries(det.refusals)) {
+    if (name === '$comment') continue;
+    check(`${name} says where its negative case lives`,
+      ['in_suite', 'in_ci'].includes(r.negativeCase), r.negativeCase);
+  }
   check('the §7.1 mapping names the case study that exists',
     existsSync(join(schemaDir, '..', '..', det.source.document)), det.source.document);
 }
@@ -1472,7 +1479,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       arbitration: { $comment: 'prose', sameInputInspect: 'prose',
         sameInputSanitize: 'prose', sameOutputName: 'prose' },
       record: { $comment: 'prose', fields: true, stages: true, durability: true },
-      refusals: { '*': { rationale: 'prose' } },
+      refusals: { $comment: 'prose', '*': { rationale: 'prose', negativeCase: true } },
     },
   });
 

@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=70
+          EXPECTED_CASES=71
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1074,7 +1074,7 @@ jobs:
             delete d.mapping['embedded files'];
             fs.writeFileSync(p, JSON.stringify(d,null,2)+'\\n');
           "
-          expect_failure "a §7.1 item nothing maps" \
+          expect_failure "a §7.1 item nothing maps (refusal: item_unmapped)" \
             "embedded files" \
             "schemas/v1/pdf-detection-rules.json" \
             "test:detection" || failed=1
@@ -1103,6 +1103,21 @@ jobs:
           expect_failure "a category raised while also recorded as not raised" \
             "document_javascript does not block" \
             "schemas/v1/pdf-detection-rules.json" \
+            "test:detection" || failed=1
+
+          # A reworded §7.1 item leaves its old mapping key behind, and that
+          # key's categories went on counting as reached - so a category
+          # nothing reaches looked covered while the new wording failed
+          # separately for being unmapped.
+          node -e "
+            const fs=require('fs'), p='docs/product-case-study.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('- embedded files;','- embedded files and attachments;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a mapping left behind by a reworded requirement" \
+            "no mapping is left for a §7.1 item that was reworded away" \
+            "docs/product-case-study.md" \
             "test:detection" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
