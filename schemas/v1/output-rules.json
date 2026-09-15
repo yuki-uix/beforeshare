@@ -1,0 +1,31 @@
+{
+  "$comment": "Rules for producing a sanitized file. §5.2 makes originals immutable and §9.3 forbids in-place overwrite, so every remediation writes somewhere new and says where. Data, not prose: tools/output-naming.mjs is checked against this table by the validator, in both directions.",
+  "schemaVersion": "1.0",
+  "naming": {
+    "$comment": "report.pdf -> 'report (sanitized).pdf' -> 'report (sanitized) 2.pdf'. The marker goes before the final extension so the file stays openable by the same application, which is the point of §11.1's collision-safe filenames.",
+    "marker": " (sanitized)",
+    "sequenceSeparator": " ",
+    "firstSequenceNumber": 2,
+    "maxAttempts": 1000,
+    "extensionRule": "last-dot",
+    "extensionRuleLimit": "A name with two meaningful extensions, archive.tar.gz, becomes 'archive.tar (sanitized).gz'. The MVP media types in §8.1 all carry one extension, so this is stated and vectored rather than solved here."
+  },
+  "writeProtocol": {
+    "$comment": "A name is claimed by creating the temporary file exclusively, not by asking whether the destination is free. The destination is never created early: reserving it with a placeholder cannot be made safe without handles, because another process can delete the placeholder and put its own file there, and an ordinary rename replaces that file without noticing. Publishing by link refuses an existing name atomically instead.",
+    "claim": "exclusive-create",
+    "then": "write-temp-then-link",
+    "tempLocation": "same-directory-as-destination",
+    "tempLocationReason": "The temporary file is derived from the destination, so it is always in the same directory: a link is only possible within one filesystem, and a caller-supplied temporary path elsewhere would fail at publish after all the work was done."
+  },
+  "rejectionReasons": {
+    "destination_exists": {
+      "rationale": "an explicit output path already names a file. §9.3 forbids overwriting; an explicit path is a statement about where to write, not permission to replace what is there."
+    },
+    "no_free_name": {
+      "rationale": "the sequence was exhausted without claiming a name. Continuing without a claim would mean writing to a name nothing reserved."
+    },
+    "temp_name_taken": {
+      "rationale": "the temporary name belongs to another run. Writing to it anyway would destroy a half-written file - the collision the destination is careful about, one name over."
+    }
+  }
+}

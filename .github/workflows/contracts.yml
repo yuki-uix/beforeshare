@@ -97,6 +97,9 @@ jobs:
       - name: Test file identity binding
         run: npm run test:identity
 
+      - name: Test immutable output
+        run: npm run test:output
+
   guards-are-effective:
     name: guards fail when they should
     runs-on: ubuntu-latest
@@ -177,6 +180,16 @@ jobs:
           # git checkout fails silently on a path git does not track. A mutation
           # that is never undone poisons every later case AND the control, which
           # is how this script first went wrong locally. Restoration is verified.
+          # Every case restores with `git checkout --`, which discards whatever is
+          # in the working tree. In CI the tree is always clean; run locally on a
+          # dirty one and it deletes the work being tested. That has happened
+          # twice here, and the second time took a whole protocol rewrite with
+          # it, so the script refuses rather than relying on remembering.
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "::error::the working tree has uncommitted changes; this script restores with git checkout and would discard them"
+            exit 1
+          fi
+
           restore() {
             local f="$1"
             if ! git checkout -- "$f" 2>/dev/null || ! git diff --quiet -- "$f"; then
@@ -193,7 +206,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=22
+          EXPECTED_CASES=29
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -430,6 +443,90 @@ jobs:
             "the adapter writing through its own reference does not change the record" \
             "tools/file-identity.mjs" \
             "test:identity" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('      fs.unlink(claim.temp.path);','      fs.write(claim.input.path, bytes);\n      fs.unlink(claim.temp.path);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a publish that also lands on the original" \
+            "remove_pdf_metadata_field leaves the original unchanged" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          # Asking whether a name is free and then using it is the concurrent
+          # defect. The vector races the create, so only a real claim survives it.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if (fs.link(claim.temp.path, destination.path)) {','    if (fs.write(destination.path, bytes) || true) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a publish that replaces whatever is at the destination" \
+            "a destination that appeared after the claim is not replaced" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    forWrite(raw, opts) {','    forWrite(raw, opts = { input: null }) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an output path resolvable for writing without declaring its input" \
+            "an output resolved without declaring its input is refused" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if (fs.createExclusive(temp.path)) {','    if (true) { fs.createExclusive(temp.path);');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a reservation that takes a temporary name already in use" \
+            "a busy temporary name moves the run to the next candidate" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('      if (input !== null) {','      if (input !== null && input !== undefined) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an undefined input declaration skipping the refusal" \
+            "an output whose declared input is undefined is refused" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          # The stub has to behave like the filesystem, or the vectors above
+          # prove something no filesystem does. It has happened here before.
+          node -e "
+            const fs=require('fs'), p='tools/test-output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('files.has(p) || Object.hasOwn(links, p) ? false','files.has(p) ? false');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a stub whose exclusive create follows symlinks" \
+            "exclusive create on a symlink agrees with node:fs" \
+            "tools/test-output-naming.mjs" \
+            "test:output" || failed=1
+
+          # Creating the temporary file before the gate has looked at it also
+          # refuses a planted link, but by creating a file at an unvetted path
+          # first and calling an escape attempt a busy name.
+          node -e "
+            const fs=require('fs'), p='tools/output-naming.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });\n    if (fs.createExclusive(temp.path)) {','    if (!fs.createExclusive(\`\${candidates[i].path}.part\`)) { continue; }\n    const temp = gate.forWrite(\`\${candidates[i].path}.part\`, { input });\n    if (true) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a temporary name claimed before the gate saw it" \
+            "a link planted at the temporary name is refused" \
+            "tools/output-naming.mjs" \
+            "test:output" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

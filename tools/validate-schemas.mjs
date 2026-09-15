@@ -17,6 +17,7 @@ import { computeStatus, reducesCoverage } from './status.mjs';
 import { buildCapabilities, REGISTRY, ACTION_FACTS, unsupportedMediaTypesInSources } from './capabilities.mjs';
 import { isSuccessfulOutcome, summariseVerification, SUCCESSFUL_OUTCOMES, VERIFICATION_OUTCOMES } from './verification.mjs';
 import { POLICIES } from './masking.mjs';
+import { OUTPUT_REJECTIONS } from './output-naming.mjs';
 import { REJECTION_REASONS } from './path-gate.mjs';
 import { IDENTITY_REJECTIONS, STAGES } from './file-identity.mjs';
 import { SUPPORTED_MEDIA_TYPES } from './media-types.mjs';
@@ -805,6 +806,10 @@ const MIRRORS = {
     value: STAGES,
     standalone: 'the three stages §14.1 names; they are not an enum in any schema',
   },
+  OUTPUT_REJECTIONS: {
+    value: OUTPUT_REJECTIONS,
+    standalone: 'the output rules\' own vocabulary; output-rules.json is data, and the validator checks the two against each other directly',
+  },
   REJECTION_REASONS: {
     value: REJECTION_REASONS,
     standalone: 'the gate\'s own vocabulary; path-rules.json is data, and the validator checks the two against each other directly',
@@ -1041,6 +1046,77 @@ function undeclaredKeys(node, shape, where) {
   return found;
 }
 
+/**
+ * Source with comments removed, so prose cannot satisfy a coverage check.
+ *
+ * Stripping whole comment lines is not enough: `const x = 0; // someRule` left
+ * the name in the source and a rule nothing implements read as implemented. And
+ * a blunt strip of everything after `//` would eat the contents of strings -
+ * a URL alone would truncate the line - so the scan tracks which literal it is
+ * inside. It is not a JavaScript parser and does not need to be; it needs to
+ * know whether a `//` starts a comment.
+ */
+function withoutComments(source) {
+  let out = '';
+  let state = 'code';   // code | line | block | single | double | template | regex
+  for (let i = 0; i < source.length; i += 1) {
+    const c = source[i];
+    const next = source[i + 1];
+    const prevCode = out.trimEnd().slice(-1);
+    if (state === 'code') {
+      if (c === '/' && next === '/') { state = 'line'; i += 1; out += ' '; }
+      else if (c === '/' && next === '*') { state = 'block'; i += 1; out += ' '; }
+      else if (c === "'") { state = 'single'; out += c; }
+      else if (c === '"') { state = 'double'; out += c; }
+      else if (c === '`') { state = 'template'; out += c; }
+      // A slash after a value is division; after an operator or a bracket that
+      // opens something, it begins a regular expression.
+      else if (c === '/' && !/[\w)\]]/.test(prevCode)) { state = 'regex'; out += c; }
+      else out += c;
+    } else if (state === 'line') {
+      if (c === '\n') { state = 'code'; out += c; }
+    } else if (state === 'block') {
+      if (c === '*' && next === '/') { state = 'code'; i += 1; }
+    } else {
+      out += c;
+      if (c === '\\') { out += source[i + 1] ?? ''; i += 1; continue; }
+      const closes = { single: "'", double: '"', template: '`', regex: '/' };
+      if (c === closes[state]) state = 'code';
+      else if (state === 'regex' && c === '\n') state = 'code';
+    }
+  }
+  return out;
+}
+
+/** Leaf key names declared as rules (shape `true`), which something must read. */
+function leafNames(node, shape, found = new Set()) {
+  for (const [k, v] of Object.entries(node)) {
+    if (k === '$comment' || k === 'schemaVersion') continue;
+    const allowed = shape['*'] ?? shape[k];
+    if (allowed === true) found.add(k);
+    else if (allowed !== undefined && allowed !== 'prose'
+      && v && typeof v === 'object' && !Array.isArray(v)) {
+      leafNames(v, allowed, found);
+    }
+  }
+  return [...found];
+}
+
+/** Leaves declared as explanation (shape `'prose'`), which nothing executes. */
+function proseLeaves(node, shape, where = '', found = []) {
+  for (const [k, v] of Object.entries(node)) {
+    const allowed = shape['*'] ?? shape[k];
+    // Named by its full path: eight rows all reporting "rationale" say nothing
+    // about which one is empty.
+    if (allowed === 'prose') found.push([`${where}${k}`, v]);
+    else if (allowed !== undefined && allowed !== true
+      && v && typeof v === 'object' && !Array.isArray(v)) {
+      proseLeaves(v, allowed, `${where}${k}.`, found);
+    }
+  }
+  return found;
+}
+
 function checkRuleTable({ file, table, module: moduleFile, constructorName, exposed, shape }) {
   const declared = Object.keys(table.rejectionReasons);
   const thrown = reasonsThrownIn(moduleFile, constructorName);
@@ -1071,6 +1147,29 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   const stray = undeclaredKeys(table, shape, file);
   check(`${file} carries no keys the validator does not check`, stray.length === 0,
     stray.join(' / '));
+
+  // Being allowed to exist is not the same as being read. A leaf nobody
+  // consults can hold any value at all - naming.extensionRule said "last-dot"
+  // beside a splitExtension that hard-codes it, and changing the string to
+  // nonsense changed nothing. Every leaf must be read by the module or asserted
+  // by this file; a rule that is neither is decoration.
+  // Comments are stripped from both sides first: a rule named only in prose
+  // about it would satisfy this check while nothing executed it, which is the
+  // shape of defect the check exists to find. It nearly passed that way here.
+  const validatorSource = withoutComments(readFileSync(fileURLToPath(import.meta.url), 'utf8'));
+  const moduleSource = withoutComments(readFileSync(join(RULE_MODULE_DIR, moduleFile), 'utf8'));
+  const unread = leafNames(table, shape)
+    .filter((k) => !moduleSource.includes(k) && !validatorSource.includes(`.${k}`));
+  check(`${file} every rule is read by ${moduleFile} or asserted here`,
+    unread.length === 0, unread.join(', '));
+
+  // Prose fields are exempt from the above precisely because nothing reads
+  // them, so they have to be prose: a rule quietly relabelled as explanation
+  // would otherwise leave the table through this door.
+  for (const [name, value] of proseLeaves(table, shape)) {
+    check(`${file} ${name} is explanation, and says something`,
+      typeof value === 'string' && value.length > 40, JSON.stringify(value));
+  }
 }
 
 // --- the path rule table and its implementation stay in step ----------------
@@ -1082,7 +1181,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     constructorName: 'Rejected', exposed: REJECTION_REASONS,
     shape: {
       $comment: true, schemaVersion: true,
-      rejectionReasons: { '*': { stage: true, rationale: true } },
+      rejectionReasons: { '*': { stage: true, rationale: 'prose' } },
       identity: { $comment: true, unicodeNormalization: true, caseInsensitiveDefault: true },
     },
   });
@@ -1097,6 +1196,63 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     declared.every((n) => pathRules.rejectionReasons[n].stage.startsWith('before_')));
 }
 
+// --- the comment scanner the rule check leans on -----------------------------
+{
+  // The "every rule is read" check is only as good as this: a rule named in a
+  // trailing comment used to read as implemented, and a blunt strip of
+  // everything after // would eat a URL inside a string and hide a real read.
+  const cases = [
+    ['const x = 0; // someRule', false, 'a trailing comment'],
+    ['/* someRule */ const y = 1;', false, 'a block comment'],
+    ['const u = "https://e.com/someRule";', true, 'a string containing //'],
+    ['const r = /someRule/.test(s);', true, 'a regular expression'],
+    ['const t = `a//someRule`;', true, 'a template literal'],
+    ['const d = a / b; // someRule', false, 'division before a trailing comment'],
+  ];
+  for (const [source, survives, what] of cases) {
+    check(`the comment scanner ${survives ? 'keeps' : 'strips'} ${what}`,
+      withoutComments(source).includes('someRule') === survives,
+      JSON.stringify(withoutComments(source)));
+  }
+}
+
+// --- the output rule table and its implementation stay in step ---------------
+{
+  const outRules = read(join(schemaDir, 'output-rules.json'));
+  checkRuleTable({
+    file: 'output-rules.json', table: outRules, module: 'output-naming.mjs',
+    constructorName: 'OutputRejected', exposed: OUTPUT_REJECTIONS,
+    shape: {
+      $comment: true, schemaVersion: true,
+      rejectionReasons: { '*': { rationale: 'prose' } },
+      naming: {
+        $comment: true, marker: true, sequenceSeparator: true, firstSequenceNumber: true,
+        maxAttempts: true, extensionRule: true, extensionRuleLimit: 'prose',
+      },
+      writeProtocol: {
+        $comment: true, claim: true, then: true, tempLocation: true, tempLocationReason: 'prose',
+      },
+    },
+  });
+  // §5.2 and §9.3 are about the original, so a marker that can be empty would
+  // let the output take the input's name under a spelling the gate allows.
+  check('the sanitized marker is not empty',
+    typeof outRules.naming.marker === 'string' && outRules.naming.marker.trim().length > 0);
+  // Asking whether a name is free and then using it is the concurrent defect
+  // §20.2 names. The table must not be able to describe that protocol.
+  check('a name is claimed by creating it, not by asking whether it is free',
+    outRules.writeProtocol.claim === 'exclusive-create');
+  check('the temporary file lives beside its destination, so the rename is atomic',
+    outRules.writeProtocol.tempLocation === 'same-directory-as-destination');
+  check('the write goes through a temporary file and a link that cannot replace',
+    outRules.writeProtocol.then === 'write-temp-then-link');
+  // splitExtension hard-codes last-dot, so this is the only thing the table may
+  // say. A table describing a rule the code does not implement is worse than no
+  // table: it reads as the specification.
+  check('the extension rule the table states is the one splitExtension implements',
+    outRules.naming.extensionRule === 'last-dot');
+}
+
 // --- the identity rule table and its implementation stay in step -------------
 {
   const idRules = read(join(schemaDir, 'identity-rules.json'));
@@ -1106,7 +1262,7 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     constructorName: 'IdentityRejected', exposed: IDENTITY_REJECTIONS,
     shape: {
       $comment: true, schemaVersion: true, stages: true,
-      rejectionReasons: { '*': { rationale: true } },
+      rejectionReasons: { '*': { rationale: 'prose' } },
       hash: { algorithm: true, encoding: true, $comment: true },
       orderingIsStructural: { claim: true, howItHolds: true, $comment: true },
     },
