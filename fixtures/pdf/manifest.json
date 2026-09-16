@@ -71,7 +71,8 @@
       "annotationInstructions": "Both have a form field with the same name; only the positive has a value. The field name alone may be disclosive - label it - but the blocking case is the value.",
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
-      "expectedStatus": "no_findings",
+      "expectedStatus": "review_required",
+      "controlIsNotSilentBecause": "the field name discloses what the form collects, and both documents carry it; only the value is blocking",
       "evalVersion": "eval-v1",
       "bytes": 709
     },

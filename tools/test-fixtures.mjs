@@ -220,6 +220,19 @@ if (isMain) {
       () => entry.expectedRemediation === 'none'
         || REMEDIATION_ACTIONS.includes(entry.expectedRemediation),
       entry.expectedRemediation);
+    // A control that is not silent is allowed, and must say why. Every control
+    // used to be given `no_findings` by construction, which read as a checked
+    // property and was a declaration: the form-fields control carries a
+    // disclosive field name in both documents by design, and nothing noticed
+    // until a checker disagreed with the label.
+    if (f.file.includes('.control.')) {
+      const silent = entry.expectedStatus === 'no_findings';
+      check(`${f.file} either expects silence or says why it does not`,
+        () => silent || (entry.controlIsNotSilentBecause ?? '').length > 10,
+        `${entry.expectedStatus} / ${entry.controlIsNotSilentBecause ?? '(no reason)'}`);
+      check(`${f.file} does not carry a reason it does not need`,
+        () => !silent || entry.controlIsNotSilentBecause === undefined);
+    }
   }
 
   // --- a control that is nothing like its positive tests nothing ----------------

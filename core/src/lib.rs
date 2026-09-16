@@ -16,3 +16,4 @@
 #![forbid(unsafe_code)]
 
 pub mod path_gate;
+pub mod pdf;

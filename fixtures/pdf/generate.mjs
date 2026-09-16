@@ -73,6 +73,14 @@ export const FIXTURES = {
     expectedCoverage: 'completed',
     expectedRemediation: 'clear_form_values',
     expectedStatus: 'review_required',
+    // This control is not silent, and saying it is would be a false
+    // expectation rather than a strict one. §7.1 separates the field name from
+    // its value precisely because `applicant_national_id` discloses what the
+    // form collects while empty, and both documents carry that name - it is
+    // what makes them a pair. Only the value is blocking.
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'the field name discloses what the form collects, and both documents carry it; only the value is blocking',
   },
 
   'embedded files': {
