@@ -1535,13 +1535,13 @@ jobs:
 
           expect_red_in "src/pdf/detectors.rs" "a name tree that does not branch" \
             "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
-            $'walk_name_tree(doc, kid, depth + 1, index, out)?;' \
+            $'walk_name_tree(doc, kid, depth + 1, index, seen, out)?;' \
             $'let _ = kid;'
 
           expect_red_in "src/pdf/detectors.rs" "a field tree that does not branch" \
             "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
-            $'for kid in kids {\n                walk_field(doc, kid, &full, depth + 1, out)?;' \
-            $'for kid in kids.iter().take(0) {\n                walk_field(doc, kid, &full, depth + 1, out)?;'
+            $'for kid in kids {\n                walk_field(doc, kid, &full, depth + 1, seen, out)?;' \
+            $'for kid in kids.iter().take(0) {\n                walk_field(doc, kid, &full, depth + 1, seen, out)?;'
 
           expect_red_in "src/pdf/detectors.rs" "text strings read as UTF-8" \
             "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
