@@ -7,6 +7,7 @@
  * positive examples would still pass. Each negative case names the rule it is
  * pinning, and the run fails if a case that must be rejected is accepted.
  */
+import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -945,38 +946,63 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
   // reach depends on how the code was typed is the same problem it exists to
   // solve.
   const toolsDir = join(schemaDir, '..', '..', 'tools');
-  const found = [];
-  for (const file of readdirSync(toolsDir).filter((f) => f.endsWith('.mjs'))) {
-    const href = pathToFileURL(join(toolsDir, file)).href;
-    // Importing the module currently being evaluated deadlocks on its own
-    // top-level await. It exports nothing, so there is nothing to miss.
-    if (href === import.meta.url) continue;
-    const mod = await import(href);
-    for (const [name, value] of Object.entries(mod)) {
-      if (Array.isArray(value)) found.push({ file, name, value });
-    }
-  }
-  check('exported arrays were found to check', found.length > 0);
 
-  // Importing them is only safe while none of them *runs* on import. One did:
-  // a new suite without the `isMain` guard every other one carries executed
-  // inside this validator and ended with process.exit(0), which replaced this
-  // process's exit code. Sixteen guards in the same CI run reported that they
-  // no longer checked anything, and the validator printed its own failures
-  // while exiting 0.
+  // Before importing anything. A suite that runs on import would end this
+  // process during the loop below, which is how the original defect hid: the
+  // check for it never ran, because the thing it checks killed the checker
+  // first.
   //
-  // The check is on the source rather than on behaviour, because behaviour here
-  // means "did the process survive being imported", which cannot be observed
-  // from inside the process it would have killed.
+  // Importing them is only safe while none of them *runs* on import. One did:
+  // a new suite without the guard every other one carries executed inside this
+  // validator and ended with process.exit(0), which replaced this process's
+  // exit code. Sixteen guards in the same CI run reported that they no longer
+  // checked anything, while the validator printed its own failures and exited 0.
+  //
+  // Checked by importing each one in a child process that then exits with a
+  // number of its own choosing. If the child exits with that number, the import
+  // returned; anything else means the module took the process with it. The
+  // first version of this check read the source for an `isMain` line instead,
+  // which is a guard whose reach depends on how the code was typed - the exact
+  // problem the paragraph above this one exists to avoid.
+  const SURVIVED = 77;
   const runsOnImport = [];
   for (const file of readdirSync(toolsDir).filter((f) => f.startsWith('test-') && f.endsWith('.mjs'))) {
-    const source = readFileSync(join(toolsDir, file), 'utf8');
-    const guarded = /const isMain = .*import\.meta\.url/.test(source) && /if \(isMain\)|if \(!isMain\)/.test(source);
-    if (!guarded) runsOnImport.push(file);
+    const href = pathToFileURL(join(toolsDir, file)).href;
+    const probe = `import(${JSON.stringify(href)}).then(() => process.exit(${SURVIVED}), () => process.exit(${SURVIVED}));`;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', probe], {
+      encoding: 'utf8',
+      timeout: 60000,
+    });
+    if (result.status !== SURVIVED) {
+      runsOnImport.push(`${file} (exited ${result.status ?? result.signal})`);
+    }
   }
-  check('every suite in tools/ refuses to run when it is merely imported',
+  check('no suite in tools/ ends the process that imports it',
     runsOnImport.length === 0,
-    `${runsOnImport.join(', ')} - this validator imports them, and one that runs on import can end this process`);
+    `${runsOnImport.join(', ')} - this validator imports them all, and one that exits on import replaces this exit code`);
+
+  const found = [];
+  if (runsOnImport.length > 0) {
+    // Reporting the problem is not enough: importing the module anyway would
+    // end this process with its exit code, and the failure above would be
+    // printed by a process that exits 0. The rest of this section needs the
+    // imports, so it is owed rather than faked.
+    check('exported arrays were found to check', false,
+      'not attempted: a suite would end this process on import');
+  } else {
+    for (const file of readdirSync(toolsDir).filter((f) => f.endsWith('.mjs'))) {
+      const href = pathToFileURL(join(toolsDir, file)).href;
+      // Importing the module currently being evaluated deadlocks on its own
+      // top-level await. It exports nothing, so there is nothing to miss.
+      if (href === import.meta.url) continue;
+      const mod = await import(href);
+      for (const [name, value] of Object.entries(mod)) {
+        if (Array.isArray(value)) found.push({ file, name, value });
+      }
+    }
+    check('exported arrays were found to check', found.length > 0);
+  }
+
 
   // Matched by name AND value. Keying on the name alone let a second module
   // export something called SUPPORTED_MEDIA_TYPES holding entirely different

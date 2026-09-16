@@ -1181,20 +1181,26 @@ jobs:
             "docs/adr/0002-pdf-parser.md" \
             "test:bakeoff" || failed=1
 
-          # A suite that runs when it is merely imported runs inside this
+          # A suite that runs when it is merely imported runs inside the
           # validator, which imports every module in tools/ - and one that ends
           # with process.exit(0) replaces the validator's exit code. That
           # happened: sixteen guards in one run reported that they no longer
           # checked anything, while the validator printed its own failures and
           # exited 0.
+          #
+          # The mutation is on a tracked file. The first version wrote a new
+          # untracked one, and `restore` uses `git checkout --`, which cannot
+          # undo a file git does not know about - the script caught that and
+          # stopped, which is what it is for.
           node -e "
-            const fs=require('fs');
-            fs.writeFileSync('tools/test-unguarded-for-ci.mjs', 'export const NOTHING = [];\n');
+            const fs=require('fs'), p='tools/test-parser-bakeoff.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('if (!isMain) {', 'if (false) {');
+            fs.writeFileSync(p, s);
           "
           expect_failure "a suite that runs when it is only imported" \
-            "every suite in tools/ refuses to run when it is merely imported" \
-            "tools/test-unguarded-for-ci.mjs" || failed=1
-          rm -f tools/test-unguarded-for-ci.mjs
+            "no suite in tools/ ends the process that imports it" \
+            "tools/test-parser-bakeoff.mjs" || failed=1
 
           # The control, per suite. One control over `validate` left every case
           # that names a different suite unproven: a `test:bakeoff` that failed
