@@ -104,6 +104,20 @@ The last one is worth naming separately: the guard job next to this one already
 documents that trap in a comment, and this PR reintroduced it a few hundred
 lines away. A comment is not a check.
 
+## One question this port answered by having a type for it
+
+Both handoff tables listed "who closes a handle, when, and what happens on an
+error path" as open. In the core it is not: the handle is an `OwnedFd` owned by
+the `ResolvedPath`, so it closes when that value is dropped, on the error path
+as on the ordinary one, with no `Drop` written here and nothing to forget.
+`read_file` reads through a `try_clone`, which closes at the end of the read.
+
+What remains open is a policy rather than a mechanism — how long a process
+should hold a handle, and whether one is kept across stages — and the rows say
+that now. A table that lists a decided question as open is the same defect as an
+example that violates the rule it illustrates: it reports work that does not
+exist.
+
 ## What did not change
 
 The rules are still data. `schemas/v1/path-rules.json` is `include_str!`'d, not
@@ -117,6 +131,6 @@ declare, and a reason the table declares that no vector can reach, each fail.
 |---|---|
 | A parent component swapped between check and open: `O_NOFOLLOW` covers the final component only, and closing the rest needs a component-by-component `openat` walk | #62 — a later slice of the same port, once the gate has a directory-handle type to walk with |
 | Whether the JavaScript reference implementation is retired once the core owns these rules, or kept as a second opinion | #3 — E2 owns what the reference implementations are for |
-| Who closes a handle, when, and what happens on an error path | #38 — unchanged by this port; it belongs with temporary-file lifetime |
+| How long a process should hold a handle, and whether one is kept across stages | #38 — a lifetime policy, not a closing mechanism; it belongs with temporary-file lifetime |
 | Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root, which is an E2 interface decision |
 | Whether `cargo test` on a byte-preserving volume is a supported configuration or merely tolerated | #62 — the vectors assert both answers today; committing to one is a packaging decision this slice does not own |

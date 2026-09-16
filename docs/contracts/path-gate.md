@@ -169,7 +169,7 @@ Two questions left here have been decided by the Rust port, and are recorded in
 | Question | Owner |
 |---|---|
 | Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root |
-| Closing handles: who closes, when, and what happens on an error path | #38 — it belongs with temporary-file lifetime |
+| How long a process should hold a handle, and whether one is kept across stages | #38 — the closing mechanism is settled in the core by ownership (see [core-path-gate.md](core-path-gate.md)); what is left is a lifetime policy |
 | Whether a build without `open()` should be refused outright rather than allowed in the weaker mode | #3 — the reference implementation demonstrates both on purpose; a product build may not deserve the choice |
 | Collision-safe output names once a destination is accepted | #36 — the gate decides whether a path may be written, not which path to pick |
 | What the gate does when a path becomes invalid mid-run | #37 — it is a failure during work, and that task owns what a failure leaves behind |
