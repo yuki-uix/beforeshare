@@ -255,14 +255,30 @@ impl Gate {
             resolved.push(std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()));
         }
         let case_rule = probe_case_rule(&resolved)?;
-        Ok(Self { roots: resolved, case_rule })
+        Ok(Self {
+            roots: resolved,
+            case_rule,
+        })
     }
 
     /// Resolve for reading, taking a handle while the checked path is the path.
     pub fn for_read(&self, raw: &str) -> Result<ResolvedPath, Rejected> {
         let path = self.resolve(raw)?;
-        let handle = open_nofollow(&path).ok();
-        Ok(ResolvedPath { path, mode: Mode::Read, handle })
+        // Not `.ok()`. A read authorisation without a handle falls back to
+        // opening by name, which is the thing the handle exists to replace -
+        // and the case where the open fails is the adversarial one: a link that
+        // appeared at the final component after the check, which O_NOFOLLOW
+        // refuses. Degrading to the name there loses the race instead of
+        // refusing it.
+        let handle = match open_nofollow(&path) {
+            Ok(handle) => handle,
+            Err(e) => return Err(open_refusal(&path, e)),
+        };
+        Ok(ResolvedPath {
+            path,
+            mode: Mode::Read,
+            handle: Some(handle),
+        })
     }
 
     /// Resolve for writing.
@@ -272,7 +288,11 @@ impl Gate {
     /// skipped §12.1's refusal entirely, so a caller could resolve the original
     /// for writing and overwrite it. `None` states there is no input; omitting
     /// the argument is not possible.
-    pub fn for_write(&self, raw: &str, input: Option<&ResolvedPath>) -> Result<ResolvedPath, Rejected> {
+    pub fn for_write(
+        &self,
+        raw: &str,
+        input: Option<&ResolvedPath>,
+    ) -> Result<ResolvedPath, Rejected> {
         let path = self.resolve(raw)?;
         if let Some(input) = input {
             if identity_key(&path, self.case_rule) == identity_key(input.path(), self.case_rule) {
@@ -282,7 +302,11 @@ impl Gate {
         if path.is_dir() {
             return Err(Rejected::OutputIsDirectory(path.display().to_string()));
         }
-        Ok(ResolvedPath { path, mode: Mode::Write, handle: None })
+        Ok(ResolvedPath {
+            path,
+            mode: Mode::Write,
+            handle: None,
+        })
     }
 
     fn resolve(&self, raw: &str) -> Result<PathBuf, Rejected> {
@@ -359,9 +383,8 @@ fn real_path(path: &Path) -> Result<PathBuf, Rejected> {
             // through a directory component.
             if let Ok(meta) = std::fs::symlink_metadata(path) {
                 if meta.is_symlink() {
-                    let target = std::fs::read_link(path).map_err(|e| {
-                        Rejected::Unresolvable(format!("{}: {e}", path.display()))
-                    })?;
+                    let target = std::fs::read_link(path)
+                        .map_err(|e| Rejected::Unresolvable(format!("{}: {e}", path.display())))?;
                     let absolute = if target.is_absolute() {
                         target
                     } else {
@@ -392,6 +415,23 @@ fn real_path(path: &Path) -> Result<PathBuf, Rejected> {
             Err(Rejected::SymlinkLoop(path.display().to_string()))
         }
         Err(e) => Err(Rejected::Unresolvable(format!("{}: {e}", path.display()))),
+    }
+}
+
+/// Why a read was refused when the gate could not open it.
+///
+/// ELOOP here is the interesting one: `resolve` has already followed every link,
+/// so a link at the final component appeared after the check. That is the race
+/// O_NOFOLLOW exists to lose safely, and it is named as an escape rather than
+/// reported as a filesystem hiccup.
+fn open_refusal(path: &Path, e: std::io::Error) -> Rejected {
+    if e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) {
+        Rejected::SymlinkEscape(format!(
+            "{}: a link appeared at the final component after it was checked",
+            path.display()
+        ))
+    } else {
+        Rejected::Unresolvable(format!("{}: {e}", path.display()))
     }
 }
 
@@ -479,7 +519,11 @@ pub fn read_file(resolved: &ResolvedPath) -> std::io::Result<Vec<u8>> {
             file.read_to_end(&mut bytes)?;
             Ok(bytes)
         }
-        None => std::fs::read(&resolved.path),
+        // No fallback to the name: a read authorisation always carries its
+        // handle, and reopening by name is exactly the window the handle closes.
+        None => Err(std::io::Error::other(
+            "this read authorisation carries no handle; reopening by name would reintroduce the window it closes",
+        )),
     }
 }
 
@@ -493,7 +537,11 @@ pub fn write_file(resolved: &ResolvedPath, bytes: &[u8]) -> std::io::Result<()> 
 
 /// Every reason the table declares, for the two-way check.
 pub fn declared_reasons() -> BTreeSet<&'static str> {
-    rules().rejection_reasons.keys().map(String::as_str).collect()
+    rules()
+        .rejection_reasons
+        .keys()
+        .map(String::as_str)
+        .collect()
 }
 
 /// Every reason's stage, so a test can assert none of them runs too late.
@@ -521,7 +569,10 @@ mod tests {
         std::fs::write(root.join("real.txt"), b"x").expect("a file");
         std::os::unix::fs::symlink(root.join("real.txt"), root.join("link.txt")).expect("a link");
 
-        assert!(open_nofollow(&root.join("real.txt")).is_ok(), "a plain file opens");
+        assert!(
+            open_nofollow(&root.join("real.txt")).is_ok(),
+            "a plain file opens"
+        );
         let refused = open_nofollow(&root.join("link.txt"));
         assert!(
             refused.is_err(),

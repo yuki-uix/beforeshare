@@ -79,9 +79,17 @@ fn rejects<T>(what: &str, got: Result<T, Rejected>, expected: &str) {
 fn only_absolute_well_formed_paths_enter() {
     let t = Tree::new();
     let g = t.gate();
-    rejects("a relative path", g.for_read("Documents/a.pdf"), "not_absolute");
+    rejects(
+        "a relative path",
+        g.for_read("Documents/a.pdf"),
+        "not_absolute",
+    );
     rejects("an empty path", g.for_read(""), "empty_or_null_byte");
-    rejects("a NUL byte", g.for_read(&t.at("a\0.pdf")), "empty_or_null_byte");
+    rejects(
+        "a NUL byte",
+        g.for_read(&t.at("a\0.pdf")),
+        "empty_or_null_byte",
+    );
     let _ = t.keep();
 }
 
@@ -96,13 +104,22 @@ fn traversal_is_judged_after_collapsing() {
         g.for_read(&t.at("../../etc/passwd")),
         "outside_authorised_roots",
     );
-    rejects("escaping above /", g.for_read("/../../etc/passwd"), "traversal");
+    rejects(
+        "escaping above /",
+        g.for_read("/../../etc/passwd"),
+        "traversal",
+    );
     // `a/b/../..` only shows its reach once collapsed; one that stays inside is
     // not a rejection.
-    let inside = g.for_read(&t.at("sub/../report.pdf")).expect("stays inside");
+    let inside = g
+        .for_read(&t.at("sub/../report.pdf"))
+        .expect("stays inside");
     assert_eq!(inside.path(), t.root.join("report.pdf"));
     let doubled = g.for_read(&format!("{}//sub//..//report.pdf", t.root.display()));
-    assert_eq!(doubled.expect("collapses").path(), t.root.join("report.pdf"));
+    assert_eq!(
+        doubled.expect("collapses").path(),
+        t.root.join("report.pdf")
+    );
     let _ = t.keep();
 }
 
@@ -117,7 +134,11 @@ fn a_link_anywhere_along_the_path_is_resolved_first() {
     t.link("up.pdf", "../../../etc/passwd"); // relative target, leaves
     let g = t.gate();
 
-    rejects("a link leaving the root", g.for_read(&t.at("escape.pdf")), "symlink_escape");
+    rejects(
+        "a link leaving the root",
+        g.for_read(&t.at("escape.pdf")),
+        "symlink_escape",
+    );
     rejects(
         "a linked directory component leaving the root",
         g.for_read(&t.at("escape-dir/a.pdf")),
@@ -130,7 +151,9 @@ fn a_link_anywhere_along_the_path_is_resolved_first() {
     );
     // A relative target resolves against the directory holding the link, so the
     // same spelling stays inside or leaves depending on where the link lives.
-    let inside = g.for_read(&t.at("alias.pdf")).expect("a relative link staying inside");
+    let inside = g
+        .for_read(&t.at("alias.pdf"))
+        .expect("a relative link staying inside");
     assert_eq!(inside.path(), t.root.join("real.pdf"));
     let _ = t.keep();
 }
@@ -180,10 +203,23 @@ fn a_dangling_link_is_resolved_rather_than_taken_for_a_missing_file() {
         g.for_write(&t.at("out.pdf"), None),
         "symlink_escape",
     );
-    assert!(!outside.exists(), "the target was created despite the refusal");
-    let inside = g.for_write(&t.at("in.pdf"), None).expect("a dangling link inside the root");
-    assert_eq!(inside.path(), t.root.join("new.pdf"), "the link was not followed");
-    rejects("a link pointing at itself", g.for_read(&t.at("self")), "symlink_loop");
+    assert!(
+        !outside.exists(),
+        "the target was created despite the refusal"
+    );
+    let inside = g
+        .for_write(&t.at("in.pdf"), None)
+        .expect("a dangling link inside the root");
+    assert_eq!(
+        inside.path(),
+        t.root.join("new.pdf"),
+        "the link was not followed"
+    );
+    rejects(
+        "a link pointing at itself",
+        g.for_read(&t.at("self")),
+        "symlink_loop",
+    );
     let _ = t.keep();
 }
 
@@ -191,11 +227,15 @@ fn a_dangling_link_is_resolved_rather_than_taken_for_a_missing_file() {
 fn a_path_that_does_not_exist_yet_can_be_written() {
     let t = Tree::new();
     let g = t.gate();
-    let fresh = g.for_write(&t.at("new.pdf"), None).expect("a new file is writable");
+    let fresh = g
+        .for_write(&t.at("new.pdf"), None)
+        .expect("a new file is writable");
     assert_eq!(fresh.path(), t.root.join("new.pdf"));
     // Walking back only one level would stop at a directory that also does not
     // exist and learn nothing about the link above it.
-    let deep = g.for_write(&t.at("a/b/c.pdf"), None).expect("several missing levels");
+    let deep = g
+        .for_write(&t.at("a/b/c.pdf"), None)
+        .expect("several missing levels");
     assert_eq!(deep.path(), t.root.join("a/b/c.pdf"));
     let _ = t.keep();
 }
@@ -205,7 +245,11 @@ fn a_cycle_is_named_rather_than_spun_on() {
     let t = Tree::new();
     symlink(t.root.join("b"), t.root.join("a")).expect("a");
     symlink(t.root.join("a"), t.root.join("b")).expect("b");
-    rejects("a cycle of symlinks", t.gate().for_read(&t.at("a")), "symlink_loop");
+    rejects(
+        "a cycle of symlinks",
+        t.gate().for_read(&t.at("a")),
+        "symlink_loop",
+    );
     let _ = t.keep();
 }
 
@@ -232,8 +276,16 @@ fn a_filesystem_that_cannot_answer_is_refused_rather_than_assumed() {
 #[test]
 fn a_gate_authorising_everything_cannot_be_built() {
     let t = Tree::new();
-    rejects("no roots at all", Gate::new(&[]), "outside_authorised_roots");
-    rejects("the filesystem root", Gate::new(&[Path::new("/")]), "outside_authorised_roots");
+    rejects(
+        "no roots at all",
+        Gate::new(&[]),
+        "outside_authorised_roots",
+    );
+    rejects(
+        "the filesystem root",
+        Gate::new(&[Path::new("/")]),
+        "outside_authorised_roots",
+    );
     rejects(
         "the filesystem root hiding among others",
         Gate::new(&[t.root.as_path(), Path::new("/")]),
@@ -257,10 +309,15 @@ fn a_name_prefix_is_not_containment() {
     std::fs::create_dir_all(&sibling).expect("sibling");
     rejects(
         "a sibling sharing a name prefix",
-        t.gate().for_read(&sibling.join("a.pdf").display().to_string()),
+        t.gate()
+            .for_read(&sibling.join("a.pdf").display().to_string()),
         "outside_authorised_roots",
     );
-    rejects("outside every root", t.gate().for_read("/etc/passwd"), "outside_authorised_roots");
+    rejects(
+        "outside every root",
+        t.gate().for_read("/etc/passwd"),
+        "outside_authorised_roots",
+    );
     std::fs::remove_dir_all(&sibling).ok();
     let _ = t.keep();
 }
@@ -274,7 +331,11 @@ fn an_output_resolving_to_the_input_is_refused_in_every_spelling() {
     let g = t.gate();
     let input = g.for_read(&t.at("report.pdf")).expect("the input");
 
-    rejects("the same path", g.for_write(&t.at("report.pdf"), Some(&input)), "output_is_input");
+    rejects(
+        "the same path",
+        g.for_write(&t.at("report.pdf"), Some(&input)),
+        "output_is_input",
+    );
     rejects(
         "reached through ..",
         g.for_write(&t.at("sub/../report.pdf"), Some(&input)),
@@ -318,9 +379,16 @@ fn identity_follows_the_volume_rather_than_a_preference() {
     let input = g.for_read(&t.at("report.pdf")).expect("the input");
     let other_case = g.for_write(&t.at("Report.PDF"), Some(&input));
     if folds {
-        rejects("an output differing only in case", other_case, "output_is_input");
+        rejects(
+            "an output differing only in case",
+            other_case,
+            "output_is_input",
+        );
     } else {
-        assert!(other_case.is_ok(), "on a case-sensitive volume these are two files");
+        assert!(
+            other_case.is_ok(),
+            "on a case-sensitive volume these are two files"
+        );
     }
     let _ = t.keep();
 }
@@ -344,18 +412,29 @@ fn a_misspelled_root_is_still_recognised_as_the_root() {
     let got = g.for_read(&format!("{shouty}/escape.pdf"));
     if folds {
         // It was inside the root, under a different spelling, and it left.
-        rejects("an escaping link under an upper-cased root", got, "symlink_escape");
+        rejects(
+            "an escaping link under an upper-cased root",
+            got,
+            "symlink_escape",
+        );
     } else {
         // On a case-sensitive volume that name is a different place entirely.
-        rejects("an upper-cased root on a case-sensitive volume", got, "outside_authorised_roots");
+        rejects(
+            "an upper-cased root on a case-sensitive volume",
+            got,
+            "outside_authorised_roots",
+        );
     }
     let _ = t.keep();
 }
 
 #[test]
 fn a_root_spelled_in_the_other_normalisation_is_the_same_root() {
-    // The filesystem stores NFD; applications commonly produce NFC. Both name
-    // this directory, on every macOS volume, whatever its case rule.
+    // macOS stores NFD and applications commonly produce NFC, so the two
+    // spellings name one directory there. Not everywhere: a byte-preserving
+    // filesystem makes them two. The volume is asked rather than assumed, and
+    // both answers are asserted - a skip here would report coverage on whichever
+    // machine happened to run it.
     let t = Tree::new();
     let nfc_dir = t.root.join("caf\u{e9}");
     std::fs::create_dir(&nfc_dir).expect("an accented directory");
@@ -363,12 +442,27 @@ fn a_root_spelled_in_the_other_normalisation_is_the_same_root() {
     let g = Gate::new(&[nfc_dir.canonicalize().expect("on-disk spelling").as_path()])
         .expect("a usable root");
 
-    let as_nfd = format!("{}/cafe\u{301}/escape.pdf", t.root.display());
-    rejects(
-        "an escaping link under the other normalisation of the root",
-        g.for_read(&as_nfd),
-        "symlink_escape",
-    );
+    let nfd_dir = t.root.join("cafe\u{301}");
+    let unified = std::fs::metadata(&nfd_dir).is_ok();
+    let as_nfd = nfd_dir.join("escape.pdf").display().to_string();
+    if unified {
+        rejects(
+            "an escaping link under the other normalisation of the root",
+            g.for_read(&as_nfd),
+            "symlink_escape",
+        );
+    } else {
+        // Two directories. The second one holds a file that stays inside, so a
+        // gate that wrongly unified them would resolve this to the escaping
+        // link and refuse - the assertion has content either way.
+        std::fs::create_dir(&nfd_dir).expect("the other directory");
+        std::fs::write(nfd_dir.join("escape.pdf"), b"%PDF-1.7\n").expect("a plain file");
+        let refused = g.for_read(&as_nfd);
+        assert!(
+            refused.is_err(),
+            "a path under a different directory than the root was authorised"
+        );
+    }
     let _ = t.keep();
 }
 
@@ -400,7 +494,10 @@ fn an_access_uses_the_file_that_was_checked_not_the_name() {
     std::fs::write(t.root.join("report.pdf"), b"the checked bytes").expect("write");
     let g = t.gate();
     let resolved = g.for_read(&t.at("report.pdf")).expect("resolved");
-    assert!(resolved.is_handle_bound(), "a read authorisation carries its handle");
+    assert!(
+        resolved.is_handle_bound(),
+        "a read authorisation carries its handle"
+    );
 
     std::fs::remove_file(t.root.join("report.pdf")).expect("unlink");
     symlink("/etc/passwd", t.root.join("report.pdf")).expect("repoint");
@@ -410,6 +507,36 @@ fn an_access_uses_the_file_that_was_checked_not_the_name() {
         bytes, b"the checked bytes",
         "the read followed the name instead of the handle it was given"
     );
+    let _ = t.keep();
+}
+
+#[test]
+fn a_read_the_gate_cannot_open_is_refused_rather_than_handed_back_unbound() {
+    // `open_nofollow(...).ok()` made the handle optional, and `read_file` fell
+    // back to opening by name when it was absent - so the one case the flag
+    // exists for, a link at the final component, degraded to following that
+    // link. Refusing is the only answer that keeps the claim true.
+    let t = Tree::new();
+    let sealed = t.root.join("sealed.pdf");
+    std::fs::write(&sealed, b"%PDF-1.7\n").expect("a file");
+    std::fs::set_permissions(&sealed, std::os::unix::fs::PermissionsExt::from_mode(0o000))
+        .expect("chmod");
+    // Root ignores permission bits. Ask whether this process is actually kept
+    // out before asserting that the gate is - otherwise the case silently
+    // stops testing anything wherever it runs privileged.
+    let kept_out = std::fs::File::open(&sealed).is_err();
+    let got = t.gate().for_read(&t.at("sealed.pdf"));
+    std::fs::set_permissions(&sealed, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+        .expect("chmod back");
+    if kept_out {
+        rejects("a file the gate cannot open", got, "unresolvable");
+    } else {
+        let bound = got.expect("a privileged process opens it");
+        assert!(
+            bound.is_handle_bound(),
+            "an authorisation was issued without a handle"
+        );
+    }
     let _ = t.keep();
 }
 
@@ -455,6 +582,7 @@ fn every_declared_reason_is_triggered_by_a_vector() {
     traversal_is_judged_after_collapsing();
     a_link_anywhere_along_the_path_is_resolved_first();
     a_missing_leaf_under_an_escaping_link_is_still_refused();
+    a_read_the_gate_cannot_open_is_refused_rather_than_handed_back_unbound();
     a_dangling_link_is_resolved_rather_than_taken_for_a_missing_file();
     a_cycle_is_named_rather_than_spun_on();
     a_filesystem_that_cannot_answer_is_refused_rather_than_assumed();
