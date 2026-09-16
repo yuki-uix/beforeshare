@@ -541,8 +541,33 @@ fn decide_case_rule(answers: &BTreeSet<bool>) -> Result<CaseRule, Rejected> {
 }
 
 fn folds_case(root: &Path) -> Result<bool, Rejected> {
-    let swapped: String = root
-        .to_string_lossy()
+    let swapped = swapped_final_component(root)?;
+    decide_folding(
+        root,
+        std::fs::canonicalize(root),
+        std::fs::canonicalize(&swapped),
+    )
+}
+
+/// The root with only its last component's case flipped.
+///
+/// Flipping every component asked about a path whose *ancestors* may not exist:
+/// a case-insensitive volume mounted under a case-sensitive one then failed to
+/// resolve, and the answer "the swapped name is absent" - which means
+/// case-sensitive - was read off a directory that was never the subject.
+///
+/// A name with no ASCII letter is refused rather than probed. Swapping it
+/// changes nothing, so both sides resolve to the same path and the probe
+/// reports "this volume folds case" having compared a path with itself.
+fn swapped_final_component(root: &Path) -> Result<PathBuf, Rejected> {
+    let name = root.file_name().ok_or_else(|| {
+        Rejected::Unresolvable(format!(
+            "{}: a root with no final component cannot be probed for its case rule",
+            root.display()
+        ))
+    })?;
+    let name = name.to_string_lossy();
+    let swapped: String = name
         .chars()
         .map(|c| {
             if c.is_ascii_lowercase() {
@@ -552,11 +577,13 @@ fn folds_case(root: &Path) -> Result<bool, Rejected> {
             }
         })
         .collect();
-    decide_folding(
-        root,
-        std::fs::canonicalize(root),
-        std::fs::canonicalize(&swapped),
-    )
+    if swapped == *name {
+        return Err(Rejected::Unresolvable(format!(
+            "{}: the root's name has no ASCII letter, so the two spellings are one string and the probe would compare it with itself",
+            root.display()
+        )));
+    }
+    Ok(root.with_file_name(swapped))
 }
 
 /// What the two probe results mean, separated from the probing.
@@ -722,6 +749,29 @@ mod tests {
     /// cannot show it: APFS refuses to hold both spellings at once, so the
     /// authorisation bypass is unreachable here and reachable on ext4. Asserted
     /// on the functions instead of on a directory nobody can create locally.
+    /// The probe must ask about the volume it is probing, and must not report an
+    /// answer it did not obtain.
+    #[test]
+    fn the_probe_changes_only_the_name_it_is_asking_about() {
+        let swapped = swapped_final_component(Path::new("/Volumes/Case Sensitive/usb"))
+            .expect("a name with letters to flip");
+        assert_eq!(
+            swapped,
+            Path::new("/Volumes/Case Sensitive/USB"),
+            "flipping the ancestors asks about directories that may not exist, and \
+             a missing ancestor reads as 'this volume is case-sensitive'"
+        );
+
+        // Nothing to flip: the two spellings are one string, so resolving both
+        // compares a path with itself and always answers "it folds".
+        let no_letters = swapped_final_component(Path::new("/Users/u/\u{6587}\u{6863}"))
+            .expect_err("a name with no ASCII letter cannot be probed this way");
+        assert_eq!(no_letters.reason(), "unresolvable");
+        let digits = swapped_final_component(Path::new("/Volumes/2024"))
+            .expect_err("digits have no case either");
+        assert_eq!(digits.reason(), "unresolvable");
+    }
+
     #[test]
     fn containment_does_not_unify_what_the_volume_keeps_apart() {
         let folding = CaseRule { fold: true };

@@ -1226,7 +1226,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=19
+          EXPECTED_RUST_CASES=21
           cp src/path_gate.rs /tmp/path_gate.clean
 
           expect_red() {
@@ -1369,6 +1369,16 @@ jobs:
             "containment_does_not_unify_what_the_volume_keeps_apart" \
             $'fn containment_key(path: &Path, rule: CaseRule) -> String {\n    let raw = path.to_string_lossy();' \
             $'fn containment_key(path: &Path, rule: CaseRule) -> String {\n    let raw = std::borrow::Cow::<str>::Owned(nfc(&path.to_string_lossy()));'
+
+          expect_red "the probe flips every component" \
+            "the_probe_changes_only_the_name_it_is_asking_about" \
+            $'let name = root.file_name().ok_or_else(|| {' \
+            $'let name = Some(root.as_os_str()).ok_or_else(|| {'
+
+          expect_red "a probe that compares a path with itself" \
+            "the_probe_changes_only_the_name_it_is_asking_about" \
+            $'if swapped == *name {' \
+            $'if false {'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.

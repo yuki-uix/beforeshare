@@ -79,7 +79,7 @@ defects the port carried over or that its own fixes created:
 | a second `read_file` on one authorisation returned nothing | a duplicated descriptor shares its offset; an empty result reads as an empty file rather than as a mistake |
 | the compile-fail probe hard-coded `target/debug/deps` | it is `<target>/<profile>/deps`, and `--release` or `CARGO_TARGET_DIR` made the probe panic |
 | the unreadable-directory vector asserted a refusal a privileged process never gets | a case that stops testing anything wherever it runs privileged |
-| the guard matched with `printf | grep -q` under `pipefail` | the job beside this one carries a comment about exactly this SIGPIPE trap; the lesson had not travelled |
+| the guard matched with `printf \| grep -q` under `pipefail` | the job beside this one carries a comment about exactly this SIGPIPE trap; the lesson had not travelled |
 
 A ninth arrived in the next round and is the sharpest of them: **a comparison
 used to authorise must be exactly as lossy as the volume, and never more.**
@@ -99,6 +99,20 @@ message, not an authorisation.
 This one could not be caught by a vector on this machine: APFS refuses to hold
 both spellings at once, so the bypass is unreachable on macOS and reachable on
 ext4. It is asserted on the two key functions instead.
+
+An eleventh, in the round after that, was **caused by the fix for the second**.
+Reading "the swapped spelling does not resolve" as *case-sensitive* is right
+only if the swapped spelling names the same volume — and `folds_case` flipped
+every component, so a case-insensitive mount under a case-sensitive ancestor
+failed to resolve for a reason that had nothing to do with it. Before the fix it
+guessed permissively; after, it guessed the opposite. Only the last component is
+flipped now, and a name with no ASCII letter is refused rather than compared
+with itself.
+
+That is this repository's recorded pattern arriving on schedule: *several
+defects here were introduced by the fix for the previous one.* Fixes are the
+least reviewed code in a pull request, because each round reads them for the
+first time.
 
 The last one is worth naming separately: the guard job next to this one already
 documents that trap in a comment, and this PR reintroduced it a few hundred
@@ -131,6 +145,7 @@ declare, and a reason the table declares that no vector can reach, each fail.
 |---|---|
 | A parent component swapped between check and open: `O_NOFOLLOW` covers the final component only, and closing the rest needs a component-by-component `openat` walk | #62 — a later slice of the same port, once the gate has a directory-handle type to walk with |
 | Whether the JavaScript reference implementation is retired once the core owns these rules, or kept as a second opinion | #3 — E2 owns what the reference implementations are for |
+| A root whose name carries no ASCII letter (`~/\u{6587}\u{6863}`) cannot be probed for its case rule and is now refused | #62 — the name experiment is a stand-in; the real answer is asking the volume (`getattrlist` / `ATTR_VOL_CAPABILITIES`), which needs FFI this crate forbids today |
 | How long a process should hold a handle, and whether one is kept across stages | #38 — a lifetime policy, not a closing mechanism; it belongs with temporary-file lifetime |
 | Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root, which is an E2 interface decision |
 | Whether `cargo test` on a byte-preserving volume is a supported configuration or merely tolerated | #62 — the vectors assert both answers today; committing to one is a packaging decision this slice does not own |
