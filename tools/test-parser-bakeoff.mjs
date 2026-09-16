@@ -13,6 +13,9 @@ import { readFileSync } from 'node:fs';
 
 const results = readFileSync(new URL('../experiments/results.tsv', import.meta.url), 'utf8');
 const adr = readFileSync(new URL('../docs/adr/0002-pdf-parser.md', import.meta.url), 'utf8');
+/** The ADR with quoted spans removed, for checks about what it asserts rather
+ * than about what it quotes. */
+const adrWithoutQuotes = adr.replace(/"[^"\n]*"/g, '""');
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -109,7 +112,10 @@ check('strict loading refuses it instead',
 // reach every one of the twelve" while the table two lines below said MuPDF
 // answers one of the content-stream items and not the other.
 const positives = rows.filter((l) => l.includes('.positive.pdf'));
-const EXPECTED_REACH = { lopdf: 12, mupdf: 11 };
+// Both reach all twelve. This started as 11 for MuPDF, from a probe that only
+// asked its structured-text API; reading the raw content stream - which the ADR
+// had claimed without measuring - reaches the twelfth.
+const EXPECTED_REACH = { lopdf: 12, mupdf: 12 };
 for (const [parser, expected] of Object.entries(EXPECTED_REACH)) {
   const mine = positives.filter((l) => l.startsWith(`${parser}\t`));
   const reached = mine.filter((l) => l.split('\t')[2] === 'reached');
@@ -121,6 +127,12 @@ for (const [parser, expected] of Object.entries(EXPECTED_REACH)) {
   const words = { 12: 'all twelve', 11: 'eleven' }[expected];
   check(`ADR 0002 states ${parser} reaches ${words}`,
     new RegExp(`${parser === 'lopdf' ? '`lopdf`' : 'MuPDF'} reaches ${words}`).test(adr));
+  // And it must not still claim a capability gap the run does not show. Quoted
+  // spans are stripped first: the ADR explains why "MuPDF reaches eleven" was
+  // wrong, and a plain search fired on that explanation - the mirror image of a
+  // coverage check once satisfied by a comment naming the rule it was checking.
+  check(`ADR 0002 does not claim ${parser} misses one`,
+    !/MuPDF reaches eleven/.test(adrWithoutQuotes));
 }
 
 // The malformed inputs are bytes in the repository, and §16.2's rule is that a

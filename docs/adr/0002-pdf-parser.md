@@ -27,18 +27,22 @@ corrections looked exactly like parser defects until they were read:
 
 ## What the fixtures showed
 
-`lopdf` reaches all twelve planted objects. MuPDF reaches eleven: the two that
-live in the content stream rather than in an object are where they part, and it
-answers one of them and not the other.
+`lopdf` reaches all twelve planted objects and MuPDF reaches all twelve as well.
+They differ only in which API answers the two that live in the content stream
+rather than in an object:
 
 | §7.1 item | lopdf | MuPDF |
 |---|---|---|
 | text not visually obvious (`3 Tr`) | the operator carries the operand | per-glyph flags: neither `FILLED` nor `STROKED` |
-| text beneath an apparent redaction | operators give the text and the covering rectangle's geometry | the structured-text layer reports text and images, not the paths painted over them |
+| text beneath an apparent redaction | operators give the text and the covering rectangle's geometry | not through the structured-text layer, which reports text and images and not the paths painted over them — but the raw content stream is reachable and carries both |
 
-MuPDF's high-level text API answers the first more directly and cannot answer
-the second. Its raw content stream is reachable too, so this is a statement about
-which API answers the question, not about what the library can see.
+The last cell was first written as an assertion and is now measured: the probe
+reads object 4's raw stream and finds the text and the rectangle in it. Saying
+"MuPDF reaches eleven" would have let a capability difference do work that does
+not exist, in an ADR whose whole position is that the choice is measured rather
+than argued.
+
+**So capability is a tie**, and the decision rests entirely on what follows.
 
 ## What the fixtures could not show
 
@@ -66,8 +70,8 @@ instead; `strict: true` turns it into a named refusal.
 
 **`lopdf`, loaded with `strict: true`.**
 
-1. It reaches all twelve planted disclosures, including both content-stream
-   items, which is what the checker is for.
+1. Capability is a tie — both reach all twelve — so nothing here argues for
+   paying more.
 2. Its one dangerous failure mode is fixable by configuration: strict converts
    the silent under-read into a refusal the checker can report as a failure.
    A parser that reports nothing and a parser that reports failure are different
@@ -79,9 +83,11 @@ instead; `strict: true` turns it into a named refusal.
    forbids today (`unsafe_code = "forbid"`). Adopting it would mean writing an
    exception to that policy.
 
-Points 1 and 2 are measured. Points 3 and 4 are constraints, not measurements,
-and they are recorded separately on purpose: a policy that settles a measurement
-is how a comparison stops being one.
+Point 2 is measured. Points 3 and 4 are constraints, not measurements, and they
+are recorded separately on purpose: a policy that settles a measurement is how a
+comparison stops being one. With capability tied, this decision **is** largely
+the licence and the dependency — and saying so is more useful than a capability
+argument that the measurement does not support.
 
 ## What MuPDF is genuinely better at, and when to revisit
 

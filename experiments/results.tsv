@@ -29,12 +29,12 @@ lopdf	text-under-cover.clean_control	absent	nothing planted, nothing found	text-
 lopdf	text-under-cover.must_detect	reached	8 operators; 1 filled rect(s) over text: "Claimant: Wendy Okonkwo"	text-under-cover.positive.pdf
 
 --- malformed inputs (the fixtures cannot express these) ---
-lopdf	dangling-reference.pdf	lenient: loaded, 6 objects [633.958µs]	strict: loaded, 6 objects [624.333µs]
-lopdf	deeply-nested-array.pdf	lenient: loaded, 5 objects [1.265709ms]	strict: refused (couldn't parse input) [45.875µs]
-lopdf	no-xref-table.pdf	lenient: refused (failed parsing cross reference table) [72.667µs]	strict: refused (failed parsing cross reference table) [23.708µs]
-lopdf	stream-length-lies.pdf	lenient: loaded, 3 objects [419.292µs]	strict: refused (couldn't parse input) [33.375µs]
-lopdf	truncated.pdf	lenient: refused (failed parsing cross reference table) [63.25µs]	strict: refused (failed parsing cross reference table) [33.791µs]
-lopdf	xref-offsets-off-by-one.pdf	lenient: loaded, 0 objects [90.75µs]	strict: refused (invalid indirect object at byte offset 16) [90.292µs]
+lopdf	dangling-reference.pdf	lenient: loaded, 6 objects [700.125µs]	strict: loaded, 6 objects [681.5µs]
+lopdf	deeply-nested-array.pdf	lenient: loaded, 5 objects [1.287417ms]	strict: refused (couldn't parse input) [32.875µs]
+lopdf	no-xref-table.pdf	lenient: refused (failed parsing cross reference table) [67.916µs]	strict: refused (failed parsing cross reference table) [22.542µs]
+lopdf	stream-length-lies.pdf	lenient: loaded, 3 objects [405.416µs]	strict: refused (couldn't parse input) [28.084µs]
+lopdf	truncated.pdf	lenient: refused (failed parsing cross reference table) [68µs]	strict: refused (failed parsing cross reference table) [33.75µs]
+lopdf	xref-offsets-off-by-one.pdf	lenient: loaded, 0 objects [93.583µs]	strict: refused (invalid indirect object at byte offset 16) [98.333µs]
 
 lopdf: 15 reached, 0 failed, of 24 fixtures
 
@@ -62,14 +62,14 @@ mupdf	invisible-text.must_detect	reached	glyphs neither filled nor stroked: "Int
 mupdf	javascript-and-launch.clean_control	absent	nothing planted, nothing found	javascript-and-launch.control.pdf
 mupdf	javascript-and-launch.must_detect	reached	/JavaScript = <<0 keys>>	javascript-and-launch.positive.pdf
 mupdf	text-under-cover.clean_control	absent	nothing planted, nothing found	text-under-cover.control.pdf
-mupdf	text-under-cover.must_detect	absent	the planted object was not reachable	text-under-cover.positive.pdf
+mupdf	text-under-cover.must_detect	reached	not via the text layer; the raw stream of object 4 has both text and a rectangle (82 bytes)	text-under-cover.positive.pdf
 
 --- malformed inputs ---
-mupdf	dangling-reference.pdf	loaded, 7 objects	114.292µs
-mupdf	deeply-nested-array.pdf	loaded, 7 objects	302.791µs
-mupdf	no-xref-table.pdf	loaded, 7 objects	118.167µs
-mupdf	stream-length-lies.pdf	loaded, 7 objects	104.625µs
-mupdf	truncated.pdf	refused: MuPDF error, code: 8, message: invalid key in dict	89.084µs
-mupdf	xref-offsets-off-by-one.pdf	loaded, 7 objects	82.5µs
+mupdf	dangling-reference.pdf	loaded, 7 objects	81.916µs
+mupdf	deeply-nested-array.pdf	loaded, 7 objects	287.875µs
+mupdf	no-xref-table.pdf	loaded, 7 objects	110.542µs
+mupdf	stream-length-lies.pdf	loaded, 7 objects	96.625µs
+mupdf	truncated.pdf	refused: MuPDF error, code: 8, message: invalid key in dict	83.084µs
+mupdf	xref-offsets-off-by-one.pdf	loaded, 7 objects	75.916µs
 
-mupdf: 13 reached, 0 failed, of 24 fixtures
+mupdf: 14 reached, 0 failed, of 24 fixtures

@@ -231,6 +231,24 @@ fn unpainted_glyphs(doc: &PdfDocument) -> Option<String> {
 /// filled paths painted over them. Reported as unreachable through this API
 /// rather than quietly answered with a different question.
 fn covered_text(doc: &PdfDocument) -> Option<String> {
+    // First the claim the ADR makes about this row: that the raw content stream
+    // is reachable from MuPDF too, so the miss is about which API answers the
+    // question rather than about what the library can see. Asserted once
+    // without being measured; measured here instead.
+    if let Ok(len) = doc.xref_len() {
+        for num in 1..len as i32 {
+            if let Ok(bytes) = doc.xref_stream(num) {
+                let text = String::from_utf8_lossy(&bytes);
+                if text.contains(" re") && text.contains("Tj") {
+                    return Some(format!(
+                        "not via the text layer; the raw stream of object {num} has both text and a rectangle ({} bytes)",
+                        bytes.len()
+                    ));
+                }
+            }
+        }
+    }
+
     use mupdf::TextPageFlags;
     let page = doc.load_pdf_page(0).ok()?;
     let tp = page.to_text_page(TextPageFlags::empty()).ok()?;
