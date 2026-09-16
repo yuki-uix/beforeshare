@@ -1,0 +1,12 @@
+{
+  "$comment": "The object keys each probe looks for, per fixture family. One file because two literals in two crates drift, and they had: lopdf was given [\"URI\",\"F\"] and [\"ByteRange\",\"Sig\"] while MuPDF got [\"URI\"] and [\"ByteRange\"] - a wider net for the candidate that was chosen, which is the wrong direction for an asymmetry to run.",
+  "schemaVersion": "1.0",
+  "keys": {
+    "annotations": ["Annots"],
+    "javascript-and-launch": ["JS", "JavaScript", "Launch"],
+    "external-references": ["URI", "F"],
+    "image-only-page": ["XObject"],
+    "encryption-state": ["Encrypt"],
+    "digital-signature": ["ByteRange", "Sig"]
+  }
+}

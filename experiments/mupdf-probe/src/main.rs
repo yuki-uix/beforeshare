@@ -57,6 +57,21 @@ fn main() {
     println!("\nmupdf: {reached} reached, {failed} failed, of {} fixtures", names.len());
 }
 
+/// The keys this family's question looks for, from the file both probes read.
+fn keys_for(family: &str) -> Vec<String> {
+    static CACHE: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    let q = CACHE.get_or_init(|| {
+        let path = repo_root().join("experiments/questions.json");
+        serde_json::from_slice(&std::fs::read(path).expect("questions.json")).expect("valid JSON")
+    });
+    q["keys"][family]
+        .as_array()
+        .unwrap_or_else(|| panic!("no keys declared for {family}"))
+        .iter()
+        .map(|k| k.as_str().expect("a key name").to_string())
+        .collect()
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -78,7 +93,7 @@ fn reach(path: &Path, name: &str) -> (&'static str, String) {
             .ok()
             .and_then(|t| t.get_dict("Info").ok().flatten())
             .map(|info| format!("/Info with {} entries", info.len().unwrap_or(0))),
-        "annotations" => find_key(&doc, &["Annots"]),
+        "annotations" => find_key(&doc, &keys_for("annotations")),
         "form-fields" => doc
             .has_acro_form()
             .ok()
@@ -88,8 +103,8 @@ fn reach(path: &Path, name: &str) -> (&'static str, String) {
             .ok()
             .filter(|f| !f.is_empty())
             .map(|f| format!("embedded_files() -> {} file(s)", f.len())),
-        "javascript-and-launch" => find_key(&doc, &["JS", "JavaScript", "Launch"]),
-        "external-references" => find_key(&doc, &["URI"]),
+        "javascript-and-launch" => find_key(&doc, &keys_for("javascript-and-launch")),
+        "external-references" => find_key(&doc, &keys_for("external-references")),
         "invisible-text" => unpainted_glyphs(&doc),
         // Text drawn first and covered by a filled shape afterwards. The glyphs
         // are painted normally, so the character flags say nothing; what is
@@ -97,12 +112,12 @@ fn reach(path: &Path, name: &str) -> (&'static str, String) {
         // reports text, not paths. Answered honestly as unreachable through
         // this API rather than folded into the question above.
         "text-under-cover" => covered_text(&doc),
-        "image-only-page" => find_key(&doc, &["XObject"]),
+        "image-only-page" => find_key(&doc, &keys_for("image-only-page")),
         // No permissions() fallback: it answers for every document, so the
         // control reported "reached" and the question stopped separating
         // anything. The planted object is /Encrypt, so /Encrypt is the question.
-        "encryption-state" => find_key(&doc, &["Encrypt"]),
-        "digital-signature" => find_key(&doc, &["ByteRange"]),
+        "encryption-state" => find_key(&doc, &keys_for("encryption-state")),
+        "digital-signature" => find_key(&doc, &keys_for("digital-signature")),
         "incremental-update" => {
             let raw = std::fs::read(path).unwrap_or_default();
             let prevs = raw.windows(6).filter(|w| *w == b"/Prev ").count();
@@ -120,7 +135,7 @@ fn reach(path: &Path, name: &str) -> (&'static str, String) {
 
 /// Walk every object in the cross-reference table, recursing into nested
 /// dictionaries and arrays - the same shape as the lopdf probe's walk.
-fn find_key(doc: &PdfDocument, keys: &[&str]) -> Option<String> {
+fn find_key(doc: &PdfDocument, keys: &[String]) -> Option<String> {
     let len = doc.xref_len().ok()?;
     for num in 1..len as i32 {
         let Ok(Some(obj)) = doc.xref_object(num) else {
@@ -134,13 +149,13 @@ fn find_key(doc: &PdfDocument, keys: &[&str]) -> Option<String> {
     doc.trailer().ok().and_then(|t| walk(&t, keys, 0))
 }
 
-fn walk(obj: &PdfObject, keys: &[&str], depth: usize) -> Option<String> {
+fn walk(obj: &PdfObject, keys: &[String], depth: usize) -> Option<String> {
     if depth > 32 {
         return None;
     }
     if obj.is_dict().unwrap_or(false) {
         for k in keys {
-            if let Ok(Some(v)) = obj.get_dict(*k) {
+            if let Ok(Some(v)) = obj.get_dict(k.as_str()) {
                 return Some(format!("/{k} = {}", summarise(&v)));
             }
         }

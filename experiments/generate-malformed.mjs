@@ -21,6 +21,24 @@ mkdirSync(out, { recursive: true });
 /** A known-good document, so each case differs from it in exactly one way. */
 const base = readFileSync(join(here, '..', 'fixtures/pdf/files/document-metadata.positive.pdf'));
 
+/**
+ * Replace a pattern that must appear exactly once.
+ *
+ * `String.replace` with a string changes the first match and says nothing about
+ * the rest. If the base document grows a second `/Length 51`, the edit mutates
+ * one and leaves the other, and the file is broken in a different way than its
+ * name claims; if the base loses the pattern, nothing changes at all and the
+ * "malformed" file is a copy of a valid one.
+ */
+function replaceExactlyOnce(pattern, replacement) {
+  const text = base.toString('latin1');
+  const count = text.split(pattern).length - 1;
+  if (count !== 1) {
+    throw new Error(`${pattern} appears ${count} times in the base document, expected exactly 1`);
+  }
+  return Buffer.from(text.replace(pattern, replacement), 'latin1');
+}
+
 const cases = {
   /**
    * Every cross-reference offset one byte out. The table is structurally valid
@@ -42,12 +60,10 @@ const cases = {
   ]),
 
   /** A stream whose /Length claims far more than the file holds. */
-  'stream-length-lies.pdf': () => Buffer.from(
-    base.toString('latin1').replace('/Length 51', '/Length 9999'), 'latin1'),
+  'stream-length-lies.pdf': () => replaceExactlyOnce('/Length 51', '/Length 9999'),
 
   /** A trailer pointing at an object number that was never written. */
-  'dangling-reference.pdf': () => Buffer.from(
-    base.toString('latin1').replace('/Root 1 0 R', '/Root 99 0 R'), 'latin1'),
+  'dangling-reference.pdf': () => replaceExactlyOnce('/Root 1 0 R', '/Root 99 0 R'),
 
   /** Cut in half: everything after the midpoint is gone. */
   'truncated.pdf': () => base.subarray(0, Math.floor(base.length / 2)),

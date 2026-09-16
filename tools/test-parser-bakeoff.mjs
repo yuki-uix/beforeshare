@@ -48,7 +48,8 @@ if (!isMain) {
     // The lock files too: a dependency resolving to a different version changes
     // what was measured as surely as editing a probe does. This list and the one
     // in run.sh must match, and the first time they did not the check caught it.
-    const sources = ['pdf-parser-bakeoff/src/main.rs', 'pdf-parser-bakeoff/Cargo.toml',
+    const sources = ['questions.json',
+      'pdf-parser-bakeoff/src/main.rs', 'pdf-parser-bakeoff/Cargo.toml',
       'pdf-parser-bakeoff/Cargo.lock',
       'mupdf-probe/src/main.rs', 'mupdf-probe/Cargo.toml', 'mupdf-probe/Cargo.lock'];
     const hash = createHash('sha256');

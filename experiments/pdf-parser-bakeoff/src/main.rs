@@ -130,6 +130,24 @@ fn summarise(v: &lopdf::Object) -> String {
     }
 }
 
+/// The keys this family's question looks for, from the file both probes read.
+fn keys_for(family: &str) -> Vec<String> {
+    static CACHE: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    let q = CACHE.get_or_init(|| {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("experiments/")
+            .join("questions.json");
+        serde_json::from_slice(&std::fs::read(path).expect("questions.json")).expect("valid JSON")
+    });
+    q["keys"][family]
+        .as_array()
+        .unwrap_or_else(|| panic!("no keys declared for {family}"))
+        .iter()
+        .map(|k| k.as_str().expect("a key name").to_string())
+        .collect()
+}
+
 fn fixtures_dir() -> PathBuf {
     // From the crate directory up to the repository root.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -156,7 +174,7 @@ fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
     // /URI sits under /A, /XObject under /Resources. Looking only at top-level
     // dictionaries reported "the parser cannot reach it" for two fixtures that
     // plainly contained it - a wrong question reads exactly like a finding.
-    fn walk(obj: &lopdf::Object, keys: &[&str], depth: usize, found: &mut Option<String>) {
+    fn walk(obj: &lopdf::Object, keys: &[String], depth: usize, found: &mut Option<String>) {
         if depth > 32 || found.is_some() {
             return;
         }
@@ -184,7 +202,7 @@ fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
         }
     }
 
-    let has_in_any_dict = |keys: &[&str]| -> Option<String> {
+    let has_in_any_dict = |keys: &[String]| -> Option<String> {
         let mut found = None;
         for obj in doc.objects.values() {
             walk(obj, keys, 0, &mut found);
@@ -206,7 +224,7 @@ fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
             .and_then(|o| doc.dereference(o).ok())
             .and_then(|(_, o)| o.as_dict().ok().cloned())
             .map(|d| format!("/Info with {} fields", d.len())),
-        "annotations" => has_in_any_dict(&["Annots"]),
+        "annotations" => has_in_any_dict(&keys_for("annotations")),
         "form-fields" => doc
             .catalog()
             .ok()
@@ -232,8 +250,8 @@ fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
             .and_then(|c| embedded_names_len(c, &doc))
             .filter(|count| *count > 0)
             .map(|count| format!("the name tree holds {count} entries")),
-        "javascript-and-launch" => has_in_any_dict(&["JS", "JavaScript", "Launch"]),
-        "external-references" => has_in_any_dict(&["URI", "F"]),
+        "javascript-and-launch" => has_in_any_dict(&keys_for("javascript-and-launch")),
+        "external-references" => has_in_any_dict(&keys_for("external-references")),
         "invisible-text" | "text-under-cover" => {
             // "Does the stream decode" was too weak a question: the positive and
             // the control are the same length, and both answered 134 bytes. What
@@ -287,13 +305,13 @@ fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
                 None
             }
         }
-        "image-only-page" => has_in_any_dict(&["XObject"]),
+        "image-only-page" => has_in_any_dict(&keys_for("image-only-page")),
         "encryption-state" => doc
             .trailer
             .get(b"Encrypt")
             .ok()
             .map(|_| "/Encrypt in the trailer".to_string()),
-        "digital-signature" => has_in_any_dict(&["ByteRange", "Sig"]),
+        "digital-signature" => has_in_any_dict(&keys_for("digital-signature")),
         "incremental-update" => {
             // An incremental update leaves an earlier cross-reference table that
             // the current one points back to.
