@@ -5,7 +5,7 @@
 //! nothing", which is a claim; `NotRun` means the claim was never made.
 use lopdf::{Document, Object};
 
-use super::{location_for, Detected, Location, NotRun};
+use super::{location_for, Detected, FailureCode, Location, NotRun, SkipReason};
 
 /// What a detector is given: the parsed document and the bytes behind it.
 pub(super) struct Source<'a> {
@@ -77,12 +77,16 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
         return Ok(Vec::new());
     };
     let Ok((_, info)) = doc.dereference(info_ref) else {
-        return Err(NotRun::Failed(
-            "the /Info reference does not resolve".into(),
-        ));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the /Info reference does not resolve".into(),
+        });
     };
     let Ok(dict) = info.as_dict() else {
-        return Err(NotRun::Failed("/Info is not a dictionary".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/Info is not a dictionary".into(),
+        });
     };
     let mut out = Vec::new();
     for (key, category) in FIELDS {
@@ -123,17 +127,19 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
     for (index, (_, page_id)) in doc.get_pages().iter().enumerate() {
         let page_number = index as u32 + 1;
         let Ok(page) = doc.get_object(*page_id).and_then(|o| o.as_dict().cloned()) else {
-            return Err(NotRun::Failed(format!(
-                "page {page_number} does not resolve"
-            )));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: format!("page {page_number} does not resolve"),
+            });
         };
         let Ok(annots) = page.get(b"Annots") else {
             continue;
         };
         let Ok((_, annots)) = doc.dereference(annots) else {
-            return Err(NotRun::Failed(format!(
-                "/Annots on page {page_number} does not resolve"
-            )));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: format!("/Annots on page {page_number} does not resolve"),
+            });
         };
         let Ok(items) = annots.as_array() else {
             continue;
@@ -187,22 +193,34 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
 fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let Ok(catalog) = doc.catalog() else {
-        return Err(NotRun::Failed("the catalog does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the catalog does not resolve".into(),
+        });
     };
     let Ok(acro) = catalog.get(b"AcroForm") else {
         return Ok(Vec::new());
     };
     let Ok((_, acro)) = doc.dereference(acro) else {
-        return Err(NotRun::Failed("/AcroForm does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/AcroForm does not resolve".into(),
+        });
     };
     let Ok(acro) = acro.as_dict() else {
-        return Err(NotRun::Failed("/AcroForm is not a dictionary".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/AcroForm is not a dictionary".into(),
+        });
     };
     let Ok(fields) = acro.get(b"Fields") else {
         return Ok(Vec::new());
     };
     let Ok((_, fields)) = doc.dereference(fields) else {
-        return Err(NotRun::Failed("/Fields does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/Fields does not resolve".into(),
+        });
     };
     let Ok(fields) = fields.as_array() else {
         return Ok(Vec::new());
@@ -222,16 +240,20 @@ fn walk_field(
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
     if depth > 32 {
-        return Err(NotRun::Failed(
-            "the form field tree is nested deeper than this detector will walk".into(),
-        ));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the form field tree is nested deeper than this detector will walk".into(),
+        });
     }
     let number = match field {
         Object::Reference(id) => id.0,
         _ => 0,
     };
     let Ok((_, resolved)) = doc.dereference(field) else {
-        return Err(NotRun::Failed("a form field does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "a form field does not resolve".into(),
+        });
     };
     let Ok(dict) = resolved.as_dict() else {
         return Ok(());
@@ -265,9 +287,10 @@ fn walk_field(
     }
     if let Ok(kids) = dict.get(b"Kids") {
         let Ok((_, kids)) = doc.dereference(kids) else {
-            return Err(NotRun::Failed(
-                "a form field's /Kids does not resolve".into(),
-            ));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: "a form field's /Kids does not resolve".into(),
+            });
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
@@ -287,13 +310,19 @@ fn walk_field(
 fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let Ok(catalog) = doc.catalog() else {
-        return Err(NotRun::Failed("the catalog does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the catalog does not resolve".into(),
+        });
     };
     let Ok(names) = catalog.get(b"Names") else {
         return Ok(Vec::new());
     };
     let Ok((_, names)) = doc.dereference(names) else {
-        return Err(NotRun::Failed("/Names does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/Names does not resolve".into(),
+        });
     };
     let Ok(names) = names.as_dict() else {
         return Ok(Vec::new());
@@ -315,19 +344,27 @@ fn walk_name_tree(
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
     if depth > 32 {
-        return Err(NotRun::Failed(
-            "the embedded-file name tree is nested deeper than this detector will walk".into(),
-        ));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the embedded-file name tree is nested deeper than this detector will walk"
+                .into(),
+        });
     }
     let Ok((_, node)) = doc.dereference(node) else {
-        return Err(NotRun::Failed("a name-tree node does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "a name-tree node does not resolve".into(),
+        });
     };
     let Ok(dict) = node.as_dict() else {
         return Ok(());
     };
     if let Ok(pairs) = dict.get(b"Names") {
         let Ok((_, pairs)) = doc.dereference(pairs) else {
-            return Err(NotRun::Failed("a name-tree leaf does not resolve".into()));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: "a name-tree leaf does not resolve".into(),
+            });
         };
         if let Ok(pairs) = pairs.as_array() {
             // The leaf alternates name, value. The index rather than the name
@@ -352,7 +389,10 @@ fn walk_name_tree(
     }
     if let Ok(kids) = dict.get(b"Kids") {
         let Ok((_, kids)) = doc.dereference(kids) else {
-            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: "a name-tree branch does not resolve".into(),
+            });
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
@@ -480,10 +520,18 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
 /// first, and in the second the text is drawn normally and then covered.
 fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
-    let pages = doc.get_pages();
-    if pages.is_empty() {
-        return Err(NotRun::Skipped("this document has no pages to read"));
+    // Encryption is the honest skip: the content streams are there and cannot be
+    // read, so a detector that completed would be claiming it looked.
+    if doc.trailer.get(b"Encrypt").is_ok() {
+        return Err(NotRun::Skipped {
+            reason: SkipReason::BlockedByEncryption,
+            message: "the content streams are encrypted and were not decrypted".into(),
+        });
     }
+    // A document with no pages is not a skip. There is no text because there are
+    // no pages, and "ran and found nothing" is true - the first version reported
+    // a skip here, which claimed a gap that does not exist.
+    let pages = doc.get_pages();
     let mut out = Vec::new();
     for (index, (_, page_id)) in pages.iter().enumerate() {
         let page_number = index as u32 + 1;
@@ -492,9 +540,10 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
             continue;
         }
         let Ok(decoded) = lopdf::content::Content::decode(&content) else {
-            return Err(NotRun::Failed(format!(
-                "the content stream of page {page_number} does not decode"
-            )));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: format!("the content stream of page {page_number} does not decode"),
+            });
         };
 
         // The graphics state, as translation and scale only, with the text
@@ -589,11 +638,11 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                             numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
                         );
                         if b != 0.0 || c != 0.0 {
-                            return Err(NotRun::Failed(format!(
+                            return Err(NotRun::Failed { code: FailureCode::MalformedInput, message: format!(
                                 "page {page_number} rotates or skews its content, and this detector \
                                  reasons about translation and scale only - reporting nothing here \
                                  would be a silent miss"
-                            )));
+                            ) });
                         }
                         let top = stack.last_mut().expect("the stack is never empty");
                         top.tx += e * top.sx;
@@ -632,10 +681,13 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                 "Tm" => {
                     if numbers.len() == 6 {
                         if numbers[1] != 0.0 || numbers[2] != 0.0 {
-                            return Err(NotRun::Failed(format!(
+                            return Err(NotRun::Failed {
+                                code: FailureCode::MalformedInput,
+                                message: format!(
                                 "page {page_number} rotates or skews its text, and this detector \
                                  reasons about translation and scale only"
-                            )));
+                            ),
+                            });
                         }
                         line = TextMatrix {
                             sx: numbers[0],

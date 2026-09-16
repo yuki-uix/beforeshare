@@ -27,10 +27,50 @@ const REGISTRY: &str = include_str!("../../../schemas/v1/detector-registry.json"
 /// of these or a list, and the coverage report carries the difference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotRun {
-    /// The detector does not apply to this document, with the reason.
-    Skipped(&'static str),
-    /// The detector applied and could not finish, with the reason.
-    Failed(String),
+    /// The detector does not apply, named by the reason the result schema
+    /// allows. Prose lived here first, and the result could not carry it: a
+    /// coverage entry's reason is an enum, because a consumer has to decide
+    /// whether the gap reduces coverage and cannot do that from a sentence.
+    Skipped { reason: SkipReason, message: String },
+    /// The detector applied and could not finish.
+    Failed { code: FailureCode, message: String },
+}
+
+/// The reasons `schemas/v1/enums.schema.json` allows a detector to skip.
+///
+/// Only the ones this checker can honestly produce are here. Adding a variant
+/// that the product cannot reach would be a coverage state nobody can observe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    NotApplicableToMediaType,
+    BlockedByEncryption,
+}
+
+impl SkipReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotApplicableToMediaType => "not_applicable_to_media_type",
+            Self::BlockedByEncryption => "blocked_by_encryption",
+        }
+    }
+}
+
+/// The failure codes the result schema allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureCode {
+    ParserError,
+    MalformedInput,
+    InternalError,
+}
+
+impl FailureCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ParserError => "parser_error",
+            Self::MalformedInput => "malformed_input",
+            Self::InternalError => "internal_error",
+        }
+    }
 }
 
 /// One thing a detector found, and where.
@@ -88,8 +128,8 @@ impl Location {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Coverage {
     pub completed: BTreeSet<String>,
-    pub skipped: BTreeMap<String, String>,
-    pub failed: BTreeMap<String, String>,
+    pub skipped: BTreeMap<String, (SkipReason, String)>,
+    pub failed: BTreeMap<String, (FailureCode, String)>,
 }
 
 /// What one inspection produced.
@@ -205,7 +245,10 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
             let reason = format!("this document could not be parsed: {e}");
             let mut coverage = Coverage::default();
             for name in declared_detectors() {
-                coverage.failed.insert(name.to_string(), reason.clone());
+                coverage.failed.insert(
+                    name.to_string(),
+                    (FailureCode::MalformedInput, reason.clone()),
+                );
             }
             return Inspection {
                 detected: Vec::new(),
@@ -222,7 +265,9 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
         let reason = "this document parsed to no objects at all".to_string();
         let mut coverage = Coverage::default();
         for name in declared_detectors() {
-            coverage.failed.insert(name.to_string(), reason.clone());
+            coverage
+                .failed
+                .insert(name.to_string(), (FailureCode::ParserError, reason.clone()));
         }
         return Inspection {
             detected: Vec::new(),
@@ -247,11 +292,11 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
                 coverage.completed.insert(name.to_string());
                 detected.append(&mut found);
             }
-            Err(NotRun::Skipped(why)) => {
-                coverage.skipped.insert(name.to_string(), why.to_string());
+            Err(NotRun::Skipped { reason, message }) => {
+                coverage.skipped.insert(name.to_string(), (reason, message));
             }
-            Err(NotRun::Failed(why)) => {
-                coverage.failed.insert(name.to_string(), why);
+            Err(NotRun::Failed { code, message }) => {
+                coverage.failed.insert(name.to_string(), (code, message));
             }
         }
     }

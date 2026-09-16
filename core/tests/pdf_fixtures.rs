@@ -287,10 +287,34 @@ fn coverage_names_every_detector_exactly_once() {
             "{}: coverage names detectors the rule table does not declare, or omits some",
             f.name
         );
-        for (name, why) in c.skipped.iter().chain(c.failed.iter()) {
+        // A reason the schema recognises, and a message a person can act on.
+        // The reason used to be prose, which the result cannot carry: a
+        // consumer decides whether a gap reduces coverage from the code, and
+        // cannot do that from a sentence.
+        for (name, (reason, message)) in &c.skipped {
             assert!(
-                !why.is_empty(),
-                "{}: {name} is not completed and gives no reason",
+                ["not_applicable_to_media_type", "blocked_by_encryption"]
+                    .contains(&reason.as_str()),
+                "{}: {name} skipped for {:?}, which the result schema does not allow",
+                f.name,
+                reason.as_str()
+            );
+            assert!(
+                message.len() > 10,
+                "{}: {name} skipped with no message",
+                f.name
+            );
+        }
+        for (name, (code, message)) in &c.failed {
+            assert!(
+                ["parser_error", "malformed_input", "internal_error"].contains(&code.as_str()),
+                "{}: {name} failed with {:?}, which the result schema does not allow",
+                f.name,
+                code.as_str()
+            );
+            assert!(
+                message.len() > 10,
+                "{}: {name} failed with no message",
                 f.name
             );
         }
@@ -457,25 +481,25 @@ fn an_unreadable_document_fails_every_detector_rather_than_completing_them() {
     );
 }
 
-/// A detector that does not apply says so, and the reason travels.
+/// A detector that cannot apply says so, with a reason the result can carry.
 ///
-/// No §7.1 fixture reaches a skip, so a mutation folding skipped into completed
-/// survived. The case is built here rather than left unreachable — with the
-/// cross-reference offsets computed, because the first version wrote them by
-/// hand and strict loading rightly refused the result.
+/// The case here was a document with no pages, which was wrong twice over: a
+/// document with no pages has no text because it has no pages, and reporting a
+/// skip claimed a gap that does not exist. Encryption is the real one - the
+/// content streams are there and cannot be read, so a detector that completed
+/// would be claiming it looked.
 #[test]
 fn a_detector_that_cannot_apply_is_skipped_with_a_reason() {
-    let pageless = build_pdf(&[
-        "<< /Type /Catalog /Pages 2 0 R >>",
-        "<< /Type /Pages /Kids [] /Count 0 >>",
-    ]);
-    let inspection = pdf::inspect(&pageless);
+    let encrypted =
+        std::fs::read(repo_root().join("fixtures/pdf/files/encryption-state.positive.pdf"))
+            .expect("the encryption fixture");
+    let inspection = pdf::inspect(&encrypted);
     assert!(
         inspection.unreadable.is_none(),
-        "the pageless document was meant to parse: {:?}",
+        "the fixture was meant to parse: {:?}",
         inspection.unreadable
     );
-    let why = inspection
+    let (reason, message) = inspection
         .coverage
         .skipped
         .get("pdf.text_layer")
@@ -485,13 +509,31 @@ fn a_detector_that_cannot_apply_is_skipped_with_a_reason() {
                 inspection.coverage
             )
         });
+    assert_eq!(
+        reason.as_str(),
+        "blocked_by_encryption",
+        "the skip must name a reason the result schema allows"
+    );
     assert!(
-        why.len() > 10,
-        "the skip reason is too thin to act on: {why:?}"
+        message.len() > 10,
+        "the skip message is too thin to act on: {message:?}"
     );
     assert!(
         !inspection.coverage.completed.contains("pdf.text_layer"),
         "a detector was both skipped and completed"
+    );
+
+    // And a document with no pages completes rather than skipping: there is no
+    // text because there are no pages, which is a finding of nothing, not a gap.
+    let pageless = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+    ]);
+    let pageless = pdf::inspect(&pageless);
+    assert!(
+        pageless.coverage.completed.contains("pdf.text_layer"),
+        "a pageless document should complete, not skip: {:?}",
+        pageless.coverage
     );
 }
 
@@ -635,10 +677,11 @@ fn a_covering_rectangle_is_judged_by_order_and_by_where_it_lands() {
         "q 0 1 -1 0 0 0 cm BT /F1 12 Tf 72 720 Td (Claimant) Tj ET Q\n0 0 0 rg 70 715 200 18 re f",
     );
     assert_eq!(hits, 0);
-    let why = failed.expect("rotated content must be refused rather than answered");
+    let (code, message) = failed.expect("rotated content must be refused rather than answered");
+    assert_eq!(code.as_str(), "malformed_input");
     assert!(
-        why.contains("rotates or skews"),
-        "the reason does not say what happened: {why}"
+        message.contains("rotates or skews"),
+        "the reason does not say what happened: {message}"
     );
 }
 
