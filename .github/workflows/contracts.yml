@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=74
+          EXPECTED_CASES=75
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1165,6 +1165,21 @@ jobs:
             "a link through the filesystem root back into the root is allowed" \
             "tools/path-gate.mjs" \
             "test:path-gate" || failed=1
+
+          # ADR 0002 decides between two parsers on measured outcomes, and its
+          # tables are transcribed by hand from experiments/results.tsv. This
+          # check caught the ADR's own prose claiming both parsers reached all
+          # twelve planted disclosures while its table said otherwise.
+          node -e "
+            const fs=require('fs'), p='docs/adr/0002-pdf-parser.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('**loaded, 0 objects**', 'loaded, 7 objects');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an ADR cell that disagrees with the run behind it" \
+            "lopdf lenient matches the run" \
+            "docs/adr/0002-pdf-parser.md" \
+            "test:bakeoff" || failed=1
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case

@@ -1,0 +1,105 @@
+# ADR 0002 — the PDF parser under the deterministic checker
+
+Status: **accepted**
+
+[ADR 0001](0001-core-language-and-pdf-parser.md) chose Rust for the core and left
+the parser as `lopdf` **or** MuPDF bindings, to be settled by measurement on the
+§7.1 fixtures rather than by argument. This is that measurement and what it
+decided.
+
+## The experiment
+
+`experiments/run.sh` regenerates `experiments/results.tsv`. Both probes ask the
+same question of the same 24 fixtures — *can the parser hand over the object
+carrying the disclosure the fixture planted* — and then load the same six
+deliberately broken files. Nothing is copied by hand.
+
+The question is deliberately not "does it detect": there is no detector yet, and
+a probe that reimplemented one would be measuring the probe. Two of the probe's
+own questions had to be corrected before the data meant anything, and both
+corrections looked exactly like parser defects until they were read:
+
+- the first version searched only top-level object dictionaries, so `/URI` under
+  `/A` and `/XObject` under `/Resources` read as "the parser cannot reach it";
+- the first version asked "does the page content decode", and the positive and
+  the control decode to the same 134 bytes — what separates them is an operand,
+  `3 Tr` against `0 Tr`.
+
+## What the fixtures showed
+
+`lopdf` reaches all twelve planted objects. MuPDF reaches eleven: the two that
+live in the content stream rather than in an object are where they part, and it
+answers one of them and not the other.
+
+| §7.1 item | lopdf | MuPDF |
+|---|---|---|
+| text not visually obvious (`3 Tr`) | the operator carries the operand | per-glyph flags: neither `FILLED` nor `STROKED` |
+| text beneath an apparent redaction | operators give the text and the covering rectangle's geometry | the structured-text layer reports text and images, not the paths painted over them |
+
+MuPDF's high-level text API answers the first more directly and cannot answer
+the second. Its raw content stream is reachable too, so this is a statement about
+which API answers the question, not about what the library can see.
+
+## What the fixtures could not show
+
+They are all well-formed by construction, so they cannot separate a robust
+parser from a brittle one — and robustness is the only ground on which the
+heavier candidate could win. Six broken files were added for that, and they
+produced the finding that decided the rest:
+
+| input | lopdf (lenient) | lopdf (`strict: true`) | MuPDF |
+|---|---|---|---|
+| every xref offset one byte out | **loaded, 0 objects** | refused: invalid indirect object at byte offset 16 | loaded, 7 objects |
+| no xref table at all | refused | refused | loaded, 7 objects |
+| a stream whose `/Length` lies | loaded, 3 objects | refused | loaded, 7 objects |
+| a reference to a missing object | loaded, 6 objects | loaded, 6 objects | loaded, 7 objects |
+| truncated halfway | refused | refused | refused |
+| an array nested 2000 deep | loaded, 5 objects | refused | loaded, 7 objects |
+
+**`Ok` with zero objects is the dangerous row.** A checker that treats a
+successful load as permission to report findings would report *no findings* for a
+document it never read — a clean bill of health on an unread file, which §17.1
+counts as a release blocker rather than a bug. MuPDF recovers the content
+instead; `strict: true` turns it into a named refusal.
+
+## Decision
+
+**`lopdf`, loaded with `strict: true`.**
+
+1. It reaches all twelve planted disclosures, including both content-stream
+   items, which is what the checker is for.
+2. Its one dangerous failure mode is fixable by configuration: strict converts
+   the silent under-read into a refusal the checker can report as a failure.
+   A parser that reports nothing and a parser that reports failure are different
+   products, and this one can be either.
+3. `lopdf` is MIT; `mupdf` and `mupdf-sys` are **AGPL-3.0**. E10 ships a local
+   MCP server and E14 distributes a signed application, so the licence is a
+   live constraint on the product rather than a formality.
+4. `mupdf-sys` vendors 64 MB of C and requires FFI, which `core/Cargo.toml`
+   forbids today (`unsafe_code = "forbid"`). Adopting it would mean writing an
+   exception to that policy.
+
+Points 1 and 2 are measured. Points 3 and 4 are constraints, not measurements,
+and they are recorded separately on purpose: a policy that settles a measurement
+is how a comparison stops being one.
+
+## What MuPDF is genuinely better at, and when to revisit
+
+It recovered all seven objects from both broken-cross-reference files, where
+lopdf strict refuses. On synthetic fixtures that trade a false clean bill for a
+refusal, which is the safe direction. On real-world documents it may trade away
+detections instead.
+
+The trigger to revisit is therefore measurable, not a feeling: if §17.1's
+detection rate on the frozen evaluation set (#55, E11) is limited by documents
+lopdf strict refuses, that is the signal. Until such a number exists, adopting an
+AGPL C dependency would be paying a certain cost for a hypothetical gain.
+
+## Not decided here
+
+| Question | Owner |
+|---|---|
+| The three provisional limits — expansion ratio, object-graph depth, wall-clock — now that `LoadOptions::max_decompressed_size` is the place one of them lives | #56 — it owns the real numbers, and this ADR only names where the knob is |
+| Whether a refusal from strict loading reports as a failure code or as a skipped detector | #63 — it belongs with the checker that has to emit one, and §10.2 already lists the outcomes |
+| Whether the evaluation set eventually contains documents lopdf strict refuses | #55 — the reference-machine numbers are where that would show up |
+| Whether `experiments/` is kept as a reproducible record or removed once the choice is settled | #4 — E3 owns what evidence its tasks leave behind |
