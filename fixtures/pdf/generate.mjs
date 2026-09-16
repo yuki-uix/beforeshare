@@ -122,11 +122,16 @@ export const FIXTURES = {
 
   'external and local-file references': {
     short: 'external-references',
+    // Both halves of the item, because it names two categories. The positive
+    // carried only the outward link, so `local_file_reference` had no sample at
+    // all and its detection rate was a claim about nothing.
     must_detect: () => buildPdf(minimalDocument({
-      pageExtra: ' /Annots [6 0 R]',
+      pageExtra: ' /Annots [6 0 R 7 0 R]',
       extraObjects: [
         '<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] /A'
         + ' << /S /URI /URI (https://intranet.example.invalid/hr/q3-shortlist) >> >>',
+        '<< /Type /Annot /Subtype /Link /Rect [72 660 300 680] /A'
+        + ' << /S /GoToR /F (/Users/wendy/Documents/severance-model.xlsx) /D [0 /Fit] >> >>',
       ],
     })),
     clean_control: () => buildPdf(minimalDocument({
@@ -135,7 +140,7 @@ export const FIXTURES = {
         '<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] /A << /S /GoTo /D [3 0 R /Fit] >> >>',
       ],
     })),
-    annotationInstructions: 'Both carry a link annotation; the positive points outward, the control points at its own page. An internal host name is disclosive even when unreachable.',
+    annotationInstructions: 'The positive carries two links: one outward to an internal host, one a /GoToR naming a path on the author\'s own disk. The control points at its own page. An internal host name is disclosive even when unreachable, and so is a local path.',
     expectedCoverage: 'completed',
     expectedRemediation: null,
     expectedStatus: 'review_required',

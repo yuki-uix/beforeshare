@@ -337,6 +337,19 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                         target,
                     ));
                 }
+                // /GoToR names a file rather than a page: the path itself is
+                // the disclosure. The mapping says this item is reached through
+                // /URI, /GoToR or /Launch, and only two of the three were here.
+                Some("GoToR") => {
+                    if let Some(target) = dict.get(b"F").ok().and_then(text_of) {
+                        out.push(found(
+                            "local_file_reference",
+                            "pdf.actions",
+                            Location::object(&location_for("local_file_reference"), number),
+                            target,
+                        ));
+                    }
+                }
                 Some("URI") => {
                     if let Some(uri) = dict.get(b"URI").ok().and_then(text_of) {
                         // A file:// URI names something on this machine, which

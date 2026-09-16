@@ -124,9 +124,18 @@ fn every_must_detect_fixture_is_detected() {
             .iter()
             .map(|d| d.category.as_str())
             .collect();
-        if !expected.iter().any(|c| found.contains(c.as_str())) {
+        // Every category the item declares, not one of them. "One of" passed
+        // for an item whose two halves are an external reference and a
+        // local-file reference while only the first was ever produced - the
+        // second had no sample and no detector, and the release-blocker claim
+        // covered it on paper.
+        let absent: Vec<&String> = expected
+            .iter()
+            .filter(|c| !found.contains(c.as_str()))
+            .collect();
+        if !absent.is_empty() {
             missed.push(format!(
-                "{} expected one of {expected:?}, found {found:?}",
+                "{} declares {expected:?}, did not produce {absent:?}",
                 f.name
             ));
         }
