@@ -151,9 +151,32 @@ if (!isMain) {
   // Both reach all twelve. This started as 11 for MuPDF, from a probe that only
   // asked its structured-text API; reading the raw content stream - which the ADR
   // had claimed without measuring - reaches the twelfth.
+  // The fixture names, not a count. `mine.length === 12` passes for a run that
+  // lost one fixture and repeated another, and the ADR would then record
+  // "all twelve" from an incomplete experiment.
+  const questions = JSON.parse(
+    readFileSync(new URL('../experiments/questions.json', import.meta.url), 'utf8'));
+  const expectedFixtures = new Set(
+    Object.keys(questions.keys).map((family) => `${family}.positive.pdf`));
+  // questions.json holds the families whose question is a key lookup. The rest
+  // ask differently shaped questions and are named here; the size assertion is
+  // what makes a family dropping out of either list fail.
+  for (const extra of ['document-metadata', 'form-fields', 'embedded-file',
+    'invisible-text', 'text-under-cover', 'incremental-update']) {
+    expectedFixtures.add(`${extra}.positive.pdf`);
+  }
+  check('the expected fixture set is the twelve §7.1 items',
+    expectedFixtures.size === 12, `${expectedFixtures.size} named`);
+
   const EXPECTED_REACH = { lopdf: 12, mupdf: 12 };
   for (const [parser, expected] of Object.entries(EXPECTED_REACH)) {
     const mine = positives.filter((l) => l.startsWith(`${parser}\t`));
+    const seen = mine.map((l) => l.split('\t').at(-1));
+    const missing = [...expectedFixtures].filter((f) => !seen.includes(f));
+    const duplicated = seen.filter((f, i) => seen.indexOf(f) !== i);
+    check(`${parser} measured every planted fixture exactly once`,
+      missing.length === 0 && duplicated.length === 0,
+      `missing ${JSON.stringify(missing)}, duplicated ${JSON.stringify(duplicated)}`);
     const reached = mine.filter((l) => l.split('\t')[2] === 'reached');
     check(`${parser} reaches ${expected} of the twelve planted disclosures`,
       mine.length === 12 && reached.length === expected,

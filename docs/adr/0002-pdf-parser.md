@@ -101,9 +101,16 @@ second attempt because it needed none. A tie reached that way is a tie.
 3. `lopdf` is MIT; `mupdf` and `mupdf-sys` are **AGPL-3.0**. E10 ships a local
    MCP server and E14 distributes a signed application, so the licence is a
    live constraint on the product rather than a formality.
-4. `mupdf-sys` vendors 64 MB of C and requires FFI, which `core/Cargo.toml`
-   forbids today (`unsafe_code = "forbid"`). Adopting it would mean writing an
-   exception to that policy.
+4. `mupdf-sys` vendors 64 MB of C reached through FFI. This is a dependency
+   risk, not a lint violation: `#![forbid(unsafe_code)]` constrains the crate it
+   is written in and says nothing about dependencies, and `core` already depends
+   on `rustix`, which carries `unsafe` in 148 files and compiles fine underneath
+   it. The difference is scale and audit surface - a small, widely-read syscall
+   wrapper against a vendored C rendering engine - not a rule being broken.
+
+   That row first claimed adopting MuPDF would mean writing an exception to the
+   lint. It would not, and the repository disproves it: the dependency that
+   disproves it was already there.
 
 Point 2 is measured. Points 3 and 4 are constraints, not measurements, and they
 are recorded separately on purpose: a policy that settles a measurement is how a

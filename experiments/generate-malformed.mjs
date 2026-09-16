@@ -94,9 +94,21 @@ const MUST_DIFFER = {
   'deeply-nested-array.pdf': (out) => out.includes('[[[[') && out.length > base.length + 3000,
 };
 
+// Built and checked in full before anything is written. Writing as it went left
+// a directory holding some new files and some old ones when a later case threw,
+// and a probe run against that mixture measures an input set nobody chose - it
+// happened once, and the byte-identity check downstream is what caught it.
+const built = [];
 let failed = 0;
 for (const [name, build] of Object.entries(cases)) {
-  const bytes = build();
+  let bytes;
+  try {
+    bytes = build();
+  } catch (e) {
+    console.error(`FAIL  ${name} could not be built: ${e.message}`);
+    failed += 1;
+    continue;
+  }
   const holds = MUST_DIFFER[name];
   if (!holds) {
     console.error(`FAIL  ${name} has no assertion about what it changed`);
@@ -105,13 +117,16 @@ for (const [name, build] of Object.entries(cases)) {
     console.error(`FAIL  ${name} is byte-identical to the base document: its edit matched nothing`);
     failed += 1;
   } else if (!holds(bytes)) {
-    console.error(`FAIL  ${name} was written, and does not carry the breakage it is named for`);
+    console.error(`FAIL  ${name} was built, and does not carry the breakage it is named for`);
     failed += 1;
   }
-  writeFileSync(join(out, name), bytes);
-  console.log(`${name.padEnd(32)} ${String(bytes.length).padStart(7)} bytes`);
+  built.push([name, bytes]);
 }
 if (failed > 0) {
-  console.error(`\n${failed} case(s) did not break what they claim to break`);
+  console.error(`\n${failed} case(s) did not break what they claim to break; nothing was written`);
   process.exit(1);
+}
+for (const [name, bytes] of built) {
+  writeFileSync(join(out, name), bytes);
+  console.log(`${name.padEnd(32)} ${String(bytes.length).padStart(7)} bytes`);
 }
