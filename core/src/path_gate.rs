@@ -369,9 +369,10 @@ fn real_path(path: &Path) -> Result<PathBuf, Rejected> {
                     };
                     let collapsed = collapse(&absolute)
                         .ok_or_else(|| Rejected::Traversal(absolute.display().to_string()))?;
-                    if collapsed == path {
-                        return Err(Rejected::SymlinkLoop(path.display().to_string()));
-                    }
+                    // No self-reference check here: a link pointing at itself
+                    // fails canonicalize with ELOOP below, never NotFound, so a
+                    // check in this arm reads as coverage and cannot run. A
+                    // mutation proved it - breaking it changed nothing.
                     return real_path(&collapsed);
                 }
             }
@@ -423,6 +424,17 @@ fn probe_case_rule(roots: &[PathBuf]) -> Result<CaseRule, Rejected> {
     for root in roots {
         answers.insert(folds_case(root));
     }
+    decide_case_rule(&answers)
+}
+
+/// The decision, separated from the probe so it can be tested.
+///
+/// Two roots on volumes that compare names differently needs two volumes, which
+/// no single machine reliably has - so this half is tested directly and the
+/// probe half is covered by every vector that runs against a real root. Left
+/// inside `probe_case_rule`, a mutation making the mixed case accepted survived
+/// the whole suite.
+fn decide_case_rule(answers: &BTreeSet<bool>) -> Result<CaseRule, Rejected> {
     match answers.len() {
         0 => Ok(CaseRule { fold: rules().identity.case_insensitive_default }),
         1 => Ok(CaseRule { fold: *answers.iter().next().expect("one answer") }),
@@ -491,4 +503,52 @@ pub fn reason_stages() -> Vec<(&'static str, &'static str)> {
         .iter()
         .map(|(k, v)| (k.as_str(), v.stage.as_str()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `O_NOFOLLOW` is unobservable through the public API: by the time the gate
+    /// opens a path, that path is canonical, so its final component is never a
+    /// link except in the race this flag exists to lose safely. Dropping the
+    /// flag therefore changed nothing in any vector. Tested here instead, on the
+    /// function itself.
+    #[test]
+    fn the_open_refuses_a_link_at_the_final_component() {
+        let dir = tempfile::TempDir::new().expect("a temporary directory");
+        let root = dir.path().canonicalize().expect("canonical");
+        std::fs::write(root.join("real.txt"), b"x").expect("a file");
+        std::os::unix::fs::symlink(root.join("real.txt"), root.join("link.txt")).expect("a link");
+
+        assert!(open_nofollow(&root.join("real.txt")).is_ok(), "a plain file opens");
+        let refused = open_nofollow(&root.join("link.txt"));
+        assert!(
+            refused.is_err(),
+            "the open followed a symlink at the final component, which is the window O_NOFOLLOW closes"
+        );
+    }
+
+    #[test]
+    fn roots_on_volumes_that_disagree_are_refused() {
+        let folding: BTreeSet<bool> = [true].into_iter().collect();
+        let sensitive: BTreeSet<bool> = [false].into_iter().collect();
+        let mixed: BTreeSet<bool> = [true, false].into_iter().collect();
+
+        assert!(decide_case_rule(&folding).expect("one answer").fold);
+        assert!(!decide_case_rule(&sensitive).expect("one answer").fold);
+        let refused = decide_case_rule(&mixed).expect_err("volumes that disagree");
+        assert_eq!(refused.reason(), "outside_authorised_roots");
+    }
+
+    /// With no roots there is nothing to probe, and the table's own declared
+    /// default is what applies - not a guess written here.
+    #[test]
+    fn the_default_comes_from_the_rule_table() {
+        let none = BTreeSet::new();
+        assert_eq!(
+            decide_case_rule(&none).expect("a default").fold,
+            rules().identity.case_insensitive_default
+        );
+    }
 }

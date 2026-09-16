@@ -325,6 +325,53 @@ fn identity_follows_the_volume_rather_than_a_preference() {
     let _ = t.keep();
 }
 
+/// The spelling the caller used is judged, not only the resolved path.
+///
+/// `canonicalize` folds case and composes accents on its own for a path that
+/// exists, which made the gate's own normalisation untestable through any
+/// vector that used an existing file: mutations removing both survived the
+/// whole suite. The one place the caller's spelling is judged directly is the
+/// classification below - whether a path that ended up outside the roots was
+/// ever inside them - and that reads the collapsed path, never canonicalised.
+#[test]
+fn a_misspelled_root_is_still_recognised_as_the_root() {
+    let t = Tree::new();
+    t.link("escape.pdf", "/etc/passwd");
+    let g = t.gate();
+    let folds = std::fs::metadata(t.root.join("REPORT.PDF")).is_ok();
+
+    let shouty: String = t.root.display().to_string().to_uppercase();
+    let got = g.for_read(&format!("{shouty}/escape.pdf"));
+    if folds {
+        // It was inside the root, under a different spelling, and it left.
+        rejects("an escaping link under an upper-cased root", got, "symlink_escape");
+    } else {
+        // On a case-sensitive volume that name is a different place entirely.
+        rejects("an upper-cased root on a case-sensitive volume", got, "outside_authorised_roots");
+    }
+    let _ = t.keep();
+}
+
+#[test]
+fn a_root_spelled_in_the_other_normalisation_is_the_same_root() {
+    // The filesystem stores NFD; applications commonly produce NFC. Both name
+    // this directory, on every macOS volume, whatever its case rule.
+    let t = Tree::new();
+    let nfc_dir = t.root.join("caf\u{e9}");
+    std::fs::create_dir(&nfc_dir).expect("an accented directory");
+    symlink("/etc/passwd", nfc_dir.join("escape.pdf")).expect("escaping link");
+    let g = Gate::new(&[nfc_dir.canonicalize().expect("on-disk spelling").as_path()])
+        .expect("a usable root");
+
+    let as_nfd = format!("{}/cafe\u{301}/escape.pdf", t.root.display());
+    rejects(
+        "an escaping link under the other normalisation of the root",
+        g.for_read(&as_nfd),
+        "symlink_escape",
+    );
+    let _ = t.keep();
+}
+
 #[test]
 fn the_two_spellings_of_an_accent_are_one_file() {
     // The filesystem stores NFD and applications commonly produce NFC, so this
@@ -417,6 +464,8 @@ fn every_declared_reason_is_triggered_by_a_vector() {
     an_output_naming_a_directory_is_refused();
     identity_follows_the_volume_rather_than_a_preference();
     the_two_spellings_of_an_accent_are_one_file();
+    a_misspelled_root_is_still_recognised_as_the_root();
+    a_root_spelled_in_the_other_normalisation_is_the_same_root();
     let _ = t.keep();
 
     let triggered = TRIGGERED.lock().expect("not poisoned").clone();
