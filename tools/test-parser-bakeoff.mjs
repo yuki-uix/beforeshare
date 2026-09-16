@@ -45,8 +45,12 @@ if (!isMain) {
   {
     const { createHash } = await import('node:crypto');
     const here = new URL('../experiments/', import.meta.url);
+    // The lock files too: a dependency resolving to a different version changes
+    // what was measured as surely as editing a probe does. This list and the one
+    // in run.sh must match, and the first time they did not the check caught it.
     const sources = ['pdf-parser-bakeoff/src/main.rs', 'pdf-parser-bakeoff/Cargo.toml',
-      'mupdf-probe/src/main.rs', 'mupdf-probe/Cargo.toml'];
+      'pdf-parser-bakeoff/Cargo.lock',
+      'mupdf-probe/src/main.rs', 'mupdf-probe/Cargo.toml', 'mupdf-probe/Cargo.lock'];
     const hash = createHash('sha256');
     for (const rel of sources) hash.update(readFileSync(new URL(rel, here)));
     const current = hash.digest('hex');
@@ -171,24 +175,29 @@ if (!isMain) {
   // into a scratch directory and compared - not trusted because a comment says so.
   {
     const { execFileSync } = await import('node:child_process');
-    const { mkdtempSync, readdirSync, readFileSync: read, cpSync, rmSync } = await import('node:fs');
+    const { mkdtempSync, mkdirSync, readdirSync, readFileSync: read, cpSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const here = new URL('../experiments/', import.meta.url).pathname;
     const scratch = mkdtempSync(join(tmpdir(), 'bs-malformed-'));
     try {
-      cpSync(join(here, 'generate-malformed.mjs'), join(scratch, 'generate-malformed.mjs'));
-      // The generator reads a fixture two levels up, so mirror that shape.
-      cpSync(join(here, '..', 'fixtures'), join(scratch, '..', 'fixtures'), { recursive: true, force: false, errorOnExist: false });
-      execFileSync(process.execPath, [join(scratch, 'generate-malformed.mjs')], { stdio: 'pipe' });
+      // Everything inside one directory for this run. The first version copied
+      // the fixtures to `join(scratch, '..', 'fixtures')` - the temp root's
+      // parent, shared by every process on the machine - which is a write
+      // outside the scratch it was meant to be confined to.
+      const work = join(scratch, 'experiments');
+      mkdirSync(work, { recursive: true });
+      cpSync(join(here, 'generate-malformed.mjs'), join(work, 'generate-malformed.mjs'));
+      cpSync(join(here, '..', 'fixtures'), join(scratch, 'fixtures'), { recursive: true });
+      execFileSync(process.execPath, [join(work, 'generate-malformed.mjs')], { stdio: 'pipe' });
       const committed = readdirSync(join(here, 'malformed')).filter((f) => f.endsWith('.pdf')).sort();
-      const made = readdirSync(join(scratch, 'malformed')).filter((f) => f.endsWith('.pdf')).sort();
+      const made = readdirSync(join(work, 'malformed')).filter((f) => f.endsWith('.pdf')).sort();
       check('the generator produces exactly the committed set',
         JSON.stringify(committed) === JSON.stringify(made),
         `${committed.join(',')} vs ${made.join(',')}`);
       for (const name of committed) {
         const a = read(join(here, 'malformed', name));
-        const b = read(join(scratch, 'malformed', name));
+        const b = read(join(work, 'malformed', name));
         check(`${name} is byte-identical to what the generator makes`, a.equals(b),
           `${a.length} bytes committed, ${b.length} bytes generated`);
       }

@@ -97,6 +97,22 @@ fn main() {
     println!("\nlopdf: {reached} reached, {failed} failed, of {} fixtures", rows.len());
 }
 
+/// How many entries the `/EmbeddedFiles` name tree under this dictionary holds.
+///
+/// The tree alternates name, value, so the entry count is half the array's
+/// length. A declared but empty tree is what the control carries.
+fn embedded_names_len(dict: &lopdf::Dictionary, doc: &lopdf::Document) -> Option<usize> {
+    let names = dict.get(b"Names").ok()?;
+    let (_, names) = doc.dereference(names).ok()?;
+    let names = names.as_dict().ok()?;
+    let tree = names.get(b"EmbeddedFiles").ok()?;
+    let (_, tree) = doc.dereference(tree).ok()?;
+    let tree = tree.as_dict().ok()?;
+    let pairs = tree.get(b"Names").ok()?;
+    let (_, pairs) = doc.dereference(pairs).ok()?;
+    Some(pairs.as_array().ok()?.len() / 2)
+}
+
 /// Enough of a value to show the disclosure was actually handed over, not just
 /// that a key with that name exists.
 fn summarise(v: &lopdf::Object) -> String {
@@ -127,7 +143,11 @@ fn fixtures_dir() -> PathBuf {
 fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
     use lopdf::Document;
 
-    let doc = match Document::load(path) {
+    // strict, because that is what ADR 0002 decides to ship. Measuring the
+    // fixtures under lenient loading and the malformed set under both would
+    // have reported reach for a configuration the product does not use.
+    let options = lopdf::LoadOptions { strict: true, ..Default::default() };
+    let doc = match Document::load_with_options(path, options) {
         Ok(d) => d,
         Err(e) => return (Reach::Failed, format!("load: {e}")),
     };
@@ -192,12 +212,26 @@ fn lopdf_reach(path: &Path, name: &str) -> (Reach, String) {
             .ok()
             .and_then(|c| c.get(b"AcroForm").ok())
             .map(|_| "/AcroForm in the catalog".to_string()),
+        // Not "/Names exists": that is a generic name-tree container and the
+        // control carries one, so the question answered yes for a document with
+        // no embedded file in it. The name tree that matters is the one MuPDF's
+        // embedded_files() reads, so both probes now ask about the same thing.
+        // Not "/Names exists" and not "/EmbeddedFiles exists": the control
+        // declares the tree with an empty /Names, so both of those answered yes
+        // for a document carrying no file. The question is whether the tree has
+        // an entry, which is what MuPDF's embedded_files() reports - so the two
+        // probes now ask the same thing.
+        // Not "/Names exists" and not "/EmbeddedFiles exists": the control
+        // declares the tree with an empty /Names, so both of those answered yes
+        // for a document carrying no file. The question is whether the tree
+        // holds an entry, which is what MuPDF's embedded_files() reports - so
+        // the two probes now ask the same thing of the same document.
         "embedded-file" => doc
             .catalog()
             .ok()
-            .and_then(|c| c.get(b"Names").ok())
-            .map(|_| "/Names in the catalog".to_string())
-            .or_else(|| has_in_any_dict(&["EmbeddedFiles"])),
+            .and_then(|c| embedded_names_len(c, &doc))
+            .filter(|count| *count > 0)
+            .map(|count| format!("the name tree holds {count} entries")),
         "javascript-and-launch" => has_in_any_dict(&["JS", "JavaScript", "Launch"]),
         "external-references" => has_in_any_dict(&["URI", "F"]),
         "invisible-text" | "text-under-cover" => {

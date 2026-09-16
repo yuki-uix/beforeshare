@@ -61,8 +61,41 @@ const cases = {
   },
 };
 
+/**
+ * What each case must actually have changed.
+ *
+ * Every transformation here is a string or buffer edit against a base document.
+ * If the base changes and a pattern stops matching, the edit silently does
+ * nothing and the "malformed" file is a copy of a valid one - a broken input
+ * that is not broken, which reads as a parser being robust.
+ */
+const MUST_DIFFER = {
+  'xref-offsets-off-by-one.pdf': (out) => out.length === base.length && !out.equals(base),
+  'no-xref-table.pdf': (out) => out.length < base.length && !out.includes('xref'),
+  'stream-length-lies.pdf': (out) => out.includes('/Length 9999'),
+  'dangling-reference.pdf': (out) => out.includes('/Root 99 0 R'),
+  'truncated.pdf': (out) => out.length === Math.floor(base.length / 2),
+  'deeply-nested-array.pdf': (out) => out.includes('[[[[') && out.length > base.length + 3000,
+};
+
+let failed = 0;
 for (const [name, build] of Object.entries(cases)) {
   const bytes = build();
+  const holds = MUST_DIFFER[name];
+  if (!holds) {
+    console.error(`FAIL  ${name} has no assertion about what it changed`);
+    failed += 1;
+  } else if (bytes.equals(base)) {
+    console.error(`FAIL  ${name} is byte-identical to the base document: its edit matched nothing`);
+    failed += 1;
+  } else if (!holds(bytes)) {
+    console.error(`FAIL  ${name} was written, and does not carry the breakage it is named for`);
+    failed += 1;
+  }
   writeFileSync(join(out, name), bytes);
   console.log(`${name.padEnd(32)} ${String(bytes.length).padStart(7)} bytes`);
+}
+if (failed > 0) {
+  console.error(`\n${failed} case(s) did not break what they claim to break`);
+  process.exit(1);
 }

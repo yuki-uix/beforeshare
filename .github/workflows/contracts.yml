@@ -1196,15 +1196,18 @@ jobs:
             "tools/test-unguarded-for-ci.mjs" || failed=1
           rm -f tools/test-unguarded-for-ci.mjs
 
-          # The control: with nothing broken, the suite must be green. Without
-          # this, a suite that failed unconditionally would satisfy every case
-          # above.
-          if ! npm run validate --silent > /dev/null 2>&1; then
-            echo "::error::control case: the suite fails even with no mutation applied"
-            failed=1
-          else
-            echo "ok  control: unmutated tree is green"
-          fi
+          # The control, per suite. One control over `validate` left every case
+          # that names a different suite unproven: a `test:bakeoff` that failed
+          # for any input would have satisfied its case above while this control
+          # stayed green, because the control was not running it.
+          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries; do
+            if ! npm run "$suite" --silent > /dev/null 2>&1; then
+              echo "::error::control case: ${suite} fails even with no mutation applied"
+              failed=1
+            else
+              echo "ok  control: ${suite} is green on an unmutated tree"
+            fi
+          done
 
           if [ "$cases_run" -ne "$EXPECTED_CASES" ]; then
             echo "::error::ran ${cases_run} negative cases, expected ${EXPECTED_CASES} - one was skipped or swallowed"
