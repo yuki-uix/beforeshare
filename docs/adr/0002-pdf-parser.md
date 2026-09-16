@@ -54,11 +54,17 @@ produced the finding that decided the rest:
 | input | lopdf (lenient) | lopdf (`strict: true`) | MuPDF |
 |---|---|---|---|
 | every xref offset one byte out | **loaded, 0 objects** | refused: invalid indirect object at byte offset 16 | loaded, 7 objects |
-| no xref table at all | refused | refused | loaded, 7 objects |
-| a stream whose `/Length` lies | loaded, 3 objects | refused | loaded, 7 objects |
+| no xref table at all | refused: failed parsing cross reference table | refused: failed parsing cross reference table | loaded, 7 objects |
+| a stream whose `/Length` lies | loaded, 3 objects | refused: couldn't parse input | loaded, 7 objects |
 | a reference to a missing object | loaded, 6 objects | loaded, 6 objects | loaded, 7 objects |
-| truncated halfway | refused | refused | refused |
-| an array nested 2000 deep | loaded, 5 objects | refused | loaded, 7 objects |
+| truncated halfway | refused: failed parsing cross reference table | refused: failed parsing cross reference table | refused: MuPDF error, code: 8, message: invalid key in dict |
+| an array nested 2000 deep | loaded, 5 objects | refused: couldn't parse input | loaded, 7 objects |
+
+Each refusal carries its reason, and the check compares the reason rather than
+the word: a bare "refused" made three different failures - a cross-reference
+table that will not parse, an object that will not, and a depth limit - look
+like one outcome, and a parser changing which one it gives would not have been
+noticed.
 
 **`Ok` with zero objects is the dangerous row.** A checker that treats a
 successful load as permission to report findings would report *no findings* for a

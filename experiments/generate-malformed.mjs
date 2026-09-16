@@ -10,7 +10,7 @@
  * a file nobody can regenerate is a file nobody can check. Run with
  * `node experiments/generate-malformed.mjs`; the output is byte-identical.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -125,6 +125,17 @@ for (const [name, build] of Object.entries(cases)) {
 if (failed > 0) {
   console.error(`\n${failed} case(s) did not break what they claim to break; nothing was written`);
   process.exit(1);
+}
+// The directory is synchronised to exactly what was built, not merely written
+// over. Both probes enumerate everything in it, so a case that is deleted or
+// renamed would otherwise leave its old file behind to be measured - an input
+// nobody declares, in results the ADR is checked against.
+const declared = new Set(built.map(([name]) => name));
+for (const stale of readdirSync(out)) {
+  if (!declared.has(stale)) {
+    rmSync(join(out, stale));
+    console.log(`${stale.padEnd(32)} removed: no case declares it`);
+  }
 }
 for (const [name, bytes] of built) {
   writeFileSync(join(out, name), bytes);

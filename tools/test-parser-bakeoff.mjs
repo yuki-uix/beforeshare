@@ -102,7 +102,11 @@ if (!isMain) {
     const text = cell.replace(/\*\*/g, '').trim();
     const loaded = text.match(/loaded,\s*(\d+)\s*objects/);
     if (loaded) return { kind: 'loaded', objects: Number(loaded[1]) };
-    if (/^refused/.test(text)) return { kind: 'refused' };
+    // The reason is part of the claim. Treating every refusal as one outcome
+    // let a parser change which failure it reports while the ADR kept the old
+    // one - and three of these rows refuse for three different reasons.
+    const refused = text.match(/^refused[:\s(]*(.*?)\)?$/);
+    if (refused) return { kind: 'refused', reason: refused[1].trim() };
     return { kind: 'unreadable', text };
   };
 
@@ -111,6 +115,7 @@ if (!isMain) {
     const b = claims(stated);
     if (a.kind !== b.kind) return false;
     if (a.kind === 'loaded') return a.objects === b.objects;
+    if (a.kind === 'refused') return a.reason === b.reason;
     return true;
   };
 
