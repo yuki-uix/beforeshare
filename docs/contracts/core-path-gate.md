@@ -65,6 +65,26 @@ The code is gone. That is what a mutation that cannot be killed usually means,
 and the mutation applier now refuses any mutation matching more than one site,
 because this one matched two identical lines and hit the dead one.
 
+## What the review found, and what class each belonged to
+
+Eight findings, and only two were about code this port introduced. The rest were
+defects the port carried over or that its own fixes created:
+
+| Finding | Class |
+|---|---|
+| `write_file` opened by name and followed a link planted at the final component | the read side's defect, unfixed on the write side — the handle cannot be taken at resolve time for a file that does not exist yet, so `O_NOFOLLOW` at open is what refuses |
+| `folds_case` could not report a case-sensitive volume at all | the "could not tell" arm swallowed the answer: on such a volume the swapped spelling never resolves, and that IS the answer, not a failure to probe |
+| `identity_key` composed before folding | the composition table holds only lowercase base characters, so `CAFE\u{301}` stayed decomposed and no later lowercasing could compose it |
+| a root spelled `/.` canonicalised to `/` | the refusal was written against the spelling, so the rule was satisfiable by spelling — the same hole as refusing `["/"]` but accepting `[]` |
+| a second `read_file` on one authorisation returned nothing | a duplicated descriptor shares its offset; an empty result reads as an empty file rather than as a mistake |
+| the compile-fail probe hard-coded `target/debug/deps` | it is `<target>/<profile>/deps`, and `--release` or `CARGO_TARGET_DIR` made the probe panic |
+| the unreadable-directory vector asserted a refusal a privileged process never gets | a case that stops testing anything wherever it runs privileged |
+| the guard matched with `printf | grep -q` under `pipefail` | the job beside this one carries a comment about exactly this SIGPIPE trap; the lesson had not travelled |
+
+The last one is worth naming separately: the guard job next to this one already
+documents that trap in a comment, and this PR reintroduced it a few hundred
+lines away. A comment is not a check.
+
 ## What did not change
 
 The rules are still data. `schemas/v1/path-rules.json` is `include_str!`'d, not

@@ -183,11 +183,15 @@ struct CaseRule {
 /// volume folds. Raw string comparison would let `Report.pdf` and `report.pdf`
 /// pass as different files, which is how an output sneaks onto its input.
 fn identity_key(path: &Path, rule: CaseRule) -> String {
-    let normalised = nfc(&path.to_string_lossy());
+    let raw = path.to_string_lossy();
+    // Folding first. `nfc` composes only lowercase base characters, so
+    // composing first left "CAFE\u{301}.pdf" decomposed, and lowercasing it
+    // afterwards produced a key the composed input never matched - an output
+    // landing on its own input, which is the case §12.1 exists for.
     if rule.fold {
-        normalised.to_lowercase()
+        nfc(&raw.to_lowercase())
     } else {
-        normalised
+        nfc(&raw)
     }
 }
 
@@ -252,7 +256,18 @@ impl Gate {
                     "/ as an authorised root authorises the whole filesystem, which is what having no gate does".into(),
                 ));
             }
-            resolved.push(std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()));
+            let real = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+            // After resolution, not only before: "/." passes the check above and
+            // canonicalizes to "/", so the rule was satisfiable by spelling -
+            // the same way an empty root set and ["/"] were, which is why both
+            // are refused rather than only one.
+            if real.parent().is_none() {
+                return Err(Rejected::OutsideAuthorisedRoots(format!(
+                    "{} resolves to /, which authorises the whole filesystem",
+                    root.display()
+                )));
+            }
+            resolved.push(real);
         }
         let case_rule = probe_case_rule(&resolved)?;
         Ok(Self {
@@ -462,7 +477,7 @@ fn open_nofollow(path: &Path) -> std::io::Result<OwnedFd> {
 fn probe_case_rule(roots: &[PathBuf]) -> Result<CaseRule, Rejected> {
     let mut answers = BTreeSet::new();
     for root in roots {
-        answers.insert(folds_case(root));
+        answers.insert(folds_case(root)?);
     }
     decide_case_rule(&answers)
 }
@@ -484,7 +499,7 @@ fn decide_case_rule(answers: &BTreeSet<bool>) -> Result<CaseRule, Rejected> {
     }
 }
 
-fn folds_case(root: &Path) -> bool {
+fn folds_case(root: &Path) -> Result<bool, Rejected> {
     let swapped: String = root
         .to_string_lossy()
         .chars()
@@ -496,9 +511,39 @@ fn folds_case(root: &Path) -> bool {
             }
         })
         .collect();
-    match (std::fs::canonicalize(root), std::fs::canonicalize(&swapped)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => rules().identity.case_insensitive_default,
+    decide_folding(
+        root,
+        std::fs::canonicalize(root),
+        std::fs::canonicalize(&swapped),
+    )
+}
+
+/// What the two probe results mean, separated from the probing.
+///
+/// A machine has whatever case rule it has, so only one of these arms can ever
+/// run here - and the arm that could not run was the one that was wrong. Left
+/// inside the probe, a mutation restoring the permissive guess survived the
+/// whole suite.
+fn decide_folding(
+    root: &Path,
+    as_given: std::io::Result<PathBuf>,
+    swapped: std::io::Result<PathBuf>,
+) -> Result<bool, Rejected> {
+    match (as_given, swapped) {
+        // Both spellings resolve: the same file means the volume folds case.
+        (Ok(a), Ok(b)) => Ok(a == b),
+        // The swapped spelling does not exist. That IS the case-sensitive
+        // answer, and it used to fall into the arm below and return the
+        // permissive default - so on a case-sensitive volume the probe never
+        // once reported the truth, and /ROOT/file counted as inside /root.
+        (Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        // The root itself cannot be resolved, or the swapped name failed for
+        // some other reason. Nothing was learned; guessing here is an
+        // authorisation decision made about a volume nobody asked.
+        (root_answer, swapped_answer) => Err(Rejected::Unresolvable(format!(
+            "{}: the case rule of this volume could not be probed ({root_answer:?} / {swapped_answer:?})",
+            root.display()
+        ))),
     }
 }
 
@@ -513,8 +558,13 @@ pub fn read_file(resolved: &ResolvedPath) -> std::io::Result<Vec<u8>> {
     }
     match &resolved.handle {
         Some(fd) => {
-            use std::io::Read;
+            use std::io::{Read, Seek};
+            // try_clone duplicates the descriptor, and a duplicate shares the
+            // file offset. Without this rewind a second read of the same
+            // authorisation returned Ok(vec![]) - empty bytes that look like an
+            // empty file rather than like a mistake.
             let mut file = std::fs::File::from(fd.try_clone()?);
+            file.rewind()?;
             let mut bytes = Vec::new();
             file.read_to_end(&mut bytes)?;
             Ok(bytes)
@@ -532,7 +582,22 @@ pub fn write_file(resolved: &ResolvedPath, bytes: &[u8]) -> std::io::Result<()> 
     if resolved.mode != Mode::Write {
         return Err(std::io::Error::other("this path was resolved for reading"));
     }
-    std::fs::write(&resolved.path, bytes)
+    // Not std::fs::write: it opens by name and follows a link at the final
+    // component, so a name swapped after authorisation redirects the write out
+    // of the roots. This is the same defect the read side had - the handle
+    // there, O_NOFOLLOW here, because a write target may not exist yet and so
+    // cannot be opened at resolve time.
+    use rustix::fs::{Mode as FsMode, OFlags};
+    use std::io::Write;
+    let c_path = CString::new(resolved.path.as_os_str().as_encoded_bytes())
+        .map_err(|_| std::io::Error::other("path contains a NUL byte"))?;
+    let fd = rustix::fs::open(
+        c_path.as_c_str(),
+        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        FsMode::from_raw_mode(0o644),
+    )
+    .map_err(std::io::Error::from)?;
+    std::fs::File::from(fd).write_all(bytes)
 }
 
 /// Every reason the table declares, for the two-way check.
@@ -578,6 +643,38 @@ mod tests {
             refused.is_err(),
             "the open followed a symlink at the final component, which is the window O_NOFOLLOW closes"
         );
+    }
+
+    /// Only one of these arms can run on any given machine, so the decision is
+    /// tested apart from the probe. The arm that could not run here was the one
+    /// that was wrong: a case-sensitive volume always fails to resolve the
+    /// swapped spelling, and that answer was being read as "could not tell" and
+    /// replaced with the permissive default - so the probe never once reported
+    /// a case-sensitive volume, and /ROOT/file counted as inside /root.
+    #[test]
+    fn the_case_rule_is_read_from_the_volume_rather_than_guessed() {
+        let root = Path::new("/somewhere");
+        let missing = || std::io::Error::from(std::io::ErrorKind::NotFound);
+        let denied = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+
+        assert!(
+            decide_folding(root, Ok("/a".into()), Ok("/a".into())).expect("both resolve"),
+            "two spellings of one file means the volume folds case"
+        );
+        assert!(
+            !decide_folding(root, Ok("/a".into()), Ok("/b".into())).expect("both resolve"),
+            "two different files means it does not"
+        );
+        assert!(
+            !decide_folding(root, Ok("/a".into()), Err(missing())).expect("the root resolves"),
+            "the swapped spelling naming nothing IS the case-sensitive answer"
+        );
+        let unprobeable =
+            decide_folding(root, Err(denied()), Err(denied())).expect_err("nothing was learned");
+        assert_eq!(unprobeable.reason(), "unresolvable");
+        let half = decide_folding(root, Ok("/a".into()), Err(denied()))
+            .expect_err("the swapped name failed for a reason that says nothing");
+        assert_eq!(half.reason(), "unresolvable");
     }
 
     #[test]

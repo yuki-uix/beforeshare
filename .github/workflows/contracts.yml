@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=73
+          EXPECTED_CASES=74
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1151,6 +1151,21 @@ jobs:
             "tools/path-gate.mjs" \
             "test:path-gate" || failed=1
 
+          # A link resolving to the filesystem root, with a missing tail below
+          # it. The symlink branch joined them as "//root/name", and identityKey
+          # normalises Unicode and case but not separators - so a path genuinely
+          # inside the root was refused.
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"\`\${resolved === '/' ? '' : resolved}/\${missing.join('/')}\`\", \"\`\${resolved}/\${missing.join('/')}\`\");
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a missing tail joined onto the filesystem root" \
+            "a link through the filesystem root back into the root is allowed" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
           # above.
@@ -1211,7 +1226,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=14
+          EXPECTED_RUST_CASES=19
           cp src/path_gate.rs /tmp/path_gate.clean
 
           expect_red() {
@@ -1243,7 +1258,12 @@ jobs:
             out=$(cargo test --no-fail-fast 2>&1) || true
             cp /tmp/path_gate.clean src/path_gate.rs
 
-            if printf '%s' "$out" | grep -qE "^test .*${expect_test}.* \.\.\. FAILED"; then
+            # A here-string, not a pipe into grep -q. Under pipefail, grep -q
+            # exits at its first match, the upstream writer takes SIGPIPE, and
+            # the pipeline reports failure - so a test that DID fail is read as
+            # not failing. The job beside this one carries the same note; the
+            # lesson had not travelled.
+            if grep -qE "^test .*${expect_test}.* \.\.\. FAILED" <<<"$out"; then
               echo "ok  ${label} -> ${expect_test}"
             else
               echo "::error::${label}: expected ${expect_test} to go red, it did not"
@@ -1324,6 +1344,31 @@ jobs:
             "a_read_the_gate_cannot_open_is_refused_rather_than_handed_back_unbound" \
             $'Err(e) => return Err(open_refusal(&path, e)),' \
             $'Err(_) => return Ok(ResolvedPath { path, mode: Mode::Read, handle: None }),'
+
+          expect_red "composition before case folding" \
+            "an_upper_cased_decomposed_root_spelling_is_still_the_root" \
+            $'if rule.fold {\n        nfc(&raw.to_lowercase())\n    } else {\n        nfc(&raw)\n    }' \
+            $'let n = nfc(&raw);\n    if rule.fold { n.to_lowercase() } else { n }'
+
+          expect_red "a root resolving to / accepted" \
+            "a_root_that_resolves_to_the_filesystem_root_is_refused" \
+            $'if real.parent().is_none() {' \
+            $'if false {'
+
+          expect_red "a case-sensitive volume guessed at" \
+            "the_case_rule_is_read_from_the_volume_rather_than_guessed" \
+            $'(Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),' \
+            $'(Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(rules().identity.case_insensitive_default),'
+
+          expect_red "no rewind before a second read" \
+            "the_same_authorisation_reads_the_same_bytes_twice" \
+            $'file.rewind()?;' \
+            $''
+
+          expect_red "a write that follows the name" \
+            "a_write_does_not_follow_a_link_that_appeared_at_the_final_component" \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC,'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.

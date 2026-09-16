@@ -284,20 +284,41 @@ fn a_filesystem_that_cannot_answer_is_refused_rather_than_assumed() {
     // open it, so it reports "unresolvable" whether or not resolution failures
     // are swallowed - and a mutation that swallowed them survived behind that.
     // A write never opens, so only the resolver's answer decides.
+    // root ignores the permission bits, so ask whether this process is really
+    // kept out before asserting that the gate is. Without this the case stops
+    // testing anything wherever it runs privileged - and it is called directly
+    // by the reason-coverage check, which would then fail for the wrong reason.
+    let kept_out = std::fs::read_dir(&locked).is_err();
     let writing = g.for_write(&t.at("locked/new.pdf"), None);
     let reading = g.for_read(&t.at("locked/a.pdf"));
     std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .expect("chmod back");
-    rejects(
-        "an unreadable directory component, for writing",
-        writing,
-        "unresolvable",
-    );
-    rejects(
-        "an unreadable directory component, for reading",
-        reading,
-        "unresolvable",
-    );
+    if kept_out {
+        rejects(
+            "an unreadable directory component, for writing",
+            writing,
+            "unresolvable",
+        );
+        rejects(
+            "an unreadable directory component, for reading",
+            reading,
+            "unresolvable",
+        );
+    } else {
+        // Privileged: the directory is traversable, so both must succeed rather
+        // than be quietly skipped, and `unresolvable` is still owed to the
+        // coverage check - taken from a path whose component is a plain file,
+        // which no privilege makes traversable.
+        assert!(
+            writing.is_ok() && reading.is_ok(),
+            "root walked into it, or did not"
+        );
+        rejects(
+            "a plain file used as a directory component",
+            g.for_read(&t.at("report.pdf/child.pdf")),
+            "unresolvable",
+        );
+    }
     let _ = t.keep();
 }
 
@@ -592,6 +613,129 @@ fn a_read_the_gate_cannot_open_is_refused_rather_than_handed_back_unbound() {
 }
 
 #[test]
+fn an_upper_cased_decomposed_output_is_still_the_input() {
+    // The order inside identity_key. `nfc` composes only lowercase base
+    // characters, so composing before folding left "CAFE\u{301}" decomposed
+    // while the input's key was composed - two keys for one file, and the
+    // output landed on its input.
+    let t = Tree::new();
+    std::fs::write(t.root.join("caf\u{e9}.pdf"), b"%PDF-1.7\n").expect("the input");
+    let g = t.gate();
+    let folds = std::fs::metadata(t.root.join("REPORT.PDF")).is_ok();
+    let input = g.for_read(&t.at("caf\u{e9}.pdf")).expect("the input");
+    let shouty_decomposed = g.for_write(&t.at("CAFE\u{301}.pdf"), Some(&input));
+    if folds {
+        rejects(
+            "an output spelled upper-case and decomposed",
+            shouty_decomposed,
+            "output_is_input",
+        );
+    } else {
+        assert!(
+            shouty_decomposed.is_ok(),
+            "on a case-sensitive volume that is a different file"
+        );
+    }
+    let _ = t.keep();
+}
+
+#[test]
+fn an_upper_cased_decomposed_root_spelling_is_still_the_root() {
+    // The order inside identity_key, reached where it is load-bearing: the
+    // classification below reads the caller's own spelling, never canonicalised.
+    // With composition before folding, "CAFE\u{301}" stays decomposed and no
+    // lowercasing afterwards can compose it, so the root goes unrecognised.
+    let t = Tree::new();
+    let dir = t.root.join("caf\u{e9}");
+    std::fs::create_dir(&dir).expect("an accented directory");
+    symlink("/etc/passwd", dir.join("escape.pdf")).expect("escaping link");
+    let g = Gate::new(&[dir.canonicalize().expect("on-disk spelling").as_path()])
+        .expect("a usable root");
+
+    let folds = std::fs::metadata(t.root.join("CAF\u{c9}")).is_ok();
+    let shouty = format!("{}/CAFE\u{301}/escape.pdf", t.root.display());
+    let got = g.for_read(&shouty);
+    if folds {
+        rejects(
+            "an escaping link under an upper-cased, decomposed root",
+            got,
+            "symlink_escape",
+        );
+    } else {
+        rejects(
+            "an upper-cased root on a case-sensitive volume",
+            got,
+            "outside_authorised_roots",
+        );
+    }
+    let _ = t.keep();
+}
+
+#[test]
+fn a_root_that_resolves_to_the_filesystem_root_is_refused() {
+    // "/." passes a check on the spelling and canonicalizes to "/", so the rule
+    // that the filesystem root is not an authorised root was satisfiable by
+    // spelling - the same hole as accepting [] but refusing ["/"].
+    rejects(
+        "a root that resolves to /",
+        Gate::new(&[Path::new("/.")]),
+        "outside_authorised_roots",
+    );
+    rejects(
+        "a root that walks back to /",
+        Gate::new(&[Path::new("/usr/..")]),
+        "outside_authorised_roots",
+    );
+}
+
+#[test]
+fn the_same_authorisation_reads_the_same_bytes_twice() {
+    // try_clone duplicates the descriptor and a duplicate shares the offset, so
+    // the second read returned Ok(vec![]) - an empty file rather than an error.
+    let t = Tree::new();
+    std::fs::write(t.root.join("twice.pdf"), b"%PDF-1.7\nbody\n").expect("a file");
+    let g = t.gate();
+    let resolved = g.for_read(&t.at("twice.pdf")).expect("resolved");
+    let first = read_file(&resolved).expect("the first read");
+    let second = read_file(&resolved).expect("the second read");
+    assert_eq!(first, b"%PDF-1.7\nbody\n");
+    assert_eq!(
+        second, first,
+        "the second read of one authorisation differed"
+    );
+    let _ = t.keep();
+}
+
+#[test]
+fn a_write_does_not_follow_a_link_that_appeared_at_the_final_component() {
+    // The write side had the defect the read side was just fixed for: it opened
+    // by name, and a name swapped after authorisation redirected the write out
+    // of the roots. A write target may not exist at resolve time, so it cannot
+    // carry a handle - O_NOFOLLOW at open is what refuses instead.
+    let t = Tree::new();
+    let outside = std::env::temp_dir()
+        .canonicalize()
+        .expect("canonical temp")
+        .join("beforeshare-escaped-by-a-late-link.pdf");
+    let _ = std::fs::remove_file(&outside);
+    let g = t.gate();
+    let authorised = g.for_write(&t.at("out.pdf"), None).expect("a fresh output");
+
+    symlink(&outside, t.root.join("out.pdf")).expect("swap the name for a link");
+    let refused = write_file(&authorised, b"escaped");
+
+    assert!(
+        refused.is_err(),
+        "the write followed a link planted after the check"
+    );
+    assert!(
+        !outside.exists(),
+        "a file was created outside the authorised roots"
+    );
+    let _ = t.keep();
+}
+
+#[test]
 fn a_read_authorisation_does_not_write() {
     let t = Tree::new();
     let g = t.gate();
@@ -645,6 +789,7 @@ fn every_declared_reason_is_triggered_by_a_vector() {
     identity_follows_the_volume_rather_than_a_preference();
     the_two_spellings_of_an_accent_are_one_file();
     a_misspelled_root_is_still_recognised_as_the_root();
+    an_upper_cased_decomposed_root_spelling_is_still_the_root();
     a_root_spelled_in_the_other_normalisation_is_the_same_root();
     let _ = t.keep();
 

@@ -306,7 +306,9 @@ function resolveThroughMissingTail(fs, path, depth = 0) {
       const { path: collapsed, escaped } = normalizeSegments(absolute);
       if (escaped) throw new Rejected('traversal', absolute);
       const resolved = resolveThroughMissingTail(fs, collapsed, depth + 1);
-      return missing.length === 0 ? resolved : `${resolved}/${missing.join('/')}`;
+      return missing.length === 0
+        ? resolved
+        : `${resolved === '/' ? '' : resolved}/${missing.join('/')}`;
     }
     const real = maybeRealpath(fs, candidate);
     if (real !== null) {

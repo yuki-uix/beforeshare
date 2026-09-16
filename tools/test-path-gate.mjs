@@ -248,6 +248,28 @@ if (isMain) {
       .forWrite(`${ROOT}/self`, { input: null }),
     'symlink_loop');
 
+  // A link whose target is the filesystem root, with a missing tail below it.
+  // The symlink branch joined them as `//allowed/new.pdf`, and identityKey
+  // normalises Unicode and case but not separators - so a path genuinely inside
+  // the root was refused. The realpath branch had always handled this; the
+  // symlink branch was added later and did not.
+  checkOk('a link through the filesystem root back into the root is allowed',
+    () => createGate({
+      fs: {
+        realpath(p) {
+          if (p === '/hop') return '/';
+          if (p === '/' || p === ROOT) return p;
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        },
+        readlink(p) {
+          if (p === '/hop') return '/';
+          throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' });
+        },
+        isDirectory: () => false,
+      },
+      authorisedRoots: [ROOT],
+    }).forWrite(`/hop${ROOT}/new.pdf`, { input: null }).path === `${ROOT}/new.pdf`);
+
   rejects('an escaping link several missing levels above the leaf is refused',
     () => gate({
       links: { [`${ROOT}/evil`]: '/private/tmp' },

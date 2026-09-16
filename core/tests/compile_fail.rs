@@ -26,7 +26,7 @@ fn forging_a_resolved_path_does_not_compile() {
                 "--crate-type",
                 "bin",
                 "-L",
-                "target/debug/deps",
+                deps_dir().to_str().expect("utf-8 path"),
                 "--extern",
                 &format!("beforeshare_core={}", lib_path()),
                 "-o",
@@ -68,12 +68,25 @@ fn out_path(file: &str) -> std::path::PathBuf {
     ))
 }
 
+/// The directory the test binary itself lives in: `<target>/<profile>/deps`.
+///
+/// `target/debug/deps` was hard-coded, so `cargo test --release` or a
+/// `CARGO_TARGET_DIR` pointed the probe at a directory that does not exist -
+/// a panic in the reader, and a `-L` naming the wrong place.
+fn deps_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .expect("the test binary has a path")
+        .parent()
+        .expect("it lives in deps/")
+        .to_path_buf()
+}
+
 /// The freshly built rlib, so the probe links against this working tree rather
 /// than whatever is installed.
 fn lib_path() -> String {
-    let deps = std::path::Path::new("target/debug/deps");
+    let deps = deps_dir();
     let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
-    for entry in std::fs::read_dir(deps).expect("cargo has built the library") {
+    for entry in std::fs::read_dir(&deps).expect("cargo has built the library") {
         let path = entry.expect("readable").path();
         let name = path
             .file_name()
