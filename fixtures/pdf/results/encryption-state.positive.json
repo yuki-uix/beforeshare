@@ -1,0 +1,129 @@
+{
+  "coverage": {
+    "completed": [
+      "pdf.actions",
+      "pdf.annotations",
+      "pdf.metadata",
+      "pdf.structure"
+    ],
+    "failed": [
+      {
+        "detector": "pdf.embedded_files",
+        "errorCode": "malformed_input",
+        "message": "the catalog does not resolve"
+      },
+      {
+        "detector": "pdf.form_fields",
+        "errorCode": "malformed_input",
+        "message": "the catalog does not resolve"
+      }
+    ],
+    "skipped": [
+      {
+        "detector": "pdf.text_layer",
+        "message": "the content streams are encrypted and were not decrypted",
+        "reason": "blocked_by_encryption"
+      }
+    ]
+  },
+  "durationMs": 0,
+  "findings": [
+    {
+      "category": "encryption_state",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "this document declares an /Encrypt dictionary",
+        "maskPolicy": "structural_label",
+        "redacted": false
+      },
+      "group": "document_structure",
+      "id": "finding-1",
+      "location": {
+        "detail": "encryption_dictionary",
+        "kind": "file_structure"
+      },
+      "message": "encryption_state found in file_structure",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "permission_state",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "permissions are carried by the encryption dictionary",
+        "maskPolicy": "structural_label",
+        "redacted": false
+      },
+      "group": "document_structure",
+      "id": "finding-2",
+      "location": {
+        "detail": "permissions",
+        "kind": "file_structure"
+      },
+      "message": "permission_state found in file_structure",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    }
+  ],
+  "input": {
+    "mediaType": "application/pdf",
+    "path": "/fixtures/pdf/files/encryption-state.positive.pdf",
+    "sha256": "7e4e84f197d858669bdd802951c576889a5945cee029d3ae352b8706500eba75",
+    "sizeBytes": 860
+  },
+  "limitations": [
+    {
+      "affectedDetectors": [
+        "pdf.text_layer"
+      ],
+      "code": "encrypted_content_not_inspected",
+      "impact": "coverage_incomplete",
+      "message": "the content streams are encrypted and were not decrypted, so text on the page was not read"
+    }
+  ],
+  "runId": "01J00000000000000000000010",
+  "schemaVersion": "1.0",
+  "startedAt": "2026-01-01T00:00:00Z",
+  "status": "partial",
+  "versions": {
+    "core": "0.1.0",
+    "detectors": [
+      {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      }
+    ],
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}

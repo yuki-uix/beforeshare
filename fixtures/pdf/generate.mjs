@@ -140,6 +140,9 @@ export const FIXTURES = {
         '<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] /A << /S /GoTo /D [3 0 R /Fit] >> >>',
       ],
     })),
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'both documents carry a link annotation - that is what makes them a pair - and §7.1 counts an annotation whether or not it points outward',
     annotationInstructions: 'The positive carries two links: one outward to an internal host, one a /GoToR naming a path on the author\'s own disk. The control points at its own page. An internal host name is disclosive even when unreachable, and so is a local path.',
     expectedCoverage: 'completed',
     expectedRemediation: null,
@@ -230,6 +233,9 @@ export const FIXTURES = {
       catalogueExtra: ' /AcroForm << /Fields [6 0 R] /SigFlags 0 >>',
       extraObjects: [`<< /FT /Tx /T ${pdfString('unsigned_note')} >>`],
     })),
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'the control carries an unsigned form field, and a field name is a disclosure of its own under §7.1 - it is clean of a signature, not of everything',
     annotationInstructions: 'The positive carries a signature field with a value. The finding is not the signature - it is that remediation would invalidate it, which §9.2 lists as a side effect the user must be shown before approving.',
     expectedCoverage: 'completed',
     expectedRemediation: null,
@@ -259,6 +265,9 @@ export const FIXTURES = {
       ...minimalDocument(),
       `<< /Title ${pdfString('Public version')} >>`,
     ], { trailerExtra: ' /Info 6 0 R' }),
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'the control carries the public /Info title, which is document metadata and a finding under §7.1; it is clean of a hidden revision, not of metadata',
     annotationInstructions: 'The positive is a two-revision file whose first revision still contains an author the second removed. The control is a single revision with only the public title. A detector that reads the current xref and stops will report the control\'s contents for both.',
     expectedCoverage: 'completed',
     expectedRemediation: 'flatten_to_high_assurance_copy',

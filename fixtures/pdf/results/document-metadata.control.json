@@ -1,0 +1,67 @@
+{
+  "coverage": {
+    "completed": [
+      "pdf.actions",
+      "pdf.annotations",
+      "pdf.embedded_files",
+      "pdf.form_fields",
+      "pdf.metadata",
+      "pdf.structure",
+      "pdf.text_layer"
+    ],
+    "failed": [],
+    "skipped": []
+  },
+  "durationMs": 0,
+  "findings": [],
+  "input": {
+    "mediaType": "application/pdf",
+    "path": "/fixtures/pdf/files/document-metadata.control.pdf",
+    "sha256": "4afc87eef290148e5160ee1975f920fa3a86371663060c5b7d6d8bf156cfb88d",
+    "sizeBytes": 601
+  },
+  "limitations": [],
+  "runId": "01J00000000000000000000005",
+  "schemaVersion": "1.0",
+  "startedAt": "2026-01-01T00:00:00Z",
+  "status": "no_findings",
+  "versions": {
+    "core": "0.1.0",
+    "detectors": [
+      {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      }
+    ],
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}

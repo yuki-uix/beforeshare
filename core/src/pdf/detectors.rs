@@ -5,7 +5,7 @@
 //! nothing", which is a claim; `NotRun` means the claim was never made.
 use lopdf::{Document, Object};
 
-use super::{location_for, Detected, FailureCode, Location, NotRun, SkipReason};
+use super::{Detected, FailureCode, Location, NotRun, SkipReason, StructureDetail, Trigger};
 
 /// What a detector is given: the parsed document and the bytes behind it.
 pub(super) struct Source<'a> {
@@ -54,6 +54,7 @@ fn found(category: &str, detector: &str, location: Location, value: String) -> D
         detector: detector.to_string(),
         location,
         value,
+        hides_a_removal: false,
     }
 }
 
@@ -96,7 +97,9 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
                     out.push(found(
                         category,
                         "pdf.metadata",
-                        Location::field(&location_for(category), key),
+                        Location::PdfMetadata {
+                            field: key.to_string(),
+                        },
                         text,
                     ));
                 }
@@ -111,7 +114,9 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
                 out.push(found(
                     "document_timestamp",
                     "pdf.metadata",
-                    Location::field(&location_for("document_timestamp"), "CreationDate"),
+                    Location::PdfMetadata {
+                        field: "CreationDate".to_string(),
+                    },
                     text,
                 ));
             }
@@ -173,7 +178,11 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
             out.push(found(
                 "annotation",
                 "pdf.annotations",
-                Location::on_page(&location_for("annotation"), page_number, number),
+                Location::PdfAnnotation {
+                    page: page_number,
+                    object_number: Some(number),
+                    subtype: (!subtype.is_empty()).then(|| subtype.clone()),
+                },
                 value,
             ));
         }
@@ -245,10 +254,6 @@ fn walk_field(
             message: "the form field tree is nested deeper than this detector will walk".into(),
         });
     }
-    let number = match field {
-        Object::Reference(id) => id.0,
-        _ => 0,
-    };
     let Ok((_, resolved)) = doc.dereference(field) else {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
@@ -271,7 +276,10 @@ fn walk_field(
         out.push(found(
             "form_field_name",
             "pdf.form_fields",
-            Location::object(&location_for("form_field_name"), number),
+            Location::PdfFormField {
+                field_name: full.clone(),
+                page: None,
+            },
             full.clone(),
         ));
     }
@@ -280,7 +288,10 @@ fn walk_field(
             out.push(found(
                 "form_field_value",
                 "pdf.form_fields",
-                Location::object(&location_for("form_field_value"), number),
+                Location::PdfFormField {
+                    field_name: full.clone(),
+                    page: None,
+                },
                 value,
             ));
         }
@@ -377,9 +388,9 @@ fn walk_name_tree(
                 out.push(found(
                     "embedded_file",
                     "pdf.embedded_files",
-                    Location {
-                        object_number: Some(*index as u32),
-                        ..Location::of(&location_for("embedded_file"))
+                    Location::PdfEmbeddedFile {
+                        index: *index as u32,
+                        name: Some(name.clone()),
                     },
                     name,
                 ));
@@ -436,14 +447,22 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                 out.push(found(
                     "document_javascript",
                     "pdf.actions",
-                    Location::object(&location_for("document_javascript"), number),
+                    Location::PdfAction {
+                        trigger: Trigger::DocumentOpen,
+                        page: None,
+                        object_number: Some(number),
+                    },
                     value,
                 ));
             } else if dict.has(b"JavaScript") {
                 out.push(found(
                     "document_javascript",
                     "pdf.actions",
-                    Location::object(&location_for("document_javascript"), number),
+                    Location::PdfAction {
+                        trigger: Trigger::DocumentOpen,
+                        page: None,
+                        object_number: Some(number),
+                    },
                     "(document-level JavaScript name tree)".into(),
                 ));
             }
@@ -457,7 +476,11 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                     out.push(found(
                         "launch_action",
                         "pdf.actions",
-                        Location::object(&location_for("launch_action"), number),
+                        Location::PdfAction {
+                            trigger: Trigger::Annotation,
+                            page: None,
+                            object_number: Some(number),
+                        },
                         target,
                     ));
                 }
@@ -469,7 +492,11 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                         out.push(found(
                             "local_file_reference",
                             "pdf.actions",
-                            Location::object(&location_for("local_file_reference"), number),
+                            Location::PdfAction {
+                                trigger: Trigger::Annotation,
+                                page: None,
+                                object_number: Some(number),
+                            },
                             target,
                         ));
                     }
@@ -486,7 +513,11 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                         out.push(found(
                             category,
                             "pdf.actions",
-                            Location::object(&location_for(category), number),
+                            Location::PdfAction {
+                                trigger: Trigger::Annotation,
+                                page: None,
+                                object_number: Some(number),
+                            },
                             uri,
                         ));
                     }
@@ -738,7 +769,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                     out.push(found(
                         "hidden_text",
                         "pdf.text_layer",
-                        Location::on_page(&location_for("hidden_text"), page_number, 0),
+                        Location::PdfTextLayer { page: page_number },
                         run,
                     ));
                 } else {
@@ -758,7 +789,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                 out.push(found(
                     "text_under_redaction",
                     "pdf.text_layer",
-                    Location::on_page(&location_for("text_under_redaction"), page_number, 0),
+                    Location::PdfTextLayer { page: page_number },
                     run,
                 ));
             }
@@ -776,18 +807,24 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
         out.push(found(
             "encryption_state",
             "pdf.structure",
-            Location::of(&location_for("encryption_state")),
+            Location::FileStructure {
+                detail: StructureDetail::EncryptionDictionary,
+                revision: None,
+            },
             "this document declares an /Encrypt dictionary".into(),
         ));
         out.push(found(
             "permission_state",
             "pdf.structure",
-            Location::of(&location_for("permission_state")),
+            Location::FileStructure {
+                detail: StructureDetail::Permissions,
+                revision: None,
+            },
             "permissions are carried by the encryption dictionary".into(),
         ));
     }
 
-    for (id, object) in doc.objects.iter() {
+    for object in doc.objects.values() {
         let Ok(dict) = object.as_dict() else { continue };
         if dict.has(b"ByteRange")
             || dict.get(b"Type").ok().and_then(text_of).as_deref() == Some("Sig")
@@ -795,7 +832,10 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
             out.push(found(
                 "digital_signature",
                 "pdf.structure",
-                Location::object(&location_for("digital_signature"), id.0),
+                Location::FileStructure {
+                    detail: StructureDetail::SignatureDictionary,
+                    revision: None,
+                },
                 "a signature dictionary is present".into(),
             ));
         }
@@ -809,12 +849,32 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
     // it is a fact about the file.
     let sections = cross_reference_sections(source.bytes);
     if sections > 1 {
-        out.push(found(
+        // The rules table raises this to critical only when a previous revision
+        // holds values the current one removes - not for the presence of an
+        // update. Deciding that needs the earlier revision, and lopdf resolves
+        // the chain and hands back only the current state, so the earlier one is
+        // loaded from the bytes: the file up to its first %%EOF is itself a
+        // complete PDF.
+        let removed = values_the_update_removed(source.bytes);
+        let message = if removed.is_empty() {
+            format!("{sections} cross-reference sections: this file was appended to")
+        } else {
+            format!(
+                "{sections} cross-reference sections, and an earlier revision still holds {}",
+                removed.join(", ")
+            )
+        };
+        let mut finding = found(
             "incremental_update",
             "pdf.structure",
-            Location::of(&location_for("incremental_update")),
-            format!("{sections} cross-reference sections: this file was appended to"),
-        ));
+            Location::FileStructure {
+                detail: StructureDetail::IncrementalUpdate,
+                revision: Some(sections as u32),
+            },
+            message,
+        );
+        finding.hides_a_removal = !removed.is_empty();
+        out.push(finding);
     }
 
     Ok(out)
@@ -848,4 +908,51 @@ fn cross_reference_sections(bytes: &[u8]) -> usize {
         }
     }
     sections
+}
+
+/// The /Info entries an earlier revision holds that the current one has dropped.
+///
+/// A reader trusting the newest cross-reference table never sees them, which is
+/// the whole reason §7.1 lists incremental updates: the person about to send the
+/// file cannot see what they are about to send.
+fn values_the_update_removed(bytes: &[u8]) -> Vec<String> {
+    let Some(first_eof) = find(bytes, b"%%EOF") else {
+        return Vec::new();
+    };
+    let earlier = &bytes[..first_eof + 5];
+    let options = lopdf::LoadOptions {
+        strict: false,
+        ..Default::default()
+    };
+    let (Ok(old), Ok(new)) = (
+        Document::load_mem_with_options(earlier, options.clone()),
+        Document::load_mem_with_options(bytes, options),
+    ) else {
+        return Vec::new();
+    };
+    let info_of = |doc: &Document| -> Vec<(String, String)> {
+        doc.trailer
+            .get(b"Info")
+            .ok()
+            .and_then(|r| doc.dereference(r).ok())
+            .and_then(|(_, o)| o.as_dict().ok().cloned())
+            .map(|d| {
+                d.iter()
+                    .filter_map(|(k, v)| {
+                        text_of(v).map(|value| (String::from_utf8_lossy(k).to_string(), value))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let current = info_of(&new);
+    info_of(&old)
+        .into_iter()
+        .filter(|(key, value)| !current.iter().any(|(k, v)| k == key && v == value))
+        .map(|(key, _)| format!("/{key}"))
+        .collect()
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
 }

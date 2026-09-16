@@ -18,3 +18,4 @@
 pub mod masking;
 pub mod path_gate;
 pub mod pdf;
+pub mod result;

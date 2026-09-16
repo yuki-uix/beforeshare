@@ -207,11 +207,14 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
         if reason.len() < 10 {
             wrong.push(format!("{}: is not silent and gives no reason", f.name));
         }
-        // It declared it would not be silent, so silence is a broken promise.
-        // The subset check below is satisfied by producing nothing at all.
-        if found.is_empty() {
+        // It declared it would not be silent, so producing nothing at all is a
+        // broken promise. Not in its own categories, though: a control that is
+        // clean for its item and carries a disclosure of a different kind is
+        // exactly what these three are, and requiring the noise to be in its own
+        // categories would have forced them to stop being controls.
+        if f.inspection.detected.is_empty() {
             wrong.push(format!(
-                "{}: expects {} and produced nothing in {expected:?}",
+                "{}: expects {} and produced no findings at all",
                 f.name,
                 entry["expectedStatus"].as_str().unwrap_or("?")
             ));
@@ -230,6 +233,9 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
             .filter(|d| expected.iter().any(|e| e == &d.category))
             .map(|d| d.category.clone())
             .collect();
+        // And it must still separate something from its positive: a control that
+        // finds everything its positive does is not a control, whatever else it
+        // carries.
         if !(found.len() < positive_found.len() && found.is_subset(&positive_found)) {
             wrong.push(format!(
                 "{}: produced {found:?} against its positive's {positive_found:?}, so the pair separates nothing",
@@ -238,13 +244,33 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
         }
     }
 
-    assert!(
-        silent_checked >= 10,
-        "only {silent_checked} silent controls were checked"
+    // Counted from the manifest rather than written here. The number was a 10
+    // that was true the day it was written, and four controls have since been
+    // found to carry a disclosure of their own - a constant would have to be
+    // edited every time one moves, and editing it is how a check stops
+    // checking.
+    let (expected_silent, expected_excepted) = fixtures
+        .iter()
+        .filter(|f| !f.positive && !categories_for(&f.item, &rules).is_empty())
+        .fold((0usize, 0usize), |(silent, excepted), f| {
+            if m["fixtures"][&f.name]["expectedStatus"] == "no_findings" {
+                (silent + 1, excepted)
+            } else {
+                (silent, excepted + 1)
+            }
+        });
+    assert_eq!(
+        (silent_checked, excepted_checked),
+        (expected_silent, expected_excepted),
+        "the manifest describes {expected_silent} silent and {expected_excepted} excepted controls"
     );
     assert!(
         excepted_checked >= 1,
         "no control exercised the stated-exception path"
+    );
+    assert!(
+        silent_checked >= 5,
+        "only {silent_checked} controls expect silence at all"
     );
     assert!(
         wrong.is_empty(),
@@ -367,9 +393,13 @@ fn every_emitted_location_kind_is_declared() {
                 )
             });
             assert_eq!(
-                &d.location.kind, expected,
+                d.location.kind(),
+                expected.as_str(),
                 "{}: {} put {} at {:?}, but the mapping says {expected:?}",
-                f.name, d.detector, d.category, d.location.kind
+                f.name,
+                d.detector,
+                d.category,
+                d.location.kind()
             );
         }
     }
@@ -418,7 +448,10 @@ fn metadata_is_reported_field_by_field() {
         .detected
         .iter()
         .filter(|d| d.detector == "pdf.metadata")
-        .filter_map(|d| d.location.field.clone())
+        .filter_map(|d| match &d.location {
+            beforeshare_core::pdf::Location::PdfMetadata { field } => Some(field.clone()),
+            _ => None,
+        })
         .collect();
 
     let missing: Vec<&String> = present.difference(&reported).collect();

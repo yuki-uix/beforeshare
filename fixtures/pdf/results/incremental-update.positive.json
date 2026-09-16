@@ -1,0 +1,120 @@
+{
+  "coverage": {
+    "completed": [
+      "pdf.actions",
+      "pdf.annotations",
+      "pdf.embedded_files",
+      "pdf.form_fields",
+      "pdf.metadata",
+      "pdf.structure",
+      "pdf.text_layer"
+    ],
+    "failed": [],
+    "skipped": []
+  },
+  "durationMs": 0,
+  "findings": [
+    {
+      "category": "document_title",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "P***n",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-1",
+      "location": {
+        "field": "Title",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_title found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "incremental_update",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "2 cross-reference sections, and an earlier revision still holds ",
+        "maskPolicy": "structural_label",
+        "redacted": false,
+        "truncated": true
+      },
+      "group": "document_structure",
+      "id": "finding-2",
+      "location": {
+        "detail": "incremental_update",
+        "kind": "file_structure",
+        "revision": 2
+      },
+      "message": "incremental_update found in file_structure",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "critical"
+    }
+  ],
+  "input": {
+    "mediaType": "application/pdf",
+    "path": "/fixtures/pdf/files/incremental-update.positive.pdf",
+    "sha256": "b946a848fd86ffdc66fa00e08aec36189a3fd36c94746a77b32938dfaa82e945",
+    "sizeBytes": 878
+  },
+  "limitations": [],
+  "runId": "01J00000000000000000000018",
+  "schemaVersion": "1.0",
+  "startedAt": "2026-01-01T00:00:00Z",
+  "status": "blocking_findings",
+  "versions": {
+    "core": "0.1.0",
+    "detectors": [
+      {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      }
+    ],
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}

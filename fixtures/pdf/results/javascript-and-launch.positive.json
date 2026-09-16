@@ -1,0 +1,146 @@
+{
+  "coverage": {
+    "completed": [
+      "pdf.actions",
+      "pdf.annotations",
+      "pdf.embedded_files",
+      "pdf.form_fields",
+      "pdf.metadata",
+      "pdf.structure",
+      "pdf.text_layer"
+    ],
+    "failed": [],
+    "skipped": []
+  },
+  "durationMs": 0,
+  "findings": [
+    {
+      "category": "document_javascript",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "(document-level JavaScript name tree)",
+        "maskPolicy": "structural_label",
+        "redacted": false
+      },
+      "group": "document_structure",
+      "id": "finding-1",
+      "location": {
+        "kind": "pdf_action",
+        "objectNumber": 1,
+        "trigger": "document_open"
+      },
+      "message": "document_javascript found in pdf_action",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "high"
+    },
+    {
+      "category": "document_javascript",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "app.alert(\"phoning home\");",
+        "maskPolicy": "structural_label",
+        "redacted": false
+      },
+      "group": "document_structure",
+      "id": "finding-2",
+      "location": {
+        "kind": "pdf_action",
+        "objectNumber": 6,
+        "trigger": "document_open"
+      },
+      "message": "document_javascript found in pdf_action",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "high"
+    },
+    {
+      "category": "launch_action",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "/***p",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-3",
+      "location": {
+        "kind": "pdf_action",
+        "objectNumber": 7,
+        "trigger": "annotation"
+      },
+      "message": "launch_action found in pdf_action",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "high"
+    }
+  ],
+  "input": {
+    "mediaType": "application/pdf",
+    "path": "/fixtures/pdf/files/javascript-and-launch.positive.pdf",
+    "sha256": "163fbe343568eb6833338bf334c3973211fd3a9fb0760503c95019fed8340f76",
+    "sizeBytes": 856
+  },
+  "limitations": [],
+  "runId": "01J00000000000000000000022",
+  "schemaVersion": "1.0",
+  "startedAt": "2026-01-01T00:00:00Z",
+  "status": "review_required",
+  "versions": {
+    "core": "0.1.0",
+    "detectors": [
+      {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      }
+    ],
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}
