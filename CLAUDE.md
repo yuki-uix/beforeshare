@@ -17,9 +17,10 @@ enum was closed, not that its contents matched the clause.
 
 ```bash
 npm test
+cargo test --manifest-path core/Cargo.toml
 ```
 
-Runs three suites: schema validation with negative cases and drift checks, masking rules, and the
+`npm test` runs three suites: schema validation with negative cases and drift checks, masking rules, and the
 status/exit-code decision tables. CI runs the same thing plus a second job that breaks invariants on
 purpose and asserts the suite goes red for the expected reason.
 
@@ -65,6 +66,14 @@ trusting a new check, break the thing it guards and confirm it goes red — and 
 the right reason. A check that accepts any failure as proof of working will accept a missing
 dependency or a syntax error as proof too.
 
+This extends to the mutation itself. A mutation that matches more than one site can land on the wrong
+one, run the whole suite, and report a false green — which happened here, on two identical lines
+constructing the same rejection: the mutation hit the unreachable one, and the survivor read as a
+missing vector rather than as dead code. `core/tools/apply-mutation.py` refuses any mutation that
+does not match exactly one site. And run the suite with `--no-fail-fast`: cargo stops after the first
+test binary fails, so a mutation that breaks a unit test leaves the integration test a guard names
+unrun, and the guard then reports that the vector has stopped working.
+
 **A review finding names a class of defect, not a location.** Before pushing a fix, look for the same
 defect everywhere else it could be, and say what you searched. A finding fixed only where it was
 reported comes back as a new finding on the next PR, and the rounds do not converge.
@@ -96,6 +105,11 @@ The guard script now refuses to start on a dirty tree, which covers the script a
 
 ## Tooling
 
-`package.json` and `tools/` exist to validate the contracts. This is build tooling only — the schemas
-are language-agnostic JSON Schema, and the core language is still undecided. It belongs in its own
-ADR, not in an incidental choice here.
+`package.json` and `tools/` validate the contracts and hold the reference implementations of the
+product rules. The schemas stay language-agnostic JSON Schema.
+
+`core/` is the product runtime, in Rust — decided in [ADR 0001](docs/adr/0001-core-language-and-pdf-parser.md)
+and not by an incidental choice in the tooling. It reads the same rule tables with `include_str!`
+rather than copying them, and its job is to hold by construction what the reference implementations
+hold by convention: see [core-path-gate.md](docs/contracts/core-path-gate.md) for what that bought
+and what it did not.
