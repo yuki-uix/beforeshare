@@ -28,9 +28,21 @@ pub(super) fn all() -> Vec<(&'static str, Detector)> {
     ]
 }
 
+/// A PDF text string as text.
+///
+/// Not `from_utf8_lossy`: a PDF text string is either PDFDocEncoded or UTF-16BE
+/// behind a byte-order mark, and neither is UTF-8. A name inside a signed
+/// document, a form value typed in Chinese, a file name with an accent - all of
+/// them came back as replacement characters, and the evidence a person is shown
+/// is the value this returns.
 fn text_of(object: &Object) -> Option<String> {
     match object {
-        Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),
+        Object::String(_, _) => lopdf::decode_text_string(object)
+            .ok()
+            .or_else(|| match object {
+                Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),
+                _ => None,
+            }),
         Object::Name(bytes) => Some(String::from_utf8_lossy(bytes).to_string()),
         _ => None,
     }
@@ -168,6 +180,10 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
 /// The name and the value are separate categories from the same location: a
 /// field called `applicant_national_id` says what the form collects even when
 /// it is empty.
+///
+/// The field list is a tree. A node with `/Kids` holds its children, and the
+/// value may sit on any of them; reading only the top level answered "ran,
+/// found nothing" for a form whose fields were grouped, which is a silent miss.
 fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let Ok(catalog) = doc.catalog() else {
@@ -193,39 +209,81 @@ fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
     };
     let mut out = Vec::new();
     for field in fields {
-        let number = match field {
-            Object::Reference(id) => id.0,
-            _ => 0,
-        };
-        let Ok((_, field)) = doc.dereference(field) else {
-            continue;
-        };
-        let Ok(dict) = field.as_dict() else { continue };
-        if let Some(name) = dict.get(b"T").ok().and_then(text_of) {
-            if !name.is_empty() {
-                out.push(found(
-                    "form_field_name",
-                    "pdf.form_fields",
-                    Location::object(&location_for("form_field_name"), number),
-                    name,
-                ));
-            }
-        }
-        if let Some(value) = dict.get(b"V").ok().and_then(text_of) {
-            if !value.is_empty() {
-                out.push(found(
-                    "form_field_value",
-                    "pdf.form_fields",
-                    Location::object(&location_for("form_field_value"), number),
-                    value,
-                ));
-            }
-        }
+        walk_field(doc, field, "", 0, &mut out)?;
     }
     Ok(out)
 }
 
+fn walk_field(
+    doc: &Document,
+    field: &Object,
+    prefix: &str,
+    depth: usize,
+    out: &mut Vec<Detected>,
+) -> Result<(), NotRun> {
+    if depth > 32 {
+        return Err(NotRun::Failed(
+            "the form field tree is nested deeper than this detector will walk".into(),
+        ));
+    }
+    let number = match field {
+        Object::Reference(id) => id.0,
+        _ => 0,
+    };
+    let Ok((_, resolved)) = doc.dereference(field) else {
+        return Err(NotRun::Failed("a form field does not resolve".into()));
+    };
+    let Ok(dict) = resolved.as_dict() else {
+        return Ok(());
+    };
+    // A field's name is its own /T joined to its parents', which is how a
+    // grouped form spells `applicant.national_id`.
+    let own = dict.get(b"T").ok().and_then(text_of).unwrap_or_default();
+    let full = match (prefix.is_empty(), own.is_empty()) {
+        (_, true) => prefix.to_string(),
+        (true, false) => own.clone(),
+        (false, false) => format!("{prefix}.{own}"),
+    };
+
+    if !own.is_empty() {
+        out.push(found(
+            "form_field_name",
+            "pdf.form_fields",
+            Location::object(&location_for("form_field_name"), number),
+            full.clone(),
+        ));
+    }
+    if let Some(value) = dict.get(b"V").ok().and_then(text_of) {
+        if !value.is_empty() {
+            out.push(found(
+                "form_field_value",
+                "pdf.form_fields",
+                Location::object(&location_for("form_field_value"), number),
+                value,
+            ));
+        }
+    }
+    if let Ok(kids) = dict.get(b"Kids") {
+        let Ok((_, kids)) = doc.dereference(kids) else {
+            return Err(NotRun::Failed(
+                "a form field's /Kids does not resolve".into(),
+            ));
+        };
+        if let Ok(kids) = kids.as_array() {
+            for kid in kids {
+                walk_field(doc, kid, &full, depth + 1, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// §7.1 — embedded files.
+///
+/// The name tree is a tree: a node holds `/Names` or `/Kids`, and a document
+/// with more entries than fit one node uses the second. Reading only `/Names`
+/// returned "ran, found nothing" for a document carrying a file - a silent
+/// miss, which §17.1 counts as a release blocker rather than a gap.
 fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let Ok(catalog) = doc.catalog() else {
@@ -243,40 +301,66 @@ fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let Ok(tree) = names.get(b"EmbeddedFiles") else {
         return Ok(Vec::new());
     };
-    let Ok((_, tree)) = doc.dereference(tree) else {
-        return Err(NotRun::Failed("/EmbeddedFiles does not resolve".into()));
-    };
-    let Ok(tree) = tree.as_dict() else {
-        return Ok(Vec::new());
-    };
-    let Ok(pairs) = tree.get(b"Names") else {
-        return Ok(Vec::new());
-    };
-    let Ok((_, pairs)) = doc.dereference(pairs) else {
-        return Err(NotRun::Failed("the name tree does not resolve".into()));
-    };
-    let Ok(pairs) = pairs.as_array() else {
-        return Ok(Vec::new());
-    };
-    // The name tree alternates name, value. The index rather than the name
-    // identifies the entry, because a name is not unique and may itself
-    // disclose something.
     let mut out = Vec::new();
-    for (index, chunk) in pairs.chunks(2).enumerate() {
-        let Some(name) = chunk.first().and_then(text_of) else {
-            continue;
-        };
-        out.push(found(
-            "embedded_file",
-            "pdf.embedded_files",
-            Location {
-                object_number: Some(index as u32),
-                ..Location::of(&location_for("embedded_file"))
-            },
-            name,
+    let mut index = 0usize;
+    walk_name_tree(doc, tree, 0, &mut index, &mut out)?;
+    Ok(out)
+}
+
+fn walk_name_tree(
+    doc: &Document,
+    node: &Object,
+    depth: usize,
+    index: &mut usize,
+    out: &mut Vec<Detected>,
+) -> Result<(), NotRun> {
+    if depth > 32 {
+        return Err(NotRun::Failed(
+            "the embedded-file name tree is nested deeper than this detector will walk".into(),
         ));
     }
-    Ok(out)
+    let Ok((_, node)) = doc.dereference(node) else {
+        return Err(NotRun::Failed("a name-tree node does not resolve".into()));
+    };
+    let Ok(dict) = node.as_dict() else {
+        return Ok(());
+    };
+    if let Ok(pairs) = dict.get(b"Names") {
+        let Ok((_, pairs)) = doc.dereference(pairs) else {
+            return Err(NotRun::Failed("a name-tree leaf does not resolve".into()));
+        };
+        if let Ok(pairs) = pairs.as_array() {
+            // The leaf alternates name, value. The index rather than the name
+            // identifies the entry, because a name is not unique and may itself
+            // disclose something.
+            for chunk in pairs.chunks(2) {
+                let Some(name) = chunk.first().and_then(text_of) else {
+                    continue;
+                };
+                out.push(found(
+                    "embedded_file",
+                    "pdf.embedded_files",
+                    Location {
+                        object_number: Some(*index as u32),
+                        ..Location::of(&location_for("embedded_file"))
+                    },
+                    name,
+                ));
+                *index += 1;
+            }
+        }
+    }
+    if let Ok(kids) = dict.get(b"Kids") {
+        let Ok((_, kids)) = doc.dereference(kids) else {
+            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));
+        };
+        if let Ok(kids) = kids.as_array() {
+            for kid in kids {
+                walk_name_tree(doc, kid, depth + 1, index, out)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// §7.1 — document-level JavaScript, launch actions, external and local-file
@@ -413,20 +497,51 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
             )));
         };
 
-        let mut invisible = false;
-        // The current transformation, as translation and scale only. A `cm`
-        // that rotates or skews is refused below rather than approximated: a
-        // silent miss on an apparent redaction is what §17.1 counts as a
-        // release blocker, and guessing the geometry is how one happens.
-        let mut ctm: Vec<[f64; 4]> = vec![[1.0, 1.0, 0.0, 0.0]]; // sx, sy, tx, ty
-                                                                 // Rectangles are kept with the order they were filled in, because a
-                                                                 // rectangle painted *before* the text is a background and not a
-                                                                 // redaction. The first version collected them all and compared without
-                                                                 // order - while carrying a comment saying it did not.
+        // The graphics state, as translation and scale only, with the text
+        // render mode in it: `Tr` is part of the graphics state, so `q`/`Q`
+        // save and restore it, which the first version did not.
+        #[derive(Clone, Copy)]
+        struct State {
+            sx: f64,
+            sy: f64,
+            tx: f64,
+            ty: f64,
+            render_mode: i64,
+        }
+        let mut stack: Vec<State> = vec![State {
+            sx: 1.0,
+            sy: 1.0,
+            tx: 0.0,
+            ty: 0.0,
+            render_mode: 0,
+        }];
+
+        // Text and line matrices, as translation and scale. `Td` displaces the
+        // line matrix and `Tm` replaces it; the first version treated both as
+        // absolute coordinates, so a second `Td` in the same text object placed
+        // its run at the displacement rather than at the sum.
+        #[derive(Clone, Copy)]
+        struct TextMatrix {
+            sx: f64,
+            sy: f64,
+            tx: f64,
+            ty: f64,
+        }
+        const IDENTITY: TextMatrix = TextMatrix {
+            sx: 1.0,
+            sy: 1.0,
+            tx: 0.0,
+            ty: 0.0,
+        };
+        let mut line = IDENTITY;
+        let mut text = IDENTITY;
+        let mut leading = 0.0f64;
+
         let mut filled_rects: Vec<(usize, [f64; 4])> = Vec::new();
         let mut drawn: Vec<(usize, String, [f64; 2])> = Vec::new();
-        let mut pending_rect: Option<[f64; 4]> = None;
-        let mut text_position = [0.0f64, 0.0f64];
+        // Several `re` may precede one fill: each adds a subpath, and the fill
+        // paints all of them. Keeping only the last lost every rectangle but one.
+        let mut pending_rects: Vec<[f64; 4]> = Vec::new();
         let mut step = 0usize;
 
         for op in &decoded.operations {
@@ -441,19 +556,38 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                         .or_else(|| o.as_i64().ok().map(|i| i as f64))
                 })
                 .collect();
-            let here = *ctm.last().expect("the stack is never empty");
+            let here = *stack.last().expect("the stack is never empty");
+
+            // The strings this operator shows, in order. `TJ` takes an array of
+            // strings and kerning numbers; `'` and `"` show a string after
+            // moving to the next line, and were not handled at all.
+            let shown: Vec<String> = match op.operator.as_str() {
+                "Tj" | "'" | "\"" => op.operands.iter().filter_map(text_of).collect(),
+                "TJ" => op
+                    .operands
+                    .iter()
+                    .flat_map(|o| match o {
+                        Object::Array(items) => {
+                            items.iter().filter_map(text_of).collect::<Vec<_>>()
+                        }
+                        other => text_of(other).into_iter().collect(),
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+
             match op.operator.as_str() {
-                "q" => ctm.push(here),
+                "q" => stack.push(here),
                 "Q" => {
-                    if ctm.len() > 1 {
-                        ctm.pop();
+                    if stack.len() > 1 {
+                        stack.pop();
                     }
                 }
                 "cm" => {
                     if numbers.len() == 6 {
-                        let [a, b, c, d, e, f] = [
+                        let (a, b, c, d, e, f) = (
                             numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
-                        ];
+                        );
                         if b != 0.0 || c != 0.0 {
                             return Err(NotRun::Failed(format!(
                                 "page {page_number} rotates or skews its content, and this detector \
@@ -461,73 +595,110 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                                  would be a silent miss"
                             )));
                         }
-                        let top = ctm.last_mut().expect("the stack is never empty");
-                        *top = [
-                            top[0] * a,
-                            top[1] * d,
-                            top[2] + e * top[0],
-                            top[3] + f * top[1],
-                        ];
+                        let top = stack.last_mut().expect("the stack is never empty");
+                        top.tx += e * top.sx;
+                        top.ty += f * top.sy;
+                        top.sx *= a;
+                        top.sy *= d;
                     }
                 }
-                "Tr" => invisible = numbers.first().map(|n| *n == 3.0).unwrap_or(false),
+                // 3 is invisible; 7 adds to the clipping path and paints nothing.
+                "Tr" => {
+                    if let Some(mode) = numbers.first() {
+                        stack
+                            .last_mut()
+                            .expect("the stack is never empty")
+                            .render_mode = *mode as i64;
+                    }
+                }
+                "BT" => {
+                    line = IDENTITY;
+                    text = IDENTITY;
+                }
+                "TL" => leading = numbers.first().copied().unwrap_or(leading),
                 "Td" | "TD" => {
                     if numbers.len() >= 2 {
-                        text_position = [numbers[0], numbers[1]];
+                        if op.operator == "TD" {
+                            leading = -numbers[1];
+                        }
+                        line = TextMatrix {
+                            tx: line.tx + numbers[0] * line.sx,
+                            ty: line.ty + numbers[1] * line.sy,
+                            ..line
+                        };
+                        text = line;
                     }
                 }
                 "Tm" => {
                     if numbers.len() == 6 {
-                        text_position = [numbers[4], numbers[5]];
+                        if numbers[1] != 0.0 || numbers[2] != 0.0 {
+                            return Err(NotRun::Failed(format!(
+                                "page {page_number} rotates or skews its text, and this detector \
+                                 reasons about translation and scale only"
+                            )));
+                        }
+                        line = TextMatrix {
+                            sx: numbers[0],
+                            sy: numbers[3],
+                            tx: numbers[4],
+                            ty: numbers[5],
+                        };
+                        text = line;
                     }
+                }
+                "T*" | "'" | "\"" => {
+                    line = TextMatrix {
+                        ty: line.ty - leading * line.sy,
+                        ..line
+                    };
+                    text = line;
                 }
                 "re" => {
                     if numbers.len() == 4 {
-                        pending_rect = Some([
-                            here[2] + numbers[0] * here[0],
-                            here[3] + numbers[1] * here[1],
-                            numbers[2] * here[0],
-                            numbers[3] * here[1],
+                        pending_rects.push([
+                            here.tx + numbers[0] * here.sx,
+                            here.ty + numbers[1] * here.sy,
+                            numbers[2] * here.sx,
+                            numbers[3] * here.sy,
                         ]);
                     }
                 }
-                "f" | "F" | "f*" | "b" | "B" => {
-                    if let Some(rect) = pending_rect.take() {
+                // Every filling operator, including the starred variants that
+                // fill with the even-odd rule. Two were missing.
+                "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" => {
+                    for rect in pending_rects.drain(..) {
                         filled_rects.push((step, rect));
                     }
                 }
-                "Tj" | "TJ" => {
-                    let text = op
-                        .operands
-                        .iter()
-                        .filter_map(text_of)
-                        .collect::<Vec<_>>()
-                        .join("");
-                    if text.is_empty() {
-                        continue;
-                    }
-                    if invisible {
-                        out.push(found(
-                            "hidden_text",
-                            "pdf.text_layer",
-                            Location::on_page(&location_for("hidden_text"), page_number, 0),
-                            text,
-                        ));
-                    } else {
-                        let at = [
-                            here[2] + text_position[0] * here[0],
-                            here[3] + text_position[1] * here[1],
-                        ];
-                        drawn.push((step, text, at));
-                    }
+                "n" | "S" | "s" => {
+                    // A path ended without being filled: it covers nothing.
+                    pending_rects.clear();
                 }
                 _ => {}
+            }
+
+            for run in shown {
+                if run.is_empty() {
+                    continue;
+                }
+                let invisible = matches!(here.render_mode, 3 | 7);
+                if invisible {
+                    out.push(found(
+                        "hidden_text",
+                        "pdf.text_layer",
+                        Location::on_page(&location_for("hidden_text"), page_number, 0),
+                        run,
+                    ));
+                } else {
+                    let at = [here.tx + text.tx * here.sx, here.ty + text.ty * here.sy];
+                    drawn.push((step, run, at));
+                }
             }
         }
 
         // Only a rectangle filled after the text was drawn covers it. One drawn
         // first is a background.
-        for (drawn_at, text, [x, y]) in drawn {
+        for (drawn_at, run, [x, y]) in drawn {
             let covered = filled_rects.iter().any(|(filled_at, [rx, ry, w, h])| {
                 *filled_at > drawn_at && x >= *rx && x <= rx + w && y >= *ry && y <= ry + h
             });
@@ -536,7 +707,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                     "text_under_redaction",
                     "pdf.text_layer",
                     Location::on_page(&location_for("text_under_redaction"), page_number, 0),
-                    text,
+                    run,
                 ));
             }
         }
@@ -606,9 +777,12 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
 /// the rules table escalates, so a document explaining PDFs would have been
 /// escalated.
 fn cross_reference_sections(bytes: &[u8]) -> usize {
+    // Split on either terminator. A file written with classic Mac line endings
+    // has no \n at all, so splitting on it alone made the whole file one line
+    // and the sections uncountable - which reads as "not an incremental update".
     let mut lines = bytes
-        .split(|b| *b == b'\n')
-        .map(|line| line.strip_suffix(b"\r").unwrap_or(line));
+        .split(|b| *b == b'\n' || *b == b'\r')
+        .filter(|line| !line.is_empty());
     let mut sections = 0usize;
     while let Some(line) = lines.next() {
         if line.trim_ascii() != b"startxref" {

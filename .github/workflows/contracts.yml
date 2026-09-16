@@ -1265,7 +1265,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=34
+          EXPECTED_RUST_CASES=42
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
@@ -1508,6 +1508,46 @@ jobs:
             "a_detector_that_cannot_apply_is_skipped_with_a_reason" \
             $'Err(NotRun::Skipped(why)) => {\n                coverage.skipped.insert(name.to_string(), why.to_string());\n            }' \
             $'Err(NotRun::Skipped(_)) => {\n                coverage.completed.insert(name.to_string());\n            }'
+
+          expect_red_in "src/pdf/detectors.rs" "render mode 7 not counted as invisible" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
+            $'matches!(here.render_mode, 3 | 7)' \
+            $'here.render_mode == 3'
+
+          expect_red_in "src/pdf/detectors.rs" "Td read as an absolute coordinate" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
+            $'tx: line.tx + numbers[0] * line.sx,\n                            ty: line.ty + numbers[1] * line.sy,' \
+            $'tx: numbers[0],\n                            ty: numbers[1],'
+
+          expect_red_in "src/pdf/detectors.rs" "a TJ array left unread" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
+            $'Object::Array(items) => {\n                            items.iter().filter_map(text_of).collect::<Vec<_>>()\n                        }' \
+            $'Object::Array(_) => Vec::new(),'
+
+          expect_red_in "src/pdf/detectors.rs" "only the last subpath of a fill kept" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'for rect in pending_rects.drain(..) {' \
+            $'for rect in pending_rects.drain(..).rev().take(0) {'
+
+          expect_red_in "src/pdf/detectors.rs" "a name tree that does not branch" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'if let Ok(kids) = dict.get(b"Kids") {\n        let Ok((_, kids)) = doc.dereference(kids) else {\n            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));\n        };' \
+            $'if let Ok(kids) = dict.get(b"NeverPresent") {\n        let Ok((_, kids)) = doc.dereference(kids) else {\n            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));\n        };'
+
+          expect_red_in "src/pdf/detectors.rs" "a field tree that does not branch" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'for kid in kids {\n                walk_field(doc, kid, &full, depth + 1, out)?;' \
+            $'for kid in kids.iter().take(0) {\n                walk_field(doc, kid, &full, depth + 1, out)?;'
+
+          expect_red_in "src/pdf/detectors.rs" "text strings read as UTF-8" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'Object::String(_, _) => lopdf::decode_text_string(object)\n            .ok()\n            .or_else(|| match object {\n                Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),\n                _ => None,\n            }),' \
+            $'Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),'
+
+          expect_red_in "src/pdf/detectors.rs" "only a newline ends a line" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'split(|b| *b == b\'\\n\' || *b == b\'\\r\')' \
+            $'split(|b| *b == b\'\\n\')'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.

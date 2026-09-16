@@ -157,7 +157,10 @@ fn registry() -> &'static RegistryFile {
     CACHE.get_or_init(|| serde_json::from_str(REGISTRY).expect("detector-registry.json"))
 }
 
-/// The PDF detectors named by the rule table, in the order they are declared.
+/// The PDF detectors the rule table names.
+///
+/// A set, so the order is the name's, not the table's - the comment used to say
+/// "in the order they are declared", which a `BTreeSet` cannot honour.
 pub fn declared_detectors() -> BTreeSet<&'static str> {
     rules()
         .items()

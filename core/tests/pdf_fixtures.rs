@@ -207,6 +207,15 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
         if reason.len() < 10 {
             wrong.push(format!("{}: is not silent and gives no reason", f.name));
         }
+        // It declared it would not be silent, so silence is a broken promise.
+        // The subset check below is satisfied by producing nothing at all.
+        if found.is_empty() {
+            wrong.push(format!(
+                "{}: expects {} and produced nothing in {expected:?}",
+                f.name,
+                entry["expectedStatus"].as_str().unwrap_or("?")
+            ));
+        }
         // It must still separate something. A control that produces everything
         // its positive does is not a control.
         let positive_name = f.name.replace(".control.", ".positive.");
@@ -269,6 +278,15 @@ fn coverage_names_every_detector_exactly_once() {
                 seen.get(name).copied().unwrap_or(0)
             );
         }
+        // And nothing else. Checking only that each declared detector appears
+        // left a coverage report free to name a detector nobody declared,
+        // which a consumer would have to interpret and could not.
+        let reported: BTreeSet<&str> = seen.keys().copied().collect();
+        assert_eq!(
+            reported, declared,
+            "{}: coverage names detectors the rule table does not declare, or omits some",
+            f.name
+        );
         for (name, why) in c.skipped.iter().chain(c.failed.iter()) {
             assert!(
                 !why.is_empty(),
@@ -292,14 +310,42 @@ fn every_emitted_location_kind_is_declared() {
         .collect();
     // The two content-stream items share a location kind the mapping gives, and
     // the document-level ones use `pdf_document`; anything else is invented.
+    // Per category, not merely "a kind somebody declares". A finding carrying a
+    // kind that belongs to a different category is as uninterpretable as an
+    // invented one, and the looser check accepted it.
+    let kind_of: BTreeMap<String, String> = rules["mapping"]
+        .as_object()
+        .expect("mapping")
+        .values()
+        .filter_map(|item| {
+            let kind = item["location"].as_str()?;
+            Some(
+                item["categories"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|c| c.as_str().map(|c| (c.to_string(), kind.to_string())))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .flatten()
+        .collect();
+    assert!(
+        known.len() >= 6,
+        "only {} location kinds were read",
+        known.len()
+    );
     for f in all_fixtures() {
         for d in &f.inspection.detected {
-            assert!(
-                known.contains(&d.location.kind) || d.location.kind == "pdf_document",
-                "{}: {} emitted location kind {:?}, which no mapping declares",
-                f.name,
-                d.detector,
-                d.location.kind
+            let expected = kind_of.get(&d.category).unwrap_or_else(|| {
+                panic!(
+                    "{}: {} emitted category {:?}, which no mapping declares",
+                    f.name, d.detector, d.category
+                )
+            });
+            assert_eq!(
+                &d.location.kind, expected,
+                "{}: {} put {} at {:?}, but the mapping says {expected:?}",
+                f.name, d.detector, d.category, d.location.kind
             );
         }
     }
@@ -593,6 +639,205 @@ fn a_covering_rectangle_is_judged_by_order_and_by_where_it_lands() {
     assert!(
         why.contains("rotates or skews"),
         "the reason does not say what happened: {why}"
+    );
+}
+
+/// The content-stream operators a real page uses, which the fixture pair does
+/// not.
+///
+/// The fixtures each hold one `Tj` after one `Td`, so a detector that treated
+/// `Td` as an absolute coordinate, ignored render mode 7, dropped every `re`
+/// but the last, never unwrapped a `TJ` array and did not know `'` existed
+/// passed all of them.
+#[test]
+fn the_text_layer_reads_the_operators_a_page_actually_uses() {
+    let page = |content: &str| {
+        build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+            &format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ])
+    };
+    let read = |content: &str| {
+        let r = pdf::inspect(&page(content));
+        assert!(r.unreadable.is_none(), "meant to parse: {:?}", r.unreadable);
+        assert!(
+            !r.coverage.failed.contains_key("pdf.text_layer"),
+            "the detector failed: {:?}",
+            r.coverage.failed.get("pdf.text_layer")
+        );
+        let hidden: Vec<String> = r
+            .detected
+            .iter()
+            .filter(|d| d.category == "hidden_text")
+            .map(|d| d.value.clone())
+            .collect();
+        let covered: Vec<String> = r
+            .detected
+            .iter()
+            .filter(|d| d.category == "text_under_redaction")
+            .map(|d| d.value.clone())
+            .collect();
+        (hidden, covered)
+    };
+
+    // Render mode 7 paints nothing and adds to the clip: as invisible as 3.
+    let (hidden, _) = read("BT /F1 12 Tf 7 Tr 72 720 Td (Secret) Tj ET");
+    assert_eq!(hidden, ["Secret"], "render mode 7 is invisible");
+
+    // The render mode is graphics state, so Q restores it.
+    let (hidden, _) = read(
+        "q BT /F1 12 Tf 3 Tr 72 720 Td (Inside) Tj ET Q BT /F1 12 Tf 72 700 Td (Outside) Tj ET",
+    );
+    assert_eq!(hidden, ["Inside"], "an invisible mode leaked past its Q");
+
+    // Td displaces the line matrix; two of them accumulate. The second run
+    // lands at 72,706 - under the rectangle - and the first does not.
+    let (_, covered) =
+        read("BT /F1 12 Tf 72 720 Td (One) Tj 0 -14 Td (Two) Tj ET\n0 0 0 rg 70 700 200 18 re f");
+    assert_eq!(covered, ["Two"], "Td was treated as an absolute coordinate");
+
+    let (hidden, _) = read("BT /F1 12 Tf 3 Tr 72 720 Td [(Sec) -20 (ret)] TJ ET");
+    assert_eq!(hidden, ["Sec", "ret"], "a TJ array was not unwrapped");
+
+    let (hidden, _) = read("BT /F1 12 Tf 14 TL 3 Tr 72 720 Td (First) Tj (Second) ' ET");
+    assert_eq!(hidden, ["First", "Second"], "the ' operator shows text too");
+
+    // Several subpaths, one fill: all of them are painted.
+    let (_, covered) = read(
+        "BT /F1 12 Tf 72 720 Td (Covered) Tj ET\n0 0 0 rg 300 300 20 20 re 70 715 200 18 re f",
+    );
+    assert_eq!(
+        covered,
+        ["Covered"],
+        "only the last rectangle of a path was kept"
+    );
+
+    // A path that is not filled covers nothing.
+    let (_, covered) = read("BT /F1 12 Tf 72 720 Td (Uncovered) Tj ET\n70 715 200 18 re n");
+    assert!(
+        covered.is_empty(),
+        "an unfilled path was treated as a covering shape"
+    );
+
+    let (_, covered) = read("BT /F1 12 Tf 72 720 Td (Covered) Tj ET\n0 0 0 rg 70 715 200 18 re B*");
+    assert_eq!(covered, ["Covered"], "B* fills as surely as f");
+}
+
+/// Structures the fixtures do not have, each of which produced silence.
+///
+/// A name tree that branches, a form whose fields are grouped, a text string
+/// that is not UTF-8, and a file written with classic Mac line endings. Every
+/// one of them came back as "ran, found nothing" - which §17.1 counts as a
+/// release blocker rather than a gap, because nothing distinguishes it from a
+/// clean document.
+#[test]
+fn shapes_the_fixtures_do_not_have_are_read_rather_than_missed() {
+    // An embedded-file name tree that branches through /Kids.
+    let tree = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Kids [4 0 R] >> >> >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /Type /Filespec /F (payroll.csv) >>",
+        "<< /Names [(payroll.csv) 3 0 R] >>",
+    ]);
+    let found: Vec<String> = pdf::inspect(&tree)
+        .detected
+        .iter()
+        .filter(|d| d.category == "embedded_file")
+        .map(|d| d.value.clone())
+        .collect();
+    assert_eq!(
+        found,
+        ["payroll.csv"],
+        "a branching name tree was read as empty"
+    );
+
+    // A form whose field sits under a parent's /Kids, with the name inherited.
+    let form = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /T (applicant) /Kids [4 0 R] >>",
+        "<< /T (national_id) /V (QQ-123456-C) >>",
+    ]);
+    let inspection = pdf::inspect(&form);
+    let values: Vec<String> = inspection
+        .detected
+        .iter()
+        .filter(|d| d.category == "form_field_value")
+        .map(|d| d.value.clone())
+        .collect();
+    let names: Vec<String> = inspection
+        .detected
+        .iter()
+        .filter(|d| d.category == "form_field_name")
+        .map(|d| d.value.clone())
+        .collect();
+    assert_eq!(
+        values,
+        ["QQ-123456-C"],
+        "a grouped form field was read as empty"
+    );
+    assert!(
+        names.contains(&"applicant.national_id".to_string()),
+        "the inherited field name was not assembled: {names:?}"
+    );
+
+    // /Author as UTF-16BE behind a byte-order mark. from_utf8_lossy turned this
+    // into replacement characters, and the value is the evidence a person sees.
+    let mut utf16 = String::from("%PDF-1.7\n");
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /Author <FEFF65874EE3> >>",
+    ];
+    let mut offsets = Vec::new();
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(utf16.len());
+        utf16.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+    }
+    let xref_at = utf16.len();
+    utf16.push_str(&format!(
+        "xref\n0 {}\n0000000000 65535 f \n",
+        objects.len() + 1
+    ));
+    for offset in &offsets {
+        utf16.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    utf16.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R /Info 3 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    let authors: Vec<String> = pdf::inspect(utf16.as_bytes())
+        .detected
+        .iter()
+        .filter(|d| d.category == "document_author")
+        .map(|d| d.value.clone())
+        .collect();
+    assert_eq!(
+        authors,
+        ["\u{6587}\u{4ee3}"],
+        "a UTF-16BE text string was not decoded"
+    );
+
+    // The incremental-update fixture with every newline replaced by a carriage
+    // return: the same file, written the way a classic Mac tool writes it.
+    let original =
+        std::fs::read(repo_root().join("fixtures/pdf/files/incremental-update.positive.pdf"))
+            .expect("the fixture");
+    let cr_only: Vec<u8> = original
+        .iter()
+        .map(|b| if *b == b'\n' { b'\r' } else { *b })
+        .collect();
+    let updates = pdf::inspect(&cr_only)
+        .detected
+        .iter()
+        .filter(|d| d.category == "incremental_update")
+        .count();
+    assert_eq!(
+        updates, 1,
+        "carriage returns hid the second cross-reference section"
     );
 }
 
