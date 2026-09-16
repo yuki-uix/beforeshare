@@ -1265,20 +1265,45 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=24
+          EXPECTED_RUST_CASES=34
           cp src/path_gate.rs /tmp/path_gate.clean
+          cp src/pdf/detectors.rs /tmp/detectors.clean
+          cp src/pdf/mod.rs /tmp/pdf_mod.clean
 
-          expect_red() {
-            local label="$1" expect_test="$2" old="$3" new="$4"
+          # Two source files carry rules now, so the file is a parameter. The
+          # snapshot restored afterwards is the one for that file, because
+          # restoring the wrong one leaves a mutation in the tree and poisons
+          # every later case - which is the failure this whole job exists to
+          # make impossible to miss.
+          snapshot_of() {
+            case "$1" in
+              src/path_gate.rs) echo /tmp/path_gate.clean ;;
+              src/pdf/detectors.rs) echo /tmp/detectors.clean ;;
+              src/pdf/mod.rs) echo /tmp/pdf_mod.clean ;;
+              *) echo "" ;;
+            esac
+          }
+
+          expect_red() { expect_red_in "src/path_gate.rs" "$@"; }
+
+          expect_red_in() {
+            local file="$1" label="$2" expect_test="$3" old="$4" new="$5"
             cases_run=$((cases_run + 1))
+            local clean
+            clean=$(snapshot_of "$file")
+            if [ -z "$clean" ]; then
+              echo "::error::${label}: no snapshot is kept for ${file}, so it could not be restored"
+              failed=1
+              return
+            fi
 
             # The applier refuses a mutation that matches more than one site:
             # such a mutation can land on the wrong one, run the whole suite,
             # and report a false green. That happened here.
-            if ! python3 tools/apply-mutation.py src/path_gate.rs "$old" "$new"; then
+            if ! python3 tools/apply-mutation.py "$file" "$old" "$new"; then
               echo "::error::${label}: the mutation did not apply to exactly one site"
               failed=1
-              cp /tmp/path_gate.clean src/path_gate.rs
+              cp "$clean" "$file"
               return
             fi
 
@@ -1295,7 +1320,7 @@ jobs:
             # -e for the whole call; relying on the call site is too quiet.
             local out
             out=$(cargo test --no-fail-fast 2>&1) || true
-            cp /tmp/path_gate.clean src/path_gate.rs
+            cp "$clean" "$file"
 
             # A here-string, not a pipe into grep -q. Under pipefail, grep -q
             # exits at its first match, the upstream writer takes SIGPIPE, and
@@ -1434,9 +1459,61 @@ jobs:
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,'
 
+          expect_red_in "src/pdf/detectors.rs" "actions stop at the top-level dictionary" \
+            "every_must_detect_fixture_is_detected" \
+            $'for (_, value) in dict.iter() {\n                walk_actions(value, number, depth + 1, out);\n            }' \
+            $'// the walk into nested dictionaries, removed'
+
+          expect_red_in "src/pdf/detectors.rs" "no incremental-update signal" \
+            "every_must_detect_fixture_is_detected" \
+            $'if sections > 1 {' \
+            $'if false {'
+
+          expect_red_in "src/pdf/detectors.rs" "the word trailer counted again" \
+            "words_in_the_page_text_are_not_a_second_revision" \
+            $'let sections = cross_reference_sections(source.bytes);' \
+            $'let sections = source.bytes.windows(7).filter(|w| *w == b"trailer").count();'
+
+          expect_red_in "src/pdf/detectors.rs" "hidden text not told from visible" \
+            "every_must_detect_fixture_is_detected" \
+            $'"Tr" => invisible = numbers.first().map(|n| *n == 3.0).unwrap_or(false),' \
+            $'"Tr" => invisible = false,'
+
+          expect_red_in "src/pdf/detectors.rs" "a covering rectangle judged without order" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'*filled_at > drawn_at && x >= *rx' \
+            $'x >= *rx'
+
+          expect_red_in "src/pdf/detectors.rs" "the transform not applied to text" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'let at = [\n                            here[2] + text_position[0] * here[0],\n                            here[3] + text_position[1] * here[1],\n                        ];' \
+            $'let at = text_position;'
+
+          expect_red_in "src/pdf/detectors.rs" "rotation answered instead of refused" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'if b != 0.0 || c != 0.0 {' \
+            $'if false {'
+
+          expect_red_in "src/pdf/detectors.rs" "metadata reported once for the dictionary" \
+            "metadata_is_reported_field_by_field" \
+            $'for (key, category) in FIELDS {' \
+            $'for (key, category) in FIELDS.iter().take(1).copied() {'
+
+          expect_red_in "src/pdf/mod.rs" "a document that parsed to nothing called clean" \
+            "a_document_that_parses_to_nothing_is_not_a_clean_document" \
+            $'if document.objects.is_empty() {' \
+            $'if false {'
+
+          expect_red_in "src/pdf/mod.rs" "skipped folded into completed" \
+            "a_detector_that_cannot_apply_is_skipped_with_a_reason" \
+            $'Err(NotRun::Skipped(why)) => {\n                coverage.skipped.insert(name.to_string(), why.to_string());\n            }' \
+            $'Err(NotRun::Skipped(_)) => {\n                coverage.completed.insert(name.to_string());\n            }'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
+          cp /tmp/detectors.clean src/pdf/detectors.rs
+          cp /tmp/pdf_mod.clean src/pdf/mod.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else
