@@ -467,6 +467,126 @@ fn a_document_that_parses_to_nothing_is_not_a_clean_document() {
     );
 }
 
+/// A document that talks about PDFs is not a document that was appended to.
+///
+/// The detector counted the words `trailer` and `startxref` anywhere in the
+/// file, so a one-revision document whose page text explains PDF internals was
+/// reported as incrementally updated - and that is the one category the rules
+/// table escalates.
+#[test]
+fn words_in_the_page_text_are_not_a_second_revision() {
+    let text = "BT /F1 12 Tf 72 720 Td (The trailer follows startxref in every PDF.) Tj ET";
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        &format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    assert!(
+        inspection.unreadable.is_none(),
+        "the document was meant to parse: {:?}",
+        inspection.unreadable
+    );
+    let claimed: Vec<&str> = inspection
+        .detected
+        .iter()
+        .filter(|d| d.category == "incremental_update")
+        .map(|d| d.value.as_str())
+        .collect();
+    assert!(
+        claimed.is_empty(),
+        "a single-revision document was reported as appended to: {claimed:?}"
+    );
+
+    // And the fixture that really was appended to is still found, so the fix
+    // did not buy silence by detecting nothing.
+    let real = all_fixtures()
+        .into_iter()
+        .find(|f| f.name == "incremental-update.positive.pdf")
+        .expect("the fixture");
+    assert!(
+        real.inspection
+            .detected
+            .iter()
+            .any(|d| d.category == "incremental_update"),
+        "the genuine incremental update stopped being detected"
+    );
+}
+
+/// What "text beneath an apparent redaction" means, case by case.
+///
+/// The fixture pair has one shape: text, then a rectangle over it. Three others
+/// matter and none of them were covered — a rectangle drawn *first* is a
+/// background and was reported as a redaction, text positioned by a transform
+/// was missed entirely, and rotated content was silently answered "nothing
+/// here", which §17.1 counts as a release blocker rather than a gap.
+#[test]
+fn a_covering_rectangle_is_judged_by_order_and_by_where_it_lands() {
+    let page = |content: &str| {
+        build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+            &format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ])
+    };
+    let covered = |content: &str| {
+        let r = pdf::inspect(&page(content));
+        assert!(r.unreadable.is_none(), "meant to parse: {:?}", r.unreadable);
+        (
+            r.detected
+                .iter()
+                .filter(|d| d.category == "text_under_redaction")
+                .count(),
+            r.coverage.failed.get("pdf.text_layer").cloned(),
+        )
+    };
+
+    let (hits, failed) =
+        covered("BT /F1 12 Tf 72 720 Td (Claimant) Tj ET\n0 0 0 rg 70 715 200 18 re f");
+    assert_eq!(
+        (hits, failed.is_some()),
+        (1, false),
+        "text then a rectangle over it"
+    );
+
+    let (hits, _) = covered("0 0 0 rg 70 715 200 18 re f\nBT /F1 12 Tf 72 720 Td (Claimant) Tj ET");
+    assert_eq!(
+        hits, 0,
+        "a rectangle drawn before the text is a background, not a redaction"
+    );
+
+    let (hits, _) = covered(
+        "q 1 0 0 1 72 720 cm BT /F1 12 Tf 0 0 Td (Claimant) Tj ET Q\n0 0 0 rg 70 715 200 18 re f",
+    );
+    assert_eq!(
+        hits, 1,
+        "text positioned by a transform is still text under the rectangle"
+    );
+
+    let (hits, _) =
+        covered("BT /F1 12 Tf 1 0 0 1 72 720 Tm (Claimant) Tj ET\n0 0 0 rg 70 715 200 18 re f");
+    assert_eq!(hits, 1, "Tm positions text as surely as Td");
+
+    let (hits, _) = covered("BT /F1 12 Tf 72 720 Td (Claimant) Tj ET\n0 0 0 rg 70 100 200 18 re f");
+    assert_eq!(hits, 0, "a rectangle elsewhere on the page covers nothing");
+
+    // Rotation is not reasoned about, and saying nothing about it would be a
+    // silent miss. It fails, with a reason.
+    let (hits, failed) = covered(
+        "q 0 1 -1 0 0 0 cm BT /F1 12 Tf 72 720 Td (Claimant) Tj ET Q\n0 0 0 rg 70 715 200 18 re f",
+    );
+    assert_eq!(hits, 0);
+    let why = failed.expect("rotated content must be refused rather than answered");
+    assert!(
+        why.contains("rotates or skews"),
+        "the reason does not say what happened: {why}"
+    );
+}
+
 /// A minimal PDF whose cross-reference offsets are computed from the bytes.
 ///
 /// Hand-written offsets are exactly what ADR 0002's `xref-offsets-off-by-one`

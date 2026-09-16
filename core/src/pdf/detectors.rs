@@ -401,12 +401,23 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
         };
 
         let mut invisible = false;
-        let mut filled_rects: Vec<[f64; 4]> = Vec::new();
-        let mut drawn: Vec<(String, [f64; 2])> = Vec::new();
+        // The current transformation, as translation and scale only. A `cm`
+        // that rotates or skews is refused below rather than approximated: a
+        // silent miss on an apparent redaction is what §17.1 counts as a
+        // release blocker, and guessing the geometry is how one happens.
+        let mut ctm: Vec<[f64; 4]> = vec![[1.0, 1.0, 0.0, 0.0]]; // sx, sy, tx, ty
+                                                                 // Rectangles are kept with the order they were filled in, because a
+                                                                 // rectangle painted *before* the text is a background and not a
+                                                                 // redaction. The first version collected them all and compared without
+                                                                 // order - while carrying a comment saying it did not.
+        let mut filled_rects: Vec<(usize, [f64; 4])> = Vec::new();
+        let mut drawn: Vec<(usize, String, [f64; 2])> = Vec::new();
         let mut pending_rect: Option<[f64; 4]> = None;
         let mut text_position = [0.0f64, 0.0f64];
+        let mut step = 0usize;
 
         for op in &decoded.operations {
+            step += 1;
             let numbers: Vec<f64> = op
                 .operands
                 .iter()
@@ -417,21 +428,59 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                         .or_else(|| o.as_i64().ok().map(|i| i as f64))
                 })
                 .collect();
+            let here = *ctm.last().expect("the stack is never empty");
             match op.operator.as_str() {
+                "q" => ctm.push(here),
+                "Q" => {
+                    if ctm.len() > 1 {
+                        ctm.pop();
+                    }
+                }
+                "cm" => {
+                    if numbers.len() == 6 {
+                        let [a, b, c, d, e, f] = [
+                            numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
+                        ];
+                        if b != 0.0 || c != 0.0 {
+                            return Err(NotRun::Failed(format!(
+                                "page {page_number} rotates or skews its content, and this detector \
+                                 reasons about translation and scale only - reporting nothing here \
+                                 would be a silent miss"
+                            )));
+                        }
+                        let top = ctm.last_mut().expect("the stack is never empty");
+                        *top = [
+                            top[0] * a,
+                            top[1] * d,
+                            top[2] + e * top[0],
+                            top[3] + f * top[1],
+                        ];
+                    }
+                }
                 "Tr" => invisible = numbers.first().map(|n| *n == 3.0).unwrap_or(false),
-                "Td" | "TD" | "Tm" => {
+                "Td" | "TD" => {
                     if numbers.len() >= 2 {
-                        text_position = [numbers[numbers.len() - 2], numbers[numbers.len() - 1]];
+                        text_position = [numbers[0], numbers[1]];
+                    }
+                }
+                "Tm" => {
+                    if numbers.len() == 6 {
+                        text_position = [numbers[4], numbers[5]];
                     }
                 }
                 "re" => {
                     if numbers.len() == 4 {
-                        pending_rect = Some([numbers[0], numbers[1], numbers[2], numbers[3]]);
+                        pending_rect = Some([
+                            here[2] + numbers[0] * here[0],
+                            here[3] + numbers[1] * here[1],
+                            numbers[2] * here[0],
+                            numbers[3] * here[1],
+                        ]);
                     }
                 }
                 "f" | "F" | "f*" | "b" | "B" => {
                     if let Some(rect) = pending_rect.take() {
-                        filled_rects.push(rect);
+                        filled_rects.push((step, rect));
                     }
                 }
                 "Tj" | "TJ" => {
@@ -452,20 +501,23 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                             text,
                         ));
                     } else {
-                        drawn.push((text, text_position));
+                        let at = [
+                            here[2] + text_position[0] * here[0],
+                            here[3] + text_position[1] * here[1],
+                        ];
+                        drawn.push((step, text, at));
                     }
                 }
                 _ => {}
             }
         }
 
-        // Text drawn before a filled rectangle that covers where it sits. The
-        // check is deliberately about the rectangle being painted *after* the
-        // text: a background drawn first is not a redaction.
-        for (text, [x, y]) in drawn {
-            let covered = filled_rects
-                .iter()
-                .any(|[rx, ry, w, h]| x >= *rx && x <= rx + w && y >= *ry && y <= ry + h);
+        // Only a rectangle filled after the text was drawn covers it. One drawn
+        // first is a background.
+        for (drawn_at, text, [x, y]) in drawn {
+            let covered = filled_rects.iter().any(|(filled_at, [rx, ry, w, h])| {
+                *filled_at > drawn_at && x >= *rx && x <= rx + w && y >= *ry && y <= ry + h
+            });
             if covered {
                 out.push(found(
                     "text_under_redaction",
@@ -519,26 +571,42 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
     // object model cannot answer this one. The mapping puts it at
     // `file_structure` rather than on an object, which is the same statement:
     // it is a fact about the file.
-    let trailers = count_occurrences(source.bytes, b"trailer");
-    let starts = count_occurrences(source.bytes, b"startxref");
-    if trailers > 1 || starts > 1 {
+    let sections = cross_reference_sections(source.bytes);
+    if sections > 1 {
         out.push(found(
             "incremental_update",
             "pdf.structure",
             Location::of(&location_for("incremental_update")),
-            format!("{starts} cross-reference sections and {trailers} trailers: this file was appended to"),
+            format!("{sections} cross-reference sections: this file was appended to"),
         ));
     }
 
     Ok(out)
 }
 
-fn count_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return 0;
+/// How many cross-reference sections the file has.
+///
+/// A `startxref` keyword alone on its line, followed by a line holding only an
+/// offset, is the structure; the same word inside a content stream is text. A
+/// plain byte search found two "trailers" in a one-revision document whose page
+/// text was about PDF internals - and `incremental_update` is the one category
+/// the rules table escalates, so a document explaining PDFs would have been
+/// escalated.
+fn cross_reference_sections(bytes: &[u8]) -> usize {
+    let mut lines = bytes
+        .split(|b| *b == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line));
+    let mut sections = 0usize;
+    while let Some(line) = lines.next() {
+        if line.trim_ascii() != b"startxref" {
+            continue;
+        }
+        if let Some(next) = lines.next() {
+            let offset = next.trim_ascii();
+            if !offset.is_empty() && offset.iter().all(u8::is_ascii_digit) {
+                sections += 1;
+            }
+        }
     }
-    haystack
-        .windows(needle.len())
-        .filter(|w| *w == needle)
-        .count()
+    sections
 }
