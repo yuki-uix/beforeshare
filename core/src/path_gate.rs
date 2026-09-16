@@ -182,7 +182,34 @@ struct CaseRule {
 /// Normalised for comparison: fully resolved, NFC, and case-folded where the
 /// volume folds. Raw string comparison would let `Report.pdf` and `report.pdf`
 /// pass as different files, which is how an output sneaks onto its input.
-fn identity_key(path: &Path, rule: CaseRule) -> String {
+/// The key for deciding whether two paths are the same file.
+///
+/// Case only, and only by the rule this volume was probed for. No Unicode
+/// normalisation: a comparison used to authorise must be exactly as lossy as
+/// the volume and never more, and normalisation here is not probed. On a
+/// byte-preserving filesystem `/x/caf\u{e9}` and `/x/cafe\u{301}` are two real
+/// directories, and normalising made them one key - so a directory outside the
+/// authorised root compared equal to the root.
+///
+/// Both callers compare paths that `canonicalize` has already returned, which
+/// is the filesystem's own answer about spelling, so nothing is lost by not
+/// normalising here.
+fn containment_key(path: &Path, rule: CaseRule) -> String {
+    let raw = path.to_string_lossy();
+    if rule.fold {
+        raw.to_lowercase()
+    } else {
+        raw.to_string()
+    }
+}
+
+/// The key for reading the caller's own spelling, which `canonicalize` has not
+/// touched.
+///
+/// This one normalises, because it decides only which refusal to report - was
+/// this name ever inside a root, or never - and a wrong answer there is a
+/// misleading message, not an authorisation.
+fn spelling_key(path: &Path, rule: CaseRule) -> String {
     let raw = path.to_string_lossy();
     // Folding first. `nfc` composes only lowercase base characters, so
     // composing first left "CAFE\u{301}.pdf" decomposed, and lowercasing it
@@ -307,7 +334,9 @@ impl Gate {
     ) -> Result<ResolvedPath, Rejected> {
         let path = self.resolve(raw)?;
         if let Some(input) = input {
-            if identity_key(&path, self.case_rule) == identity_key(input.path(), self.case_rule) {
+            if containment_key(&path, self.case_rule)
+                == containment_key(input.path(), self.case_rule)
+            {
                 return Err(Rejected::OutputIsInput(path.display().to_string()));
             }
         }
@@ -344,7 +373,7 @@ impl Gate {
             // "symlink escape" for /etc/passwd, because /etc is a link to
             // /private/etc on macOS - a path that was never inside anything,
             // reported as though it had broken out.
-            return Err(if self.within_roots(&collapsed) {
+            return Err(if self.named_inside_roots(&collapsed) {
                 Rejected::SymlinkEscape(format!("{} -> {}", collapsed.display(), real.display()))
             } else {
                 Rejected::OutsideAuthorisedRoots(real.display().to_string())
@@ -353,10 +382,25 @@ impl Gate {
         Ok(real)
     }
 
+    /// Whether the name the caller gave was inside a root, for the refusal
+    /// message only. Normalises, which `within_roots` must not.
+    fn named_inside_roots(&self, path: &Path) -> bool {
+        self.any_root(path, spelling_key)
+    }
+
     fn within_roots(&self, path: &Path) -> bool {
-        let key = identity_key(path, self.case_rule);
+        self.any_root(path, containment_key)
+    }
+
+    /// Containment under one root, by whichever key the caller is entitled to.
+    ///
+    /// One site, not two: the second copy of this comparison made the mutation
+    /// that proves a name prefix is not containment ambiguous, and an ambiguous
+    /// mutation can land on the wrong copy and report a false green.
+    fn any_root(&self, path: &Path, key_of: fn(&Path, CaseRule) -> String) -> bool {
+        let key = key_of(path, self.case_rule);
         self.roots.iter().any(|root| {
-            let root_key = identity_key(root, self.case_rule);
+            let root_key = key_of(root, self.case_rule);
             key == root_key || key.starts_with(&format!("{root_key}/"))
         })
     }
@@ -672,6 +716,41 @@ mod tests {
         let half = decide_folding(root, Ok("/a".into()), Err(denied()))
             .expect_err("the swapped name failed for a reason that says nothing");
         assert_eq!(half.reason(), "unresolvable");
+    }
+
+    /// The two keys must differ in exactly one way, and the volume this runs on
+    /// cannot show it: APFS refuses to hold both spellings at once, so the
+    /// authorisation bypass is unreachable here and reachable on ext4. Asserted
+    /// on the functions instead of on a directory nobody can create locally.
+    #[test]
+    fn containment_does_not_unify_what_the_volume_keeps_apart() {
+        let folding = CaseRule { fold: true };
+        let nfc_name = Path::new("/x/caf\u{e9}");
+        let nfd_name = Path::new("/x/cafe\u{301}");
+
+        assert_ne!(
+            containment_key(nfc_name, folding),
+            containment_key(nfd_name, folding),
+            "two spellings a byte-preserving volume keeps apart were given one key, \
+             which is how a directory outside the root compared equal to the root"
+        );
+        // Case, in contrast, IS probed per volume, so folding it here is the
+        // volume's own answer rather than an assumption.
+        assert_eq!(
+            containment_key(Path::new("/x/Report.PDF"), folding),
+            containment_key(Path::new("/x/report.pdf"), folding),
+        );
+        assert_ne!(
+            containment_key(Path::new("/x/Report.PDF"), CaseRule { fold: false }),
+            containment_key(Path::new("/x/report.pdf"), CaseRule { fold: false }),
+        );
+        // The spelling key is the one allowed to be lossier: it only chooses
+        // which refusal to report.
+        assert_eq!(
+            spelling_key(nfc_name, folding),
+            spelling_key(nfd_name, folding),
+            "the refusal message would stop telling an escape from a stranger"
+        );
     }
 
     #[test]

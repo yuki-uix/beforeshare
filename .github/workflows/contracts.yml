@@ -1226,7 +1226,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=18
+          EXPECTED_RUST_CASES=19
           cp src/path_gate.rs /tmp/path_gate.clean
 
           expect_red() {
@@ -1364,6 +1364,11 @@ jobs:
             "a_write_does_not_follow_a_link_that_appeared_at_the_final_component" \
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC,'
+
+          expect_red "containment normalises what the volume keeps apart" \
+            "containment_does_not_unify_what_the_volume_keeps_apart" \
+            $'fn containment_key(path: &Path, rule: CaseRule) -> String {\n    let raw = path.to_string_lossy();' \
+            $'fn containment_key(path: &Path, rule: CaseRule) -> String {\n    let raw = std::borrow::Cow::<str>::Owned(nfc(&path.to_string_lossy()));'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.

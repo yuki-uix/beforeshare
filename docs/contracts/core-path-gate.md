@@ -81,6 +81,25 @@ defects the port carried over or that its own fixes created:
 | the unreadable-directory vector asserted a refusal a privileged process never gets | a case that stops testing anything wherever it runs privileged |
 | the guard matched with `printf | grep -q` under `pipefail` | the job beside this one carries a comment about exactly this SIGPIPE trap; the lesson had not travelled |
 
+A ninth arrived in the next round and is the sharpest of them: **a comparison
+used to authorise must be exactly as lossy as the volume, and never more.**
+`identity_key` normalised Unicode for every comparison, including the one
+deciding whether a resolved path is inside an authorised root. Case is probed
+per volume; normalisation was not probed at all. On a byte-preserving
+filesystem `/x/caf\u{e9}` and `/x/cafe\u{301}` are two real directories, and one
+key for both meant a directory outside the root compared equal to the root.
+
+The keys are separate now. `containment_key` folds case by the probed rule and
+does not normalise — both its callers compare paths `canonicalize` has already
+returned, which is the filesystem's own answer about spelling. `spelling_key`
+still normalises, because it reads the caller's own untouched spelling and
+decides only *which* refusal to report; a wrong answer there is a misleading
+message, not an authorisation.
+
+This one could not be caught by a vector on this machine: APFS refuses to hold
+both spellings at once, so the bypass is unreachable on macOS and reachable on
+ext4. It is asserted on the two key functions instead.
+
 The last one is worth naming separately: the guard job next to this one already
 documents that trap in a comment, and this PR reintroduced it a few hundred
 lines away. A comment is not a check.
