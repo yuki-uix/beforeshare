@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=74
+          EXPECTED_CASES=76
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1166,15 +1166,54 @@ jobs:
             "tools/path-gate.mjs" \
             "test:path-gate" || failed=1
 
-          # The control: with nothing broken, the suite must be green. Without
-          # this, a suite that failed unconditionally would satisfy every case
-          # above.
-          if ! npm run validate --silent > /dev/null 2>&1; then
-            echo "::error::control case: the suite fails even with no mutation applied"
-            failed=1
-          else
-            echo "ok  control: unmutated tree is green"
-          fi
+          # ADR 0002 decides between two parsers on measured outcomes, and its
+          # tables are transcribed by hand from experiments/results.tsv. This
+          # check caught the ADR's own prose claiming both parsers reached all
+          # twelve planted disclosures while its table said otherwise.
+          node -e "
+            const fs=require('fs'), p='docs/adr/0002-pdf-parser.md';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('**loaded, 0 objects**', 'loaded, 7 objects');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an ADR cell that disagrees with the run behind it" \
+            "lopdf lenient matches the run" \
+            "docs/adr/0002-pdf-parser.md" \
+            "test:bakeoff" || failed=1
+
+          # A suite that runs when it is merely imported runs inside the
+          # validator, which imports every module in tools/ - and one that ends
+          # with process.exit(0) replaces the validator's exit code. That
+          # happened: sixteen guards in one run reported that they no longer
+          # checked anything, while the validator printed its own failures and
+          # exited 0.
+          #
+          # The mutation is on a tracked file. The first version wrote a new
+          # untracked one, and `restore` uses `git checkout --`, which cannot
+          # undo a file git does not know about - the script caught that and
+          # stopped, which is what it is for.
+          node -e "
+            const fs=require('fs'), p='tools/test-parser-bakeoff.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('if (!isMain) {', 'if (false) {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a suite that runs when it is only imported" \
+            "no suite in tools/ ends the process that imports it" \
+            "tools/test-parser-bakeoff.mjs" || failed=1
+
+          # The control, per suite. One control over `validate` left every case
+          # that names a different suite unproven: a `test:bakeoff` that failed
+          # for any input would have satisfied its case above while this control
+          # stayed green, because the control was not running it.
+          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries; do
+            if ! npm run "$suite" --silent > /dev/null 2>&1; then
+              echo "::error::control case: ${suite} fails even with no mutation applied"
+              failed=1
+            else
+              echo "ok  control: ${suite} is green on an unmutated tree"
+            fi
+          done
 
           if [ "$cases_run" -ne "$EXPECTED_CASES" ]; then
             echo "::error::ran ${cases_run} negative cases, expected ${EXPECTED_CASES} - one was skipped or swallowed"
