@@ -15,5 +15,6 @@
 
 #![forbid(unsafe_code)]
 
+pub mod masking;
 pub mod path_gate;
 pub mod pdf;

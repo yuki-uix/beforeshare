@@ -1265,10 +1265,11 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=42
+          EXPECTED_RUST_CASES=49
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
+          cp src/masking.rs /tmp/masking.clean
 
           # Two source files carry rules now, so the file is a parameter. The
           # snapshot restored afterwards is the one for that file, because
@@ -1280,6 +1281,7 @@ jobs:
               src/path_gate.rs) echo /tmp/path_gate.clean ;;
               src/pdf/detectors.rs) echo /tmp/detectors.clean ;;
               src/pdf/mod.rs) echo /tmp/pdf_mod.clean ;;
+              src/masking.rs) echo /tmp/masking.clean ;;
               *) echo "" ;;
             esac
           }
@@ -1549,11 +1551,47 @@ jobs:
             $'split(|b| *b == b\'\\n\' || *b == b\'\\r\')' \
             $'split(|b| *b == b\'\\n\')'
 
+          expect_red_in "src/masking.rs" "the minimum-hidden rule removed" \
+            "no_policy_leaves_fewer_than_two_code_points_hidden" \
+            $'if chars.len() < 2 * keep || chars.len() - 2 * keep < MIN_HIDDEN {\n        return None;\n    }' \
+            $'if false {\n        return None;\n    }'
+
+          expect_red_in "src/masking.rs" "the token policy floor removed" \
+            "a_value_too_short_for_its_policy_is_fully_masked" \
+            $'keep_edges(&kept, 2, Some(8))' \
+            $'keep_edges(&kept, 2, None)'
+
+          expect_red_in "src/masking.rs" "the display cap applied after masking" \
+            "the_cap_runs_before_masking" \
+            $'let kept: Vec<char> = all.iter().take(MAX_DISPLAY_CODE_POINTS).copied().collect();' \
+            $'let kept: Vec<char> = all.clone();'
+
+          expect_red_in "src/masking.rs" "one hidden code point treated as enough" \
+            "no_policy_leaves_fewer_than_two_code_points_hidden" \
+            $'const MIN_HIDDEN: usize = 2;' \
+            $'const MIN_HIDDEN: usize = 1;'
+
+          expect_red_in "src/masking.rs" "a degraded result reported as its policy" \
+            "a_value_too_short_for_its_policy_is_fully_masked" \
+            $'mask_policy: "fully_masked".to_string(),\n        redacted: true,\n        truncated,\n    };\n\n    let display_value' \
+            $'mask_policy: policy.to_string(),\n        redacted: true,\n        truncated,\n    };\n\n    let display_value'
+
+          expect_red_in "src/masking.rs" "an unknown policy guessed at" \
+            "an_unknown_policy_is_refused_rather_than_guessed" \
+            $'other => return Err(format!("unknown mask policy: {other}")),' \
+            $'other => { let _ = other; fully_masked(&kept) }'
+
+          expect_red_in "src/masking.rs" "a category with no policy falls back" \
+            "an_unknown_policy_is_refused_rather_than_guessed" \
+            $'policies().get(category).map(String::as_str)' \
+            $'Some(policies().get(category).map(String::as_str).unwrap_or("structural_label"))'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
           cp /tmp/detectors.clean src/pdf/detectors.rs
           cp /tmp/pdf_mod.clean src/pdf/mod.rs
+          cp /tmp/masking.clean src/masking.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else
