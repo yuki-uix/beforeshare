@@ -958,6 +958,26 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
   }
   check('exported arrays were found to check', found.length > 0);
 
+  // Importing them is only safe while none of them *runs* on import. One did:
+  // a new suite without the `isMain` guard every other one carries executed
+  // inside this validator and ended with process.exit(0), which replaced this
+  // process's exit code. Sixteen guards in the same CI run reported that they
+  // no longer checked anything, and the validator printed its own failures
+  // while exiting 0.
+  //
+  // The check is on the source rather than on behaviour, because behaviour here
+  // means "did the process survive being imported", which cannot be observed
+  // from inside the process it would have killed.
+  const runsOnImport = [];
+  for (const file of readdirSync(toolsDir).filter((f) => f.startsWith('test-') && f.endsWith('.mjs'))) {
+    const source = readFileSync(join(toolsDir, file), 'utf8');
+    const guarded = /const isMain = .*import\.meta\.url/.test(source) && /if \(isMain\)|if \(!isMain\)/.test(source);
+    if (!guarded) runsOnImport.push(file);
+  }
+  check('every suite in tools/ refuses to run when it is merely imported',
+    runsOnImport.length === 0,
+    `${runsOnImport.join(', ')} - this validator imports them, and one that runs on import can end this process`);
+
   // Matched by name AND value. Keying on the name alone let a second module
   // export something called SUPPORTED_MEDIA_TYPES holding entirely different
   // values and be treated as registered, with its contents never compared to

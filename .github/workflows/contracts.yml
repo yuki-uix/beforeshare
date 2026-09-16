@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=75
+          EXPECTED_CASES=76
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1180,6 +1180,21 @@ jobs:
             "lopdf lenient matches the run" \
             "docs/adr/0002-pdf-parser.md" \
             "test:bakeoff" || failed=1
+
+          # A suite that runs when it is merely imported runs inside this
+          # validator, which imports every module in tools/ - and one that ends
+          # with process.exit(0) replaces the validator's exit code. That
+          # happened: sixteen guards in one run reported that they no longer
+          # checked anything, while the validator printed its own failures and
+          # exited 0.
+          node -e "
+            const fs=require('fs');
+            fs.writeFileSync('tools/test-unguarded-for-ci.mjs', 'export const NOTHING = [];\n');
+          "
+          expect_failure "a suite that runs when it is only imported" \
+            "every suite in tools/ refuses to run when it is merely imported" \
+            "tools/test-unguarded-for-ci.mjs" || failed=1
+          rm -f tools/test-unguarded-for-ci.mjs
 
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
