@@ -86,8 +86,9 @@ used to authorise must be exactly as lossy as the volume, and never more.**
 `identity_key` normalised Unicode for every comparison, including the one
 deciding whether a resolved path is inside an authorised root. Case is probed
 per volume; normalisation was not probed at all. On a byte-preserving
-filesystem `/x/caf\u{e9}` and `/x/cafe\u{301}` are two real directories, and one
-key for both meant a directory outside the root compared equal to the root.
+filesystem `/x/caf` + `U+00E9` and `/x/cafe` + `U+0301` are two real
+directories — they render alike and are not alike — and one key for both meant a
+directory outside the root compared equal to the root.
 
 The keys are separate now. `containment_key` folds case by the probed rule and
 does not normalise — both its callers compare paths `canonicalize` has already
@@ -167,7 +168,7 @@ declare, and a reason the table declares that no vector can reach, each fail.
 |---|---|
 | A parent component swapped between check and open: `O_NOFOLLOW` covers the final component only, and closing the rest needs a component-by-component `openat` walk | #62 — a later slice of the same port, once the gate has a directory-handle type to walk with |
 | Whether the JavaScript reference implementation is retired once the core owns these rules, or kept as a second opinion | #3 — E2 owns what the reference implementations are for |
-| A root whose name carries no ASCII letter (`~/\u{6587}\u{6863}`) cannot be probed for its case rule and is now refused | #62 — the name experiment is a stand-in; the real answer is asking the volume (`getattrlist` / `ATTR_VOL_CAPABILITIES`), which needs FFI this crate forbids today |
+| A root whose name carries no ASCII letter (`/Users/u/文档`, already expanded — `Gate::new` takes absolute paths and does not expand `~`) cannot be probed for its case rule and is now refused | #62 — the name experiment is a stand-in; the real answer is asking the volume (`getattrlist` / `ATTR_VOL_CAPABILITIES`), which needs FFI this crate forbids today |
 | How long a process should hold a handle, and whether one is kept across stages | #38 — a lifetime policy, not a closing mechanism; it belongs with temporary-file lifetime |
 | Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root, which is an E2 interface decision |
 | Whether `cargo test` on a byte-preserving volume is a supported configuration or merely tolerated | #62 — the vectors assert both answers today; committing to one is a packaging decision this slice does not own |
