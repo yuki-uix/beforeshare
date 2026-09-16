@@ -1232,8 +1232,15 @@ jobs:
             # a mutation that breaks a unit test would leave the integration
             # test this case names unrun - and the guard would report that the
             # vector had stopped working.
+            # `|| true`: this command is *expected* to fail - that is the whole
+            # point of a mutation - and GitHub starts the step with `bash -e`,
+            # which the script's own `set -uo pipefail` does not undo. Without
+            # this the first mutation ended the step, with no output at all and
+            # an exit code from cargo. The job next to this one survives only
+            # because its helper is called as `... || failed=1`, which suppresses
+            # -e for the whole call; relying on the call site is too quiet.
             local out
-            out=$(cargo test --no-fail-fast 2>&1)
+            out=$(cargo test --no-fail-fast 2>&1) || true
             cp /tmp/path_gate.clean src/path_gate.rs
 
             if printf '%s' "$out" | grep -qE "^test .*${expect_test}.* \.\.\. FAILED"; then
