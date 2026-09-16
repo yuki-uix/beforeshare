@@ -1265,11 +1265,12 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=49
+          EXPECTED_RUST_CASES=54
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
           cp src/masking.rs /tmp/masking.clean
+          cp src/result.rs /tmp/result.clean
 
           # Two source files carry rules now, so the file is a parameter. The
           # snapshot restored afterwards is the one for that file, because
@@ -1282,6 +1283,7 @@ jobs:
               src/pdf/detectors.rs) echo /tmp/detectors.clean ;;
               src/pdf/mod.rs) echo /tmp/pdf_mod.clean ;;
               src/masking.rs) echo /tmp/masking.clean ;;
+              src/result.rs) echo /tmp/result.clean ;;
               *) echo "" ;;
             esac
           }
@@ -1586,12 +1588,38 @@ jobs:
             $'policies().get(category).map(String::as_str)' \
             $'Some(policies().get(category).map(String::as_str).unwrap_or("structural_label"))'
 
+          expect_red_in "src/result.rs" "coverage checked before a blocking finding" \
+            "a_blocking_finding_outranks_incomplete_coverage" \
+            $'if !blocking.is_empty() {' \
+            $'if !blocking.is_empty() && gaps.is_empty() {'
+
+          expect_red_in "src/result.rs" "a probabilistic critical finding blocks" \
+            "a_probabilistic_critical_finding_does_not_block" \
+            $'finding["severity"] == *rule.severity && finding["certainty"] == *rule.certainty' \
+            $'finding["severity"] == *rule.severity'
+
+          expect_red_in "src/result.rs" "nothing completed reported as clean" \
+            "nothing_completed_is_a_failure_not_a_clean_document" \
+            $'if completed == 0 {' \
+            $'if false {'
+
+          expect_red_in "src/result.rs" "media type checked after coverage" \
+            "an_unsupported_media_type_is_not_a_failed_run" \
+            $'if media_type != "application/pdf" {' \
+            $'if completed > 0 && media_type != "application/pdf" {'
+
+          expect_red_in "src/result.rs" "a gap no longer makes a result partial" \
+            "incomplete_coverage_outranks_ordinary_findings" \
+            $'if !gaps.is_empty() {' \
+            $'if false {'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
           cp /tmp/detectors.clean src/pdf/detectors.rs
           cp /tmp/pdf_mod.clean src/pdf/mod.rs
           cp /tmp/masking.clean src/masking.rs
+          cp /tmp/result.clean src/result.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else

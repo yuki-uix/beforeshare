@@ -121,15 +121,17 @@ fn status_inputs() -> &'static StatusInputs {
 /// apply" and "the check did not happen" are both skips, and only the second
 /// makes a result partial.
 pub fn reduces_coverage(reason: SkipReason) -> bool {
+    reduces_coverage_named(reason.as_str())
+}
+
+/// The same question for a reason this layer names rather than a detector: the
+/// OCR gap is added here, and it has to be classified by the same table as
+/// everything else.
+fn reduces_coverage_named(reason: &str) -> bool {
     status_inputs()
         .skip_reasons
-        .get(reason.as_str())
-        .unwrap_or_else(|| {
-            panic!(
-                "{} is not classified in status-inputs.json",
-                reason.as_str()
-            )
-        })
+        .get(reason)
+        .unwrap_or_else(|| panic!("{reason} is not classified in status-inputs.json"))
         .reduces_coverage
 }
 
@@ -305,17 +307,21 @@ pub fn assemble(
         })
         .collect();
 
-    let gaps: Vec<String> = inspection
-        .coverage
-        .skipped
+    // Derived from the coverage that was just built, not from a second copy of
+    // the conditions that built it. The two were written separately and could
+    // disagree: coverage could name a skip that reduces coverage while the
+    // status computation never saw it, so a result could list a gap and still
+    // be called clean. Flipping one of the two conditions changed nothing,
+    // which is how the duplication showed itself.
+    let gaps: Vec<String> = skipped
         .iter()
-        .filter(|(_, (reason, _))| reduces_coverage(*reason))
-        .map(|(d, _)| d.clone())
-        .chain(
-            inspection
-                .has_images
-                .then(|| "ocr.visible_text".to_string()),
-        )
+        .filter(|entry| {
+            entry["reason"]
+                .as_str()
+                .map(reduces_coverage_named)
+                .unwrap_or(false)
+        })
+        .filter_map(|entry| entry["detector"].as_str().map(str::to_string))
         .chain(inspection.coverage.failed.keys().cloned())
         .collect();
 
