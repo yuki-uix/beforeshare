@@ -1465,7 +1465,7 @@ jobs:
 
           expect_red_in "src/pdf/detectors.rs" "actions stop at the top-level dictionary" \
             "every_must_detect_fixture_is_detected" \
-            $'for (_, value) in dict.iter() {\n                walk_actions(value, number, depth + 1, out);\n            }' \
+            $'for (_, value) in dict.iter() {\n                walk_actions(doc, value, number, depth + 1, out);\n            }' \
             $'// the walk into nested dictionaries, removed'
 
           expect_red_in "src/pdf/detectors.rs" "no incremental-update signal" \
