@@ -163,6 +163,17 @@ impl ResolvedPath {
     /// A build that cannot take one falls back to re-resolving at access time,
     /// which follows a component replaced in between. Callers that need the
     /// guarantee can ask rather than assume.
+    /// The device and inode of the file this authorisation holds open.
+    ///
+    /// Taken from the handle, not from the path: the name can be repointed
+    /// after the authorisation was issued, and the handle is what the gate
+    /// actually checked.
+    pub(crate) fn identity(&self) -> Option<(u64, u64)> {
+        let fd = self.handle.as_ref()?;
+        let st = rustix::fs::fstat(fd).ok()?;
+        Some((st.st_dev as u64, st.st_ino as u64))
+    }
+
     pub fn is_handle_bound(&self) -> bool {
         self.handle.is_some()
     }
@@ -334,9 +345,7 @@ impl Gate {
     ) -> Result<ResolvedPath, Rejected> {
         let path = self.resolve(raw)?;
         if let Some(input) = input {
-            if containment_key(&path, self.case_rule)
-                == containment_key(input.path(), self.case_rule)
-            {
+            if self.is_the_input(&path, input) {
                 return Err(Rejected::OutputIsInput(path.display().to_string()));
             }
         }
@@ -380,6 +389,24 @@ impl Gate {
             });
         }
         Ok(real)
+    }
+
+    /// Whether this output path names the file the input authorisation holds.
+    ///
+    /// Two questions, because an output that does not exist yet has no identity
+    /// to compare. When it does exist the filesystem is asked directly - the
+    /// input's own handle against the output's name - which needs no assumption
+    /// about what spelling `canonicalize` gives back, and does not re-open the
+    /// input by a name that may have been repointed since it was authorised.
+    /// When it does not exist, the names are all there is.
+    fn is_the_input(&self, output: &Path, input: &ResolvedPath) -> bool {
+        match (file_identity_at(output), input.identity()) {
+            (Some(out), Some(inp)) => out == inp,
+            _ => {
+                containment_key(output, self.case_rule)
+                    == containment_key(input.path(), self.case_rule)
+            }
+        }
     }
 
     /// Whether the name the caller gave was inside a root, for the refusal
@@ -684,6 +711,14 @@ pub fn reason_stages() -> Vec<(&'static str, &'static str)> {
         .iter()
         .map(|(k, v)| (k.as_str(), v.stage.as_str()))
         .collect()
+}
+
+/// The device and inode of whatever this name points at now, or None when the
+/// name does not resolve to a file.
+fn file_identity_at(path: &Path) -> Option<(u64, u64)> {
+    let st = std::fs::metadata(path).ok()?;
+    use std::os::unix::fs::MetadataExt;
+    Some((st.dev(), st.ino()))
 }
 
 #[cfg(test)]

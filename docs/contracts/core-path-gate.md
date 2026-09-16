@@ -132,6 +132,28 @@ that now. A table that lists a decided question as open is the same defect as an
 example that violates the rule it illustrates: it reports work that does not
 exist.
 
+## A finding whose premise did not hold, and what it was still worth
+
+A later round argued that `canonicalize` on macOS does not rewrite case or
+normalisation to the on-disk spelling, so comparing canonical strings could miss
+an output that is its own input. Measured on APFS, it does rewrite both:
+
+```
+asked REPORT.PDF            -> report.pdf
+asked 63 61 66 65 cc 81     -> 63 61 66 c3 a9      (NFD in, the stored NFC out)
+```
+
+So the stated reason was not the reason. The change it suggested was still worth
+making, for a different one: the gate is already holding the input's handle, and
+asking the filesystem through that handle settles identity without any
+assumption about spelling at all - and without re-opening the input by a name
+that may have been repointed since it was authorised. A hard link is the case no
+comparison of names can see, and it now has a vector.
+
+The write vectors also only ever asserted refusals, so a `write_file` that
+returned `Err` for everything satisfied all of them. There is a vector for the
+bytes landing now, and one for them replacing rather than appending.
+
 ## What did not change
 
 The rules are still data. `schemas/v1/path-rules.json` is `include_str!`'d, not

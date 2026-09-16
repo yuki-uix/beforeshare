@@ -1226,7 +1226,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=21
+          EXPECTED_RUST_CASES=24
           cp src/path_gate.rs /tmp/path_gate.clean
 
           expect_red() {
@@ -1379,6 +1379,21 @@ jobs:
             "the_probe_changes_only_the_name_it_is_asking_about" \
             $'if swapped == *name {' \
             $'if false {'
+
+          expect_red "the output judged by name only" \
+            "the_output_is_judged_against_the_file_the_input_holds_open" \
+            $'        match (file_identity_at(output), input.identity()) {\n            (Some(out), Some(inp)) => out == inp,\n            _ =>' \
+            $'        match (None::<(u64, u64)>, input.identity()) {\n            (Some(out), Some(inp)) => out == inp,\n            _ =>'
+
+          expect_red "an authorised write that never lands" \
+            "an_authorised_write_puts_the_bytes_where_it_says" \
+            $'std::fs::File::from(fd).write_all(bytes)' \
+            $'let _ = fd; Err(std::io::Error::other("no"))'
+
+          expect_red "O_TRUNC dropped from the write" \
+            "an_authorised_write_puts_the_bytes_where_it_says" \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.

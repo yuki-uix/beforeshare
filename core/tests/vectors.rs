@@ -736,6 +736,60 @@ fn a_write_does_not_follow_a_link_that_appeared_at_the_final_component() {
 }
 
 #[test]
+fn an_authorised_write_puts_the_bytes_where_it_says() {
+    // Every other write vector asserts a refusal, so a write_file that returned
+    // Err unconditionally would satisfy all of them. This is the one that fails
+    // if nothing is ever written.
+    let t = Tree::new();
+    let g = t.gate();
+    let out = g.for_write(&t.at("out.pdf"), None).expect("a fresh output");
+    write_file(&out, b"%PDF-1.7\n").expect("the write lands");
+    assert_eq!(
+        std::fs::read(t.root.join("out.pdf")).expect("the file exists"),
+        b"%PDF-1.7\n",
+        "the write did not land on the authorised path"
+    );
+
+    // And it replaces rather than appends: O_TRUNC is what makes a second write
+    // of fewer bytes leave nothing of the first behind.
+    let again = g
+        .for_write(&t.at("out.pdf"), None)
+        .expect("the same output again");
+    write_file(&again, b"%PDF\n").expect("the second write lands");
+    assert_eq!(
+        std::fs::read(t.root.join("out.pdf")).expect("still there"),
+        b"%PDF\n"
+    );
+    let _ = t.keep();
+}
+
+#[test]
+fn the_output_is_judged_against_the_file_the_input_holds_open() {
+    // The comparison asks the filesystem, through the input's own handle,
+    // rather than trusting two spellings to agree. A hard link is the case no
+    // spelling comparison can see: two different names, one file, and writing
+    // to either truncates what the inspection read.
+    let t = Tree::new();
+    std::fs::write(t.root.join("report.pdf"), b"%PDF-1.7\n").expect("the input");
+    std::fs::hard_link(t.root.join("report.pdf"), t.root.join("also-report.pdf"))
+        .expect("a second name for one file");
+    let g = t.gate();
+    let input = g.for_read(&t.at("report.pdf")).expect("the input");
+
+    rejects(
+        "an output that is the input under another name",
+        g.for_write(&t.at("also-report.pdf"), Some(&input)),
+        "output_is_input",
+    );
+    // A genuinely different file with a similar name is still allowed.
+    let elsewhere = g
+        .for_write(&t.at("report (sanitized).pdf"), Some(&input))
+        .expect("a different file");
+    assert_eq!(elsewhere.mode(), Mode::Write);
+    let _ = t.keep();
+}
+
+#[test]
 fn a_read_authorisation_does_not_write() {
     let t = Tree::new();
     let g = t.gate();
@@ -785,6 +839,7 @@ fn every_declared_reason_is_triggered_by_a_vector() {
     a_name_prefix_is_not_containment();
     a_root_spelled_with_a_trailing_slash_is_the_same_root();
     an_output_resolving_to_the_input_is_refused_in_every_spelling();
+    the_output_is_judged_against_the_file_the_input_holds_open();
     an_output_naming_a_directory_is_refused();
     identity_follows_the_volume_rather_than_a_preference();
     the_two_spellings_of_an_accent_are_one_file();
