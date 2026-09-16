@@ -105,7 +105,13 @@ if (!isMain) {
     // The reason is part of the claim. Treating every refusal as one outcome
     // let a parser change which failure it reports while the ADR kept the old
     // one - and three of these rows refuse for three different reasons.
-    const refused = text.match(/^refused[:\s(]*(.*?)\)?$/);
+    //
+    // Two shapes, parsed separately. One pattern with an optional trailing
+    // `\)?` was non-greedy and ate the closing parenthesis of a reason that
+    // contains one: `refused: error (x)` and `refused: error (x` both became
+    // `error (x`, so two different reasons compared equal.
+    const refused = text.match(/^refused:\s*(.*)$/)
+      ?? text.match(/^refused\s+\((.*)\)$/);
     if (refused) return { kind: 'refused', reason: refused[1].trim() };
     return { kind: 'unreadable', text };
   };
@@ -138,6 +144,24 @@ if (!isMain) {
     check(`${file}: mupdf matches the run`, sameOutcome(mu.only, mupdf),
       `ADR says "${mupdf}", the run says "${mu.only}"`);
   }
+
+  // The refusal parser, on shapes the six ADR rows do not happen to contain.
+  // It was written once with a single pattern and an optional trailing `\)?`,
+  // which silently dropped a closing parenthesis - a difference between two
+  // reasons that the comparison then could not see.
+  for (const [text, expected] of [
+    ['refused: error (x)', 'error (x)'],
+    ['refused: error (x', 'error (x'],
+    ['refused (couldn\'t parse input)', "couldn't parse input"],
+    ['refused: invalid indirect object at byte offset 16', 'invalid indirect object at byte offset 16'],
+  ]) {
+    const parsed = claims(text);
+    check(`a refusal reason survives parsing: ${JSON.stringify(text)}`,
+      parsed.kind === 'refused' && parsed.reason === expected,
+      `got ${JSON.stringify(parsed.reason)}, expected ${JSON.stringify(expected)}`);
+  }
+  check('two refusals differing only by a closing parenthesis are not equal',
+    !sameOutcome('refused: error (x)', 'refused: error (x'));
 
   // The row the decision rests on, asserted as a property rather than as a cell:
   // a successful load that yields nothing is the failure mode the ADR is about.
