@@ -26,6 +26,25 @@ const check = (name, ok, detail = '') => {
 /** Outcome text with the bracketed timing removed. */
 const withoutTiming = (cell) => cell.replace(/\s*\[[^\]]*\]\s*$/, '').trim();
 
+// The results file is what the ADR is checked against, so the results file has
+// to be checked against something too: the probe sources it came from. Editing a
+// probe without re-running used to leave every check green about numbers that no
+// longer described the code that produced them.
+{
+  const { createHash } = await import('node:crypto');
+  const here = new URL('../experiments/', import.meta.url);
+  const sources = ['pdf-parser-bakeoff/src/main.rs', 'pdf-parser-bakeoff/Cargo.toml',
+    'mupdf-probe/src/main.rs', 'mupdf-probe/Cargo.toml'];
+  const hash = createHash('sha256');
+  for (const rel of sources) hash.update(readFileSync(new URL(rel, here)));
+  const current = hash.digest('hex');
+  const recorded = results.match(/^# probes-sha256 ([0-9a-f]{64})$/m)?.[1];
+  check('results.tsv records the probe sources it came from', Boolean(recorded));
+  check('results.tsv was produced by the probes as they stand',
+    recorded === current,
+    `recorded ${recorded?.slice(0, 12)}, sources now ${current.slice(0, 12)} — run experiments/run.sh`);
+}
+
 const rows = results.split('\n').filter((l) => l && !l.startsWith('#'));
 const malformed = new Map();
 for (const line of rows) {

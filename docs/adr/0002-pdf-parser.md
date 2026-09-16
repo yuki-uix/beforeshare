@@ -66,6 +66,28 @@ document it never read — a clean bill of health on an unread file, which §17.
 counts as a release blocker rather than a bug. MuPDF recovers the content
 instead; `strict: true` turns it into a named refusal.
 
+## What this evidence is not
+
+Three limits, stated here rather than left for a reader to discover:
+
+**The six broken files are invented, not collected.** Each breaks one named
+thing, which is what makes the comparison legible, and none of them came from a
+real document. A parser that recovers from these may still fail on the ways real
+producers break files, and the reverse. This is the weakest part of the case and
+it is the part the decision leans on hardest.
+
+**One machine, one run.** The outcomes used are mechanical — a load succeeds or
+does not, and yields a countable number of objects — which is the kind of result
+a single run settles. The timings in `results.tsv` are not mechanical and no part
+of this decision rests on them; the drift check ignores them for that reason.
+
+**The two probes were not asked identically, and could not be.** Each parser was
+asked through whatever API it offers, because lopdf has no structured-text layer
+to ask and MuPDF's object model is not lopdf's. The asymmetry that remains runs
+*toward* the candidate not chosen: when MuPDF's text layer could not answer the
+covered-text item, the probe fell back to its raw stream, and lopdf was given no
+second attempt because it needed none. A tie reached that way is a tie.
+
 ## Decision
 
 **`lopdf`, loaded with `strict: true`.**
