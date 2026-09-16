@@ -251,16 +251,13 @@ impl Gate {
                     root.display()
                 )));
             }
-            if root.parent().is_none() {
-                return Err(Rejected::OutsideAuthorisedRoots(
-                    "/ as an authorised root authorises the whole filesystem, which is what having no gate does".into(),
-                ));
-            }
+            // After resolution rather than on the spelling. A check on the
+            // spelling alone let "/." through, and keeping both meant no single
+            // change could make the gate accept "/" - which reads as defence in
+            // depth and leaves the rule with no guard that can fail. This one
+            // subsumes the other: a root that cannot be resolved is kept as
+            // given, so "/" is still caught.
             let real = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-            // After resolution, not only before: "/." passes the check above and
-            // canonicalizes to "/", so the rule was satisfiable by spelling -
-            // the same way an empty root set and ["/"] were, which is why both
-            // are refused rather than only one.
             if real.parent().is_none() {
                 return Err(Rejected::OutsideAuthorisedRoots(format!(
                     "{} resolves to /, which authorises the whole filesystem",

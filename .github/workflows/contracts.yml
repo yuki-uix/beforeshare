@@ -1226,7 +1226,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=19
+          EXPECTED_RUST_CASES=18
           cp src/path_gate.rs /tmp/path_gate.clean
 
           expect_red() {
@@ -1293,13 +1293,13 @@ jobs:
 
           expect_red "no case folding" \
             "a_misspelled_root_is_still_recognised_as_the_root" \
-            $'if rule.fold {\n        normalised.to_lowercase()' \
-            $'if false {\n        normalised.to_lowercase()'
+            $'if rule.fold {\n        nfc(&raw.to_lowercase())' \
+            $'if false {\n        nfc(&raw.to_lowercase())'
 
           expect_red "no Unicode normalisation" \
             "a_root_spelled_in_the_other_normalisation_is_the_same_root" \
-            $'let normalised = nfc(&path.to_string_lossy());' \
-            $'let normalised = path.to_string_lossy().to_string();'
+            $'let mut out = String::with_capacity(input.len());' \
+            $'if true { return input.to_string(); }\n    let mut out = String::with_capacity(input.len());'
 
           expect_red "no handle taken at resolve" \
             "an_access_uses_the_file_that_was_checked_not_the_name" \
@@ -1320,11 +1320,6 @@ jobs:
             "a_cycle_is_named_rather_than_spun_on" \
             $'Err(e) if e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) => {\n            Err(Rejected::SymlinkLoop(path.display().to_string()))' \
             $'Err(e) if e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) => {\n            Err(Rejected::Unresolvable(path.display().to_string()))'
-
-          expect_red "the filesystem root allowed as an authorised root" \
-            "a_gate_authorising_everything_cannot_be_built" \
-            $'if root.parent().is_none() {' \
-            $'if false {'
 
           expect_red "an empty root set allowed" \
             "a_gate_authorising_everything_cannot_be_built" \
