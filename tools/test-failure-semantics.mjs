@@ -78,6 +78,7 @@ if (isMain) {
         const e = new Error(message); e.code = 'CRASH'; throw e;
       },
       realpath: (p) => p,
+      readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
       isDirectory: (p) => p === ROOT,
       read: (p) => files.get(p),
       write: (p, bytes) => {

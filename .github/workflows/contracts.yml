@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=71
+          EXPECTED_CASES=74
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1120,6 +1120,52 @@ jobs:
             "docs/product-case-study.md" \
             "test:detection" || failed=1
 
+          # A dangling symlink reports ENOENT exactly as a missing file does, so
+          # the resolver rejoined the link's own name to its resolved parent and
+          # dropped the link - authorising a write that then landed outside the
+          # roots. Both implementations had it; neither suite could express it
+          # until the filesystem contract could report a link target.
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('const target = maybeReadlink(fs, candidate);', 'const target = null;');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a dangling link taken for a missing file" \
+            "a dangling link whose target is outside the root is refused" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          # The contract is checked at construction because it was not: five
+          # stubs written against the older three-member shape each failed at
+          # whichever path first needed the missing member, with an error naming
+          # the path rather than the filesystem object that was wrong.
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"const REQUIRED_FS = ['realpath', 'readlink', 'isDirectory'];\", 'const REQUIRED_FS = [];');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a filesystem missing a member it will be asked for" \
+            "a filesystem that cannot answer every question is refused at construction" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
+          # A link resolving to the filesystem root, with a missing tail below
+          # it. The symlink branch joined them as "//root/name", and identityKey
+          # normalises Unicode and case but not separators - so a path genuinely
+          # inside the root was refused.
+          node -e "
+            const fs=require('fs'), p='tools/path-gate.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace(\"\`\${resolved === '/' ? '' : resolved}/\${missing.join('/')}\`\", \"\`\${resolved}/\${missing.join('/')}\`\");
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a missing tail joined onto the filesystem root" \
+            "a link through the filesystem root back into the root is allowed" \
+            "tools/path-gate.mjs" \
+            "test:path-gate" || failed=1
+
           # The control: with nothing broken, the suite must be green. Without
           # this, a suite that failed unconditionally would satisfy every case
           # above.
@@ -1135,6 +1181,235 @@ jobs:
             failed=1
           else
             echo "ok  all ${cases_run} negative cases ran"
+          fi
+
+          exit "$failed"
+
+  core:
+    name: the Rust core, and its guards
+    # macOS, because two of the facts under test are macOS facts: APFS folds
+    # case by default, and the filesystem stores NFD while applications produce
+    # NFC. On a byte-preserving volume those vectors assert the other answer
+    # rather than skipping, but the product ships here, so this is where the
+    # answer that matters is checked. Public repository: macOS minutes are free.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain || rustup toolchain install stable
+          rustup component add rustfmt clippy
+
+      - name: Format, lints, tests
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      # The same rule as the JavaScript guards: a test that cannot fail reports
+      # coverage that does not exist. Each case breaks one thing the gate claims
+      # and asserts the named test goes red - not merely that something did.
+      #
+      # Four of these were written because the mutation survived: case folding
+      # and NFC were subsumed by canonicalize for any path that exists,
+      # O_NOFOLLOW is unobservable once the path is canonical, and the
+      # mixed-volume refusal needed two volumes. Each gap looked like coverage.
+      - name: Guards reject what they are supposed to reject
+        run: |
+          set -uo pipefail
+          failed=0
+          cases_run=0
+          EXPECTED_RUST_CASES=24
+          cp src/path_gate.rs /tmp/path_gate.clean
+
+          expect_red() {
+            local label="$1" expect_test="$2" old="$3" new="$4"
+            cases_run=$((cases_run + 1))
+
+            # The applier refuses a mutation that matches more than one site:
+            # such a mutation can land on the wrong one, run the whole suite,
+            # and report a false green. That happened here.
+            if ! python3 tools/apply-mutation.py src/path_gate.rs "$old" "$new"; then
+              echo "::error::${label}: the mutation did not apply to exactly one site"
+              failed=1
+              cp /tmp/path_gate.clean src/path_gate.rs
+              return
+            fi
+
+            # --no-fail-fast: cargo stops after the first test binary fails, so
+            # a mutation that breaks a unit test would leave the integration
+            # test this case names unrun - and the guard would report that the
+            # vector had stopped working.
+            # `|| true`: this command is *expected* to fail - that is the whole
+            # point of a mutation - and GitHub starts the step with `bash -e`,
+            # which the script's own `set -uo pipefail` does not undo. Without
+            # this the first mutation ended the step, with no output at all and
+            # an exit code from cargo. The job next to this one survives only
+            # because its helper is called as `... || failed=1`, which suppresses
+            # -e for the whole call; relying on the call site is too quiet.
+            local out
+            out=$(cargo test --no-fail-fast 2>&1) || true
+            cp /tmp/path_gate.clean src/path_gate.rs
+
+            # A here-string, not a pipe into grep -q. Under pipefail, grep -q
+            # exits at its first match, the upstream writer takes SIGPIPE, and
+            # the pipeline reports failure - so a test that DID fail is read as
+            # not failing. The job beside this one carries the same note; the
+            # lesson had not travelled.
+            if grep -qE "^test .*${expect_test}.* \.\.\. FAILED" <<<"$out"; then
+              echo "ok  ${label} -> ${expect_test}"
+            else
+              echo "::error::${label}: expected ${expect_test} to go red, it did not"
+              failed=1
+            fi
+          }
+
+          expect_red "symlinks not resolved" \
+            "a_link_anywhere_along_the_path_is_resolved_first" \
+            $'fn real_path(path: &Path) -> Result<PathBuf, Rejected> {' \
+            $'fn real_path(path: &Path) -> Result<PathBuf, Rejected> {\n    if true { return Ok(path.to_path_buf()); }'
+
+          expect_red "a dangling link taken for a missing file" \
+            "a_dangling_link_is_resolved_rather_than_taken_for_a_missing_file" \
+            $'if meta.is_symlink() {' \
+            $'if false {'
+
+          expect_red "the authorised roots never checked" \
+            "a_name_prefix_is_not_containment" \
+            $'fn within_roots(&self, path: &Path) -> bool {' \
+            $'fn within_roots(&self, path: &Path) -> bool {\n        if true { return true; }'
+
+          expect_red "a name prefix taken for containment" \
+            "a_name_prefix_is_not_containment" \
+            $'key == root_key || key.starts_with(&format!("{root_key}/"))' \
+            $'key == root_key || key.starts_with(&root_key)'
+
+          expect_red "no case folding" \
+            "a_misspelled_root_is_still_recognised_as_the_root" \
+            $'if rule.fold {\n        nfc(&raw.to_lowercase())' \
+            $'if false {\n        nfc(&raw.to_lowercase())'
+
+          expect_red "no Unicode normalisation" \
+            "a_root_spelled_in_the_other_normalisation_is_the_same_root" \
+            $'let mut out = String::with_capacity(input.len());' \
+            $'if true { return input.to_string(); }\n    let mut out = String::with_capacity(input.len());'
+
+          expect_red "no handle taken at resolve" \
+            "an_access_uses_the_file_that_was_checked_not_the_name" \
+            $'fn open_nofollow(path: &Path) -> std::io::Result<OwnedFd> {' \
+            $'fn open_nofollow(path: &Path) -> std::io::Result<OwnedFd> {\n    if true { return Err(std::io::Error::other("no handle")); }'
+
+          expect_red "O_NOFOLLOW dropped" \
+            "the_open_refuses_a_link_at_the_final_component" \
+            $'OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
+            $'OFlags::RDONLY | OFlags::CLOEXEC,'
+
+          expect_red "a filesystem that cannot answer taken for an absent file" \
+            "a_filesystem_that_cannot_answer_is_refused_rather_than_assumed" \
+            $'Err(e) => Err(Rejected::Unresolvable(format!("{}: {e}", path.display()))),' \
+            $'Err(_) => Ok(path.to_path_buf()),'
+
+          expect_red "a cycle reported as something else" \
+            "a_cycle_is_named_rather_than_spun_on" \
+            $'Err(e) if e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) => {\n            Err(Rejected::SymlinkLoop(path.display().to_string()))' \
+            $'Err(e) if e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) => {\n            Err(Rejected::Unresolvable(path.display().to_string()))'
+
+          expect_red "an empty root set allowed" \
+            "a_gate_authorising_everything_cannot_be_built" \
+            $'if roots.is_empty() {' \
+            $'if false {'
+
+          expect_red "roots on volumes that disagree accepted" \
+            "roots_on_volumes_that_disagree_are_refused" \
+            $'fn decide_case_rule(answers: &BTreeSet<bool>) -> Result<CaseRule, Rejected> {' \
+            $'fn decide_case_rule(answers: &BTreeSet<bool>) -> Result<CaseRule, Rejected> {\n    if answers.len() > 1 { return Ok(CaseRule { fold: true }); }'
+
+          # The shape the gate shipped with: `open_nofollow(..).ok()`, so a read
+          # the flag refused degraded into an authorisation without a handle,
+          # and read_file then reopened by name - following exactly the link
+          # O_NOFOLLOW had just refused.
+          expect_red "an unopenable read degraded instead of refused" \
+            "a_read_the_gate_cannot_open_is_refused_rather_than_handed_back_unbound" \
+            $'Err(e) => return Err(open_refusal(&path, e)),' \
+            $'Err(_) => return Ok(ResolvedPath { path, mode: Mode::Read, handle: None }),'
+
+          expect_red "composition before case folding" \
+            "an_upper_cased_decomposed_root_spelling_is_still_the_root" \
+            $'if rule.fold {\n        nfc(&raw.to_lowercase())\n    } else {\n        nfc(&raw)\n    }' \
+            $'let n = nfc(&raw);\n    if rule.fold { n.to_lowercase() } else { n }'
+
+          expect_red "a root resolving to / accepted" \
+            "a_root_that_resolves_to_the_filesystem_root_is_refused" \
+            $'if real.parent().is_none() {' \
+            $'if false {'
+
+          expect_red "a case-sensitive volume guessed at" \
+            "the_case_rule_is_read_from_the_volume_rather_than_guessed" \
+            $'(Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),' \
+            $'(Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(rules().identity.case_insensitive_default),'
+
+          expect_red "no rewind before a second read" \
+            "the_same_authorisation_reads_the_same_bytes_twice" \
+            $'file.rewind()?;' \
+            $''
+
+          expect_red "a write that follows the name" \
+            "a_write_does_not_follow_a_link_that_appeared_at_the_final_component" \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC,'
+
+          expect_red "containment normalises what the volume keeps apart" \
+            "containment_does_not_unify_what_the_volume_keeps_apart" \
+            $'fn containment_key(path: &Path, rule: CaseRule) -> String {\n    let raw = path.to_string_lossy();' \
+            $'fn containment_key(path: &Path, rule: CaseRule) -> String {\n    let raw = std::borrow::Cow::<str>::Owned(nfc(&path.to_string_lossy()));'
+
+          expect_red "the probe flips every component" \
+            "the_probe_changes_only_the_name_it_is_asking_about" \
+            $'let name = root.file_name().ok_or_else(|| {' \
+            $'let name = Some(root.as_os_str()).ok_or_else(|| {'
+
+          expect_red "a probe that compares a path with itself" \
+            "the_probe_changes_only_the_name_it_is_asking_about" \
+            $'if swapped == *name {' \
+            $'if false {'
+
+          expect_red "the output judged by name only" \
+            "the_output_is_judged_against_the_file_the_input_holds_open" \
+            $'        match (file_identity_at(output), input.identity()) {\n            (Some(out), Some(inp)) => out == inp,\n            _ =>' \
+            $'        match (None::<(u64, u64)>, input.identity()) {\n            (Some(out), Some(inp)) => out == inp,\n            _ =>'
+
+          expect_red "an authorised write that never lands" \
+            "an_authorised_write_puts_the_bytes_where_it_says" \
+            $'std::fs::File::from(fd).write_all(bytes)' \
+            $'let _ = fd; Err(std::io::Error::other("no"))'
+
+          expect_red "O_TRUNC dropped from the write" \
+            "an_authorised_write_puts_the_bytes_where_it_says" \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
+            $'OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,'
+
+          # The control. Without it a suite that failed unconditionally would
+          # satisfy every case above.
+          cp /tmp/path_gate.clean src/path_gate.rs
+          if cargo test --no-fail-fast > /dev/null 2>&1; then
+            echo "ok  control: unmutated tree is green"
+          else
+            echo "::error::control case: the suite fails with no mutation applied"
+            failed=1
+          fi
+
+          if [ "$cases_run" -ne "$EXPECTED_RUST_CASES" ]; then
+            echo "::error::ran ${cases_run} mutations, expected ${EXPECTED_RUST_CASES} - one was skipped or swallowed"
+            failed=1
+          else
+            echo "ok  all ${cases_run} mutations ran"
           fi
 
           exit "$failed"

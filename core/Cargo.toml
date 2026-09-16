@@ -1,0 +1,21 @@
+[package]
+name = "beforeshare-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "The core inspection API §14 draws under the three interfaces. Rules live in schemas/v1/*.json and are read from there, not copied."
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustix = { version = "0.38", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"

@@ -128,6 +128,17 @@ export function createGate({ fs, authorisedRoots, caseInsensitive }) {
     // with no roots would authorise everything, so it is not constructible.
     throw new Error('a gate requires at least one authorised root');
   }
+  // The filesystem contract, checked here rather than discovered at the first
+  // path that happens to need a member. `readlink` was added after a dangling
+  // link turned out to be an authorisation bypass, and five stubs written
+  // against the older three-member shape then failed one path at a time, each
+  // with an error naming the path rather than the object that was wrong.
+  const REQUIRED_FS = ['realpath', 'readlink', 'isDirectory'];
+  const absent = REQUIRED_FS.filter((m) => typeof fs?.[m] !== 'function');
+  if (absent.length > 0) {
+    throw new Error(`this filesystem cannot answer what the gate must ask: missing ${absent.join(', ')}`);
+  }
+
   // A relative root is a configuration error that would otherwise fail silently:
   // the gate constructs, and then every path is refused as outside it. The error
   // would point at the path rather than at the root that is actually wrong.
@@ -260,11 +271,45 @@ function maybeRealpath(fs, path) {
  * authorisation bypass: `<root>/link/new.pdf`, where `link` points outside the
  * root, is lexically inside and actually is not.
  */
-function resolveThroughMissingTail(fs, path) {
+/**
+ * The link target if this path is a symlink, null if it is not one.
+ *
+ * Mirrors `node:fs.readlinkSync`, which throws EINVAL for a path that exists
+ * and is not a link, and ENOENT for one that is not there at all. Both mean the
+ * same thing here: keep walking.
+ */
+function maybeReadlink(fs, path) {
+  try {
+    return fs.readlink(path);
+  } catch (e) {
+    if (e?.code === 'EINVAL' || e?.code === 'ENOENT') return null;
+    throw new Rejected('unresolvable', `${path}: ${e?.code ?? e?.message}`);
+  }
+}
+
+function resolveThroughMissingTail(fs, path, depth = 0) {
+  if (depth > 40) throw new Rejected('symlink_loop', path);
   const segments = path.split('/').filter(Boolean);
   const missing = [];
   for (let i = segments.length; i >= 0; i -= 1) {
     const candidate = `/${segments.slice(0, i).join('/')}`;
+    // A dangling symlink throws ENOENT too, and rejoining its own name to the
+    // resolved parent discarded the link: a link pointing anywhere outside was
+    // authorised under its in-root name, and the write landed at the target.
+    // That is the bypass the loop below exists to close, reached through a link
+    // that has no target rather than through one that does.
+    const target = maybeReadlink(fs, candidate);
+    if (target !== null) {
+      const absolute = target.startsWith('/')
+        ? target
+        : `${candidate.slice(0, candidate.lastIndexOf('/'))}/${target}`;
+      const { path: collapsed, escaped } = normalizeSegments(absolute);
+      if (escaped) throw new Rejected('traversal', absolute);
+      const resolved = resolveThroughMissingTail(fs, collapsed, depth + 1);
+      return missing.length === 0
+        ? resolved
+        : `${resolved === '/' ? '' : resolved}/${missing.join('/')}`;
+    }
     const real = maybeRealpath(fs, candidate);
     if (real !== null) {
       return missing.length === 0 ? real : `${real === '/' ? '' : real}/${missing.join('/')}`;

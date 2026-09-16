@@ -61,6 +61,7 @@ if (isMain) {
     return {
       files,
       realpath: (p) => p,
+      readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
       isDirectory: (p) => p === ROOT,
       read: (p) => {
         if (!files.has(p)) { const e = new Error(p); e.code = 'ENOENT'; throw e; }

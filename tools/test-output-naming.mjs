@@ -62,6 +62,10 @@ if (isMain) {
     return {
       files,
       realpath: (p) => links[p] ?? p,
+      readlink(p) {
+        if (Object.prototype.hasOwnProperty.call(links, p)) return links[p];
+        throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' });
+      },
       isDirectory: (p) => p === ROOT,
       read: (p) => {
         if (!files.has(p)) { const e = new Error(p); e.code = 'ENOENT'; throw e; }

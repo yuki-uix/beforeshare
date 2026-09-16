@@ -152,14 +152,24 @@ with nothing else.
   paths, swallowing `ELOOP`, and treating every `realpath` failure as absence — and each was caught by
   the vector written for it.
 
+## Answered since, in the core
+
+Two questions left here have been decided by the Rust port, and are recorded in
+[core-path-gate.md](core-path-gate.md) rather than left listed as open:
+
+- **Can a forged path fail to compile?** Yes — `ResolvedPath` has private
+  fields, and two programs that try are asserted to fail with E0451.
+- **Can an open refuse to follow a link at the final component?** Yes —
+  `O_NOFOLLOW`, and a read that cannot be opened that way is refused rather than
+  handed back without a handle. The *parent* components are still a path-based
+  claim; that half stays open, under #62.
+
 ## Not decided here
 
 | Question | Owner |
 |---|---|
 | Carrying a distinct case rule per authorised root instead of refusing mixed sets | #3 — needs the interface to hold a rule alongside each root |
-| Closing handles: who closes, when, and what happens on an error path | #38 — it belongs with temporary-file lifetime |
+| How long a process should hold a handle, and whether one is kept across stages | #38 — the closing mechanism is settled in the core by ownership (see [core-path-gate.md](core-path-gate.md)); what is left is a lifetime policy |
 | Whether a build without `open()` should be refused outright rather than allowed in the weaker mode | #3 — the reference implementation demonstrates both on purpose; a product build may not deserve the choice |
-| An `open()` that refuses to follow a symlink at the final component, so the unbound fallback is not merely narrower but safe | #37 — it lands with atomic write |
 | Collision-safe output names once a destination is accepted | #36 — the gate decides whether a path may be written, not which path to pick |
 | What the gate does when a path becomes invalid mid-run | #37 — it is a failure during work, and that task owns what a failure leaves behind |
-| Whether the core's language can make a forged path fail to compile rather than at runtime | E2 (#3) — it belongs with the gate, and waits on the core language ADR |
