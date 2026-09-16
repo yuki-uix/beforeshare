@@ -1265,20 +1265,45 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=24
+          EXPECTED_RUST_CASES=42
           cp src/path_gate.rs /tmp/path_gate.clean
+          cp src/pdf/detectors.rs /tmp/detectors.clean
+          cp src/pdf/mod.rs /tmp/pdf_mod.clean
 
-          expect_red() {
-            local label="$1" expect_test="$2" old="$3" new="$4"
+          # Two source files carry rules now, so the file is a parameter. The
+          # snapshot restored afterwards is the one for that file, because
+          # restoring the wrong one leaves a mutation in the tree and poisons
+          # every later case - which is the failure this whole job exists to
+          # make impossible to miss.
+          snapshot_of() {
+            case "$1" in
+              src/path_gate.rs) echo /tmp/path_gate.clean ;;
+              src/pdf/detectors.rs) echo /tmp/detectors.clean ;;
+              src/pdf/mod.rs) echo /tmp/pdf_mod.clean ;;
+              *) echo "" ;;
+            esac
+          }
+
+          expect_red() { expect_red_in "src/path_gate.rs" "$@"; }
+
+          expect_red_in() {
+            local file="$1" label="$2" expect_test="$3" old="$4" new="$5"
             cases_run=$((cases_run + 1))
+            local clean
+            clean=$(snapshot_of "$file")
+            if [ -z "$clean" ]; then
+              echo "::error::${label}: no snapshot is kept for ${file}, so it could not be restored"
+              failed=1
+              return
+            fi
 
             # The applier refuses a mutation that matches more than one site:
             # such a mutation can land on the wrong one, run the whole suite,
             # and report a false green. That happened here.
-            if ! python3 tools/apply-mutation.py src/path_gate.rs "$old" "$new"; then
+            if ! python3 tools/apply-mutation.py "$file" "$old" "$new"; then
               echo "::error::${label}: the mutation did not apply to exactly one site"
               failed=1
-              cp /tmp/path_gate.clean src/path_gate.rs
+              cp "$clean" "$file"
               return
             fi
 
@@ -1295,7 +1320,7 @@ jobs:
             # -e for the whole call; relying on the call site is too quiet.
             local out
             out=$(cargo test --no-fail-fast 2>&1) || true
-            cp /tmp/path_gate.clean src/path_gate.rs
+            cp "$clean" "$file"
 
             # A here-string, not a pipe into grep -q. Under pipefail, grep -q
             # exits at its first match, the upstream writer takes SIGPIPE, and
@@ -1434,9 +1459,101 @@ jobs:
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,'
 
+          expect_red_in "src/pdf/detectors.rs" "actions stop at the top-level dictionary" \
+            "every_must_detect_fixture_is_detected" \
+            $'for (_, value) in dict.iter() {\n                walk_actions(value, number, depth + 1, out);\n            }' \
+            $'// the walk into nested dictionaries, removed'
+
+          expect_red_in "src/pdf/detectors.rs" "no incremental-update signal" \
+            "every_must_detect_fixture_is_detected" \
+            $'if sections > 1 {' \
+            $'if false {'
+
+          expect_red_in "src/pdf/detectors.rs" "the word trailer counted again" \
+            "words_in_the_page_text_are_not_a_second_revision" \
+            $'let sections = cross_reference_sections(source.bytes);' \
+            $'let sections = source.bytes.windows(7).filter(|w| *w == b"trailer").count();'
+
+          expect_red_in "src/pdf/detectors.rs" "hidden text not told from visible" \
+            "every_must_detect_fixture_is_detected" \
+            $'let invisible = matches!(here.render_mode, 3 | 7);' \
+            $'let invisible = false;'
+
+          expect_red_in "src/pdf/detectors.rs" "a covering rectangle judged without order" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'*filled_at > drawn_at && x >= *rx' \
+            $'x >= *rx'
+
+          expect_red_in "src/pdf/detectors.rs" "the transform not applied to text" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'let at = [here.tx + text.tx * here.sx, here.ty + text.ty * here.sy];' \
+            $'let at = [text.tx, text.ty];'
+
+          expect_red_in "src/pdf/detectors.rs" "rotation answered instead of refused" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'if b != 0.0 || c != 0.0 {' \
+            $'if false {'
+
+          expect_red_in "src/pdf/detectors.rs" "metadata reported once for the dictionary" \
+            "metadata_is_reported_field_by_field" \
+            $'for (key, category) in FIELDS {' \
+            $'for (key, category) in FIELDS.iter().take(1).copied() {'
+
+          expect_red_in "src/pdf/mod.rs" "a document that parsed to nothing called clean" \
+            "a_document_that_parses_to_nothing_is_not_a_clean_document" \
+            $'if document.objects.is_empty() {' \
+            $'if false {'
+
+          expect_red_in "src/pdf/mod.rs" "skipped folded into completed" \
+            "a_detector_that_cannot_apply_is_skipped_with_a_reason" \
+            $'Err(NotRun::Skipped(why)) => {\n                coverage.skipped.insert(name.to_string(), why.to_string());\n            }' \
+            $'Err(NotRun::Skipped(_)) => {\n                coverage.completed.insert(name.to_string());\n            }'
+
+          expect_red_in "src/pdf/detectors.rs" "render mode 7 not counted as invisible" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
+            $'matches!(here.render_mode, 3 | 7)' \
+            $'here.render_mode == 3'
+
+          expect_red_in "src/pdf/detectors.rs" "Td read as an absolute coordinate" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
+            $'tx: line.tx + numbers[0] * line.sx,\n                            ty: line.ty + numbers[1] * line.sy,' \
+            $'tx: numbers[0],\n                            ty: numbers[1],'
+
+          expect_red_in "src/pdf/detectors.rs" "a TJ array left unread" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
+            $'Object::Array(items) => {\n                            items.iter().filter_map(text_of).collect::<Vec<_>>()\n                        }' \
+            $'Object::Array(_) => Vec::new(),'
+
+          expect_red_in "src/pdf/detectors.rs" "only the last subpath of a fill kept" \
+            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            $'for rect in pending_rects.drain(..) {' \
+            $'for rect in pending_rects.drain(..).rev().take(0) {'
+
+          expect_red_in "src/pdf/detectors.rs" "a name tree that does not branch" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'if let Ok(kids) = dict.get(b"Kids") {\n        let Ok((_, kids)) = doc.dereference(kids) else {\n            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));\n        };' \
+            $'if let Ok(kids) = dict.get(b"NeverPresent") {\n        let Ok((_, kids)) = doc.dereference(kids) else {\n            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));\n        };'
+
+          expect_red_in "src/pdf/detectors.rs" "a field tree that does not branch" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'for kid in kids {\n                walk_field(doc, kid, &full, depth + 1, out)?;' \
+            $'for kid in kids.iter().take(0) {\n                walk_field(doc, kid, &full, depth + 1, out)?;'
+
+          expect_red_in "src/pdf/detectors.rs" "text strings read as UTF-8" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'Object::String(_, _) => lopdf::decode_text_string(object)\n            .ok()\n            .or_else(|| match object {\n                Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),\n                _ => None,\n            }),' \
+            $'Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),'
+
+          expect_red_in "src/pdf/detectors.rs" "only a newline ends a line" \
+            "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
+            $'split(|b| *b == b\'\\n\' || *b == b\'\\r\')' \
+            $'split(|b| *b == b\'\\n\')'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
+          cp /tmp/detectors.clean src/pdf/detectors.rs
+          cp /tmp/pdf_mod.clean src/pdf/mod.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else

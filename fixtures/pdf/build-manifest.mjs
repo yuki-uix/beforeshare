@@ -28,7 +28,17 @@ export function buildManifest(directory) {
       annotationInstructions: spec.annotationInstructions,
       expectedCoverage: w.kind === 'must_detect' ? spec.expectedCoverage : 'completed',
       expectedRemediation: w.kind === 'must_detect' ? (spec.expectedRemediation ?? 'none') : 'none',
-      expectedStatus: w.kind === 'must_detect' ? spec.expectedStatus : 'no_findings',
+      // A control's expectation is read, not assumed. Hardcoding `no_findings`
+      // for every control declared something the fixtures do not all satisfy:
+      // the form-fields control carries a disclosive field name by design, and
+      // implementing the checker is what surfaced the contradiction between
+      // that and a status asserting silence.
+      expectedStatus: w.kind === 'must_detect'
+        ? spec.expectedStatus
+        : (spec.controlExpectedStatus ?? 'no_findings'),
+      ...(w.kind === 'clean_control' && spec.controlIsNotSilentBecause
+        ? { controlIsNotSilentBecause: spec.controlIsNotSilentBecause }
+        : {}),
       evalVersion: EVAL_VERSION,
       bytes: w.bytes,
     };
