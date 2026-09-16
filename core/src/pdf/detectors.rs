@@ -3,6 +3,8 @@
 //! Each answers two things the coverage report needs kept apart: what it found,
 //! and whether it ran at all. Returning an empty list means "ran, found
 //! nothing", which is a claim; `NotRun` means the claim was never made.
+use std::collections::BTreeSet;
+
 use lopdf::{Document, Object};
 
 use super::{Detected, FailureCode, Location, NotRun, SkipReason, StructureDetail, Trigger};
@@ -11,6 +13,9 @@ use super::{Detected, FailureCode, Location, NotRun, SkipReason, StructureDetail
 pub(super) struct Source<'a> {
     pub document: &'a Document,
     pub bytes: &'a [u8],
+    /// How many bytes one page's content streams may decompress to, from
+    /// `limit-rules.json`'s expansion ratio applied to this input.
+    pub decompression_budget: usize,
 }
 
 type Detector = fn(&Source) -> Result<Vec<Detected>, NotRun>;
@@ -235,8 +240,13 @@ fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
+    // Objects already walked. A field tree is a graph, not a tree: two parents
+    // may name the same child, and following it from both makes the traversal
+    // exponential in the depth while the file stays a few hundred bytes. A
+    // twenty-four level graph took longer than a minute before this.
+    let mut seen = BTreeSet::new();
     for field in fields {
-        walk_field(doc, field, "", 0, &mut out)?;
+        walk_field(doc, field, "", 0, &mut seen, &mut out)?;
     }
     Ok(out)
 }
@@ -246,8 +256,14 @@ fn walk_field(
     field: &Object,
     prefix: &str,
     depth: usize,
+    seen: &mut BTreeSet<(u32, u16)>,
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
+    if let Object::Reference(id) = field {
+        if !seen.insert(*id) {
+            return Ok(());
+        }
+    }
     if depth > 32 {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
@@ -305,7 +321,7 @@ fn walk_field(
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
-                walk_field(doc, kid, &full, depth + 1, out)?;
+                walk_field(doc, kid, &full, depth + 1, seen, out)?;
             }
         }
     }
@@ -343,7 +359,8 @@ fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     };
     let mut out = Vec::new();
     let mut index = 0usize;
-    walk_name_tree(doc, tree, 0, &mut index, &mut out)?;
+    let mut seen = BTreeSet::new();
+    walk_name_tree(doc, tree, 0, &mut index, &mut seen, &mut out)?;
     Ok(out)
 }
 
@@ -352,8 +369,14 @@ fn walk_name_tree(
     node: &Object,
     depth: usize,
     index: &mut usize,
+    seen: &mut BTreeSet<(u32, u16)>,
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
+    if let Object::Reference(id) = node {
+        if !seen.insert(*id) {
+            return Ok(());
+        }
+    }
     if depth > 32 {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
@@ -407,7 +430,7 @@ fn walk_name_tree(
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
-                walk_name_tree(doc, kid, depth + 1, index, out)?;
+                walk_name_tree(doc, kid, depth + 1, index, seen, out)?;
             }
         }
     }
@@ -566,7 +589,24 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let mut out = Vec::new();
     for (index, (_, page_id)) in pages.iter().enumerate() {
         let page_number = index as u32 + 1;
-        let content = doc.get_page_content(*page_id);
+        // With a limit. `get_page_content` decompresses without one, and
+        // `LoadOptions::max_decompressed_size` does not reach page content
+        // streams - it bounds what is decoded while the document loads. A
+        // compression bomb in a page would exhaust memory before any of this
+        // ran. The budget is the expansion ratio from `limit-rules.json` times
+        // the input, not a number chosen here.
+        let content = match doc.get_page_content_with_limit(*page_id, source.decompression_budget) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Err(NotRun::Failed {
+                    code: FailureCode::ResourceLimitExceeded,
+                    message: format!(
+                        "page {page_number} decompresses past the budget of {} bytes: {e}",
+                        source.decompression_budget
+                    ),
+                })
+            }
+        };
         if content.is_empty() {
             continue;
         }

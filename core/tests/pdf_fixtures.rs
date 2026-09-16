@@ -363,22 +363,27 @@ fn every_emitted_location_kind_is_declared() {
     // Per category, not merely "a kind somebody declares". A finding carrying a
     // kind that belongs to a different category is as uninterpretable as an
     // invented one, and the looser check accepted it.
-    let kind_of: BTreeMap<String, String> = rules["mapping"]
-        .as_object()
-        .expect("mapping")
-        .values()
-        .filter_map(|item| {
-            let kind = item["location"].as_str()?;
-            Some(
-                item["categories"]
-                    .as_array()?
-                    .iter()
-                    .filter_map(|c| c.as_str().map(|c| (c.to_string(), kind.to_string())))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .flatten()
-        .collect();
+    // Built by insertion rather than collected, so two rows giving one category
+    // two different kinds is a failure rather than whichever row happened to be
+    // last. Collecting into a map silently kept one of them, and the check below
+    // would then have compared every finding against a kind nobody chose.
+    let mut kind_of: BTreeMap<String, String> = BTreeMap::new();
+    for item in rules["mapping"].as_object().expect("mapping").values() {
+        let Some(kind) = item["location"].as_str() else {
+            continue;
+        };
+        let Some(categories) = item["categories"].as_array() else {
+            continue;
+        };
+        for category in categories.iter().filter_map(|c| c.as_str()) {
+            if let Some(previous) = kind_of.insert(category.to_string(), kind.to_string()) {
+                assert_eq!(
+                    previous, kind,
+                    "the mapping gives {category} two location kinds; a finding could not carry both"
+                );
+            }
+        }
+    }
     assert!(
         known.len() >= 6,
         "only {} location kinds were read",
@@ -914,6 +919,136 @@ fn shapes_the_fixtures_do_not_have_are_read_rather_than_missed() {
     assert_eq!(
         updates, 1,
         "carriage returns hid the second cross-reference section"
+    );
+}
+
+/// A page whose content stream decompresses far past what the file could
+/// justify is refused, not decompressed.
+///
+/// `LoadOptions::max_decompressed_size` bounds what is decoded while the
+/// document loads and does not reach page content streams, so a bomb in a page
+/// would have been expanded in full before anything here ran.
+#[test]
+fn a_compression_bomb_in_a_page_is_refused_rather_than_expanded() {
+    // 64 MB of zeroes, deflated. The file is a few hundred bytes.
+    let payload = vec![b'0'; 64 * 1024 * 1024];
+    let compressed = {
+        use flate2::{write::ZlibEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&payload).expect("deflate");
+        encoder.finish().expect("deflate")
+    };
+    assert!(
+        compressed.len() < 200_000,
+        "the bomb should be small: {} bytes",
+        compressed.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    let objects: Vec<(String, Option<&[u8]>)> = vec![
+        ("<< /Type /Catalog /Pages 2 0 R >>".to_string(), None),
+        (
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            None,
+        ),
+        (
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>".to_string(),
+            None,
+        ),
+        (
+            format!("<< /Length {} /Filter /FlateDecode >>", compressed.len()),
+            Some(&compressed),
+        ),
+    ];
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(out.as_bytes());
+    for (index, (dict, stream)) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n{dict}\n", index + 1).as_bytes());
+        if let Some(data) = stream {
+            bytes.extend_from_slice(b"stream\n");
+            bytes.extend_from_slice(data);
+            bytes.extend_from_slice(b"\nendstream\n");
+        }
+        bytes.extend_from_slice(b"endobj\n");
+    }
+    let xref_at = bytes.len();
+    out = format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1);
+    for offset in &offsets {
+        out.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    out.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    bytes.extend_from_slice(out.as_bytes());
+
+    let inspection = pdf::inspect(&bytes);
+    let (code, message) = inspection
+        .coverage
+        .failed
+        .get("pdf.text_layer")
+        .unwrap_or_else(|| {
+            panic!(
+                "the text layer should have refused the bomb; coverage was {:?}",
+                inspection.coverage
+            )
+        });
+    assert_eq!(code.as_str(), "resource_limit_exceeded");
+    assert!(message.contains("budget"), "{message}");
+    assert!(
+        !inspection.coverage.completed.contains("pdf.text_layer"),
+        "a detector that refused the page reported completing it"
+    );
+}
+
+/// A field tree is a graph, and a shared child must be walked once.
+///
+/// Two parents may name the same object. Following it from both makes the walk
+/// exponential in the depth while the file stays a few hundred bytes: at
+/// twenty-four levels this did not finish in a minute.
+#[test]
+fn a_shared_child_is_walked_once_rather_than_from_every_parent() {
+    let depth = 24;
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>".to_string(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+    ];
+    for level in 0..depth {
+        let child = 3 + level + 1;
+        objects.push(format!(
+            "<< /T (n{level}) /Kids [{child} 0 R {child} 0 R] >>"
+        ));
+    }
+    objects.push("<< /T (leaf) /V (secret) >>".to_string());
+    let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+    let doc = build_pdf(&refs);
+
+    let started = std::time::Instant::now();
+    let inspection = pdf::inspect(&doc);
+    let elapsed = started.elapsed();
+
+    // A budget rather than a stopwatch reading: the point is that the work is
+    // linear in the graph, and two seconds is far above any linear walk of
+    // twenty-six objects on any machine while being far below 2^24.
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "walking a shared graph took {elapsed:?}, which is the shape of a traversal from every parent"
+    );
+    let found = inspection
+        .detected
+        .iter()
+        .filter(|d| d.detector == "pdf.form_fields")
+        .count();
+    assert!(
+        (1..=64).contains(&found),
+        "{found} findings from twenty-six objects: the walk is repeating itself"
+    );
+    assert!(
+        inspection.detected.iter().any(|d| d.value == "secret"),
+        "cutting the repeat also cut the leaf, which is the value the walk exists to reach"
     );
 }
 

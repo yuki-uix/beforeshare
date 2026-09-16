@@ -19,6 +19,7 @@ mod detectors;
 
 const DETECTION_RULES: &str = include_str!("../../../schemas/v1/pdf-detection-rules.json");
 const REGISTRY: &str = include_str!("../../../schemas/v1/detector-registry.json");
+const LIMITS: &str = include_str!("../../../schemas/v1/limit-rules.json");
 
 /// Why a detector did not produce findings.
 ///
@@ -60,6 +61,11 @@ impl SkipReason {
 pub enum FailureCode {
     ParserError,
     MalformedInput,
+    /// Found while working, which is what makes it a failure rather than a
+    /// skip: `limit-rules.json` puts `input_too_large` at skipped because the
+    /// size is knowable before anything is attempted, and this one at failed
+    /// because it is not.
+    ResourceLimitExceeded,
     InternalError,
 }
 
@@ -68,6 +74,7 @@ impl FailureCode {
         match self {
             Self::ParserError => "parser_error",
             Self::MalformedInput => "malformed_input",
+            Self::ResourceLimitExceeded => "resource_limit_exceeded",
             Self::InternalError => "internal_error",
         }
     }
@@ -355,6 +362,7 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
     let source = detectors::Source {
         document: &document,
         bytes,
+        decompression_budget: decompression_budget(bytes.len()),
     };
     let mut detected = Vec::new();
     let mut coverage = Coverage::default();
@@ -391,6 +399,25 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
         unreadable: None,
         has_images,
     }
+}
+
+/// How much one page may decompress to, from the expansion ratio the limit
+/// table declares.
+///
+/// The ratio is marked `provisional` there and #56 owes the measured number;
+/// reading it rather than writing one here means the measurement lands in one
+/// place when it arrives.
+fn decompression_budget(input_bytes: usize) -> usize {
+    static RATIO: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    let ratio = *RATIO.get_or_init(|| {
+        let limits: serde_json::Value = serde_json::from_str(LIMITS).expect("limit-rules.json");
+        limits["budgets"]["expansionRatio"]["default"]
+            .as_f64()
+            .expect("the table declares an expansion ratio")
+    });
+    // A floor, because a tiny document still has a legitimate page or two: the
+    // ratio bounds growth, not absolute size.
+    ((input_bytes as f64 * ratio) as usize).max(1 << 20)
 }
 
 #[cfg(test)]

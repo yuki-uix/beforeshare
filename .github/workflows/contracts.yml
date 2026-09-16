@@ -1265,7 +1265,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=54
+          EXPECTED_RUST_CASES=57
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
@@ -1612,6 +1612,21 @@ jobs:
             "incomplete_coverage_outranks_ordinary_findings" \
             $'if !gaps.is_empty() {' \
             $'if false {'
+
+          expect_red_in "src/pdf/detectors.rs" "the page decompression limit removed" \
+            "a_compression_bomb_in_a_page_is_refused_rather_than_expanded" \
+            $'doc.get_page_content_with_limit(*page_id, source.decompression_budget)' \
+            $'Ok::<Vec<u8>, lopdf::Error>(doc.get_page_content(*page_id))'
+
+          expect_red_in "src/pdf/mod.rs" "the decompression budget ignores the table" \
+            "a_compression_bomb_in_a_page_is_refused_rather_than_expanded" \
+            $'limits["budgets"]["expansionRatio"]["default"]\n            .as_f64()\n            .expect("the table declares an expansion ratio")' \
+            $'let _ = &limits;\n        1e9'
+
+          expect_red_in "src/pdf/detectors.rs" "a shared child walked from every parent" \
+            "a_shared_child_is_walked_once_rather_than_from_every_parent" \
+            $'if let Object::Reference(id) = field {\n        if !seen.insert(*id) {\n            return Ok(());\n        }\n    }' \
+            $'if let Object::Reference(id) = field {\n        let _ = seen.insert(*id);\n    }'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
