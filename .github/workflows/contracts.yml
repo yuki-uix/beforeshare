@@ -1476,8 +1476,8 @@ jobs:
 
           expect_red_in "src/pdf/detectors.rs" "hidden text not told from visible" \
             "every_must_detect_fixture_is_detected" \
-            $'"Tr" => invisible = numbers.first().map(|n| *n == 3.0).unwrap_or(false),' \
-            $'"Tr" => invisible = false,'
+            $'let invisible = matches!(here.render_mode, 3 | 7);' \
+            $'let invisible = false;'
 
           expect_red_in "src/pdf/detectors.rs" "a covering rectangle judged without order" \
             "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
@@ -1486,8 +1486,8 @@ jobs:
 
           expect_red_in "src/pdf/detectors.rs" "the transform not applied to text" \
             "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
-            $'let at = [\n                            here[2] + text_position[0] * here[0],\n                            here[3] + text_position[1] * here[1],\n                        ];' \
-            $'let at = text_position;'
+            $'let at = [here.tx + text.tx * here.sx, here.ty + text.ty * here.sy];' \
+            $'let at = [text.tx, text.ty];'
 
           expect_red_in "src/pdf/detectors.rs" "rotation answered instead of refused" \
             "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
