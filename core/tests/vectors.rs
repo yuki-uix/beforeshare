@@ -132,6 +132,9 @@ fn a_link_anywhere_along_the_path_is_resolved_first() {
     t.link("escape-dir", "/private/tmp");
     t.link("alias.pdf", "real.pdf"); // relative target, stays inside
     t.link("up.pdf", "../../../etc/passwd"); // relative target, leaves
+    t.link("inside.pdf", &t.root.join("real.pdf").display().to_string()); // absolute, stays
+    std::fs::create_dir(t.root.join("holder")).expect("a directory to hold a link");
+    symlink("../../../../private/tmp", t.root.join("holder/out")).expect("relative dir component");
     let g = t.gate();
 
     rejects(
@@ -155,6 +158,19 @@ fn a_link_anywhere_along_the_path_is_resolved_first() {
         .for_read(&t.at("alias.pdf"))
         .expect("a relative link staying inside");
     assert_eq!(inside.path(), t.root.join("real.pdf"));
+    // The absolute spelling of the same shape. Only the relative one was
+    // covered, so a resolver handling one and not the other would pass.
+    let absolute_inside = g
+        .for_read(&t.at("inside.pdf"))
+        .expect("an absolute link staying inside");
+    assert_eq!(absolute_inside.path(), t.root.join("real.pdf"));
+    // A relative target on a *directory* component, which is how CWE-59 is
+    // usually reached: the leaf looks ordinary and the escape is above it.
+    rejects(
+        "a relative link in a directory component escaping the root",
+        g.for_read(&t.at("holder/out/a.pdf")),
+        "symlink_escape",
+    );
     let _ = t.keep();
 }
 
@@ -264,10 +280,24 @@ fn a_filesystem_that_cannot_answer_is_refused_rather_than_assumed() {
     // is inside it. "Cannot answer" must not collapse into "does not exist".
     std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o000))
         .expect("chmod");
-    let got = g.for_read(&t.at("locked/a.pdf"));
+    // for_write, not for_read. A read is refused anyway because the gate cannot
+    // open it, so it reports "unresolvable" whether or not resolution failures
+    // are swallowed - and a mutation that swallowed them survived behind that.
+    // A write never opens, so only the resolver's answer decides.
+    let writing = g.for_write(&t.at("locked/new.pdf"), None);
+    let reading = g.for_read(&t.at("locked/a.pdf"));
     std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .expect("chmod back");
-    rejects("an unreadable directory component", got, "unresolvable");
+    rejects(
+        "an unreadable directory component, for writing",
+        writing,
+        "unresolvable",
+    );
+    rejects(
+        "an unreadable directory component, for reading",
+        reading,
+        "unresolvable",
+    );
     let _ = t.keep();
 }
 
@@ -295,6 +325,23 @@ fn a_gate_authorising_everything_cannot_be_built() {
         "a relative root",
         Gate::new(&[Path::new("Documents")]),
         "not_absolute",
+    );
+    let _ = t.keep();
+}
+
+#[test]
+fn a_root_spelled_with_a_trailing_slash_is_the_same_root() {
+    let t = Tree::new();
+    let with_slash = PathBuf::from(format!("{}/", t.root.display()));
+    let g = Gate::new(&[with_slash.as_path()]).expect("a usable root");
+    let ok = g
+        .for_read(&t.at("report.pdf"))
+        .expect("the same root, spelled with a slash");
+    assert_eq!(ok.path(), t.root.join("report.pdf"));
+    rejects(
+        "still outside, whichever way the root is spelled",
+        g.for_read("/etc/passwd"),
+        "outside_authorised_roots",
     );
     let _ = t.keep();
 }
@@ -531,10 +578,14 @@ fn a_read_the_gate_cannot_open_is_refused_rather_than_handed_back_unbound() {
     if kept_out {
         rejects("a file the gate cannot open", got, "unresolvable");
     } else {
+        // is_handle_bound() alone would be true by construction here: Ok
+        // implies a handle. Read through it instead, so the branch asserts
+        // something the type does not already give.
         let bound = got.expect("a privileged process opens it");
-        assert!(
-            bound.is_handle_bound(),
-            "an authorisation was issued without a handle"
+        assert_eq!(
+            read_file(&bound).expect("the handle reads"),
+            b"%PDF-1.7\n",
+            "the authorisation read something other than the file it names"
         );
     }
     let _ = t.keep();
@@ -588,6 +639,7 @@ fn every_declared_reason_is_triggered_by_a_vector() {
     a_filesystem_that_cannot_answer_is_refused_rather_than_assumed();
     a_gate_authorising_everything_cannot_be_built();
     a_name_prefix_is_not_containment();
+    a_root_spelled_with_a_trailing_slash_is_the_same_root();
     an_output_resolving_to_the_input_is_refused_in_every_spelling();
     an_output_naming_a_directory_is_refused();
     identity_follows_the_volume_rather_than_a_preference();
