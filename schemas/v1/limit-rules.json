@@ -41,6 +41,13 @@
       "basis": "provisional",
       "owner": "#41 - needs the decompression fixtures §20.1 asks for, which need a format adapter"
     },
+    "graphNodes": {
+      "default": 100000,
+      "unit": "object visits per walk",
+      "basis": "provisional",
+      "owner": "#41 - the PDF fixtures decide this, and the number below is only what a legitimate form stays far under",
+      "note": "Depth alone does not bound the work. A field tree is a graph: when two parents name one child, the number of paths doubles per level while the depth stays inside graphDepth and the file stays a few hundred bytes. Refusing to walk a child twice bounds it, and loses the aliases - the same child under two parents has two legitimate field names, and only the first would be reported. So the walk keeps the aliases, tracks the active path to stop cycles, and counts visits against this."
+    },
     "graphDepth": {
       "default": 64,
       "unit": "nested objects",

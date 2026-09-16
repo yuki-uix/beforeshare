@@ -5,7 +5,7 @@
 //! nothing", which is a claim; `NotRun` means the claim was never made.
 use std::collections::BTreeSet;
 
-use lopdf::{Document, Object};
+use lopdf::{Dictionary, Document, Object};
 
 use super::{Detected, FailureCode, Location, NotRun, SkipReason, StructureDetail, Trigger};
 
@@ -53,6 +53,31 @@ fn text_of(object: &Object) -> Option<String> {
     }
 }
 
+/// Read an object as text, following an indirect reference first.
+///
+/// Every string in a PDF may be an indirect object, and lopdf's dictionary and
+/// array accessors hand back the `Object::Reference` rather than what it points
+/// at. `text_of` does not match a reference, so the value reads as absent: the
+/// detector returns success having found nothing, which §17.1 counts as a
+/// release blocker rather than as a gap. Reported against /T, /V and the name
+/// tree; every dictionary value this file reads as text goes through here,
+/// because the ones not reported are the same shape as the ones that were.
+///
+/// Content-stream operands are the exception and do not use this: a stream's
+/// operands are direct by construction, and there is no document to resolve
+/// them against.
+fn resolved_text(doc: &Document, object: &Object) -> Option<String> {
+    match object {
+        Object::Reference(_) => doc.dereference(object).ok().and_then(|(_, o)| text_of(o)),
+        direct => text_of(direct),
+    }
+}
+
+/// `resolved_text` for a dictionary entry, which is how it is read everywhere.
+fn text_at(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
+    dict.get(key).ok().and_then(|v| resolved_text(doc, v))
+}
+
 fn found(category: &str, detector: &str, location: Location, value: String) -> Detected {
     Detected {
         category: category.to_string(),
@@ -96,8 +121,8 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
     };
     let mut out = Vec::new();
     for (key, category) in FIELDS {
-        if let Ok(value) = dict.get(key.as_bytes()) {
-            if let Some(text) = text_of(value) {
+        {
+            if let Some(text) = text_at(doc, dict, key.as_bytes()) {
                 if !text.is_empty() {
                     out.push(found(
                         category,
@@ -113,8 +138,8 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
     }
     // CreationDate carries the same disclosure as ModDate and maps to the same
     // category; both are reported so a document with only one is not silent.
-    if let Ok(value) = dict.get(b"CreationDate") {
-        if let Some(text) = text_of(value) {
+    {
+        if let Some(text) = text_at(doc, dict, b"CreationDate") {
             if !text.is_empty() {
                 out.push(found(
                     "document_timestamp",
@@ -165,16 +190,8 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
             let Ok(dict) = annot.as_dict() else { continue };
             // The subtype and any contents are what a reader would see; an
             // annotation with neither is still an annotation and still reported.
-            let subtype = dict
-                .get(b"Subtype")
-                .ok()
-                .and_then(text_of)
-                .unwrap_or_default();
-            let contents = dict
-                .get(b"Contents")
-                .ok()
-                .and_then(text_of)
-                .unwrap_or_default();
+            let subtype = text_at(doc, dict, b"Subtype").unwrap_or_default();
+            let contents = text_at(doc, dict, b"Contents").unwrap_or_default();
             let value = if contents.is_empty() {
                 format!("/{subtype}")
             } else {
@@ -244,11 +261,49 @@ fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
     // may name the same child, and following it from both makes the traversal
     // exponential in the depth while the file stays a few hundred bytes. A
     // twenty-four level graph took longer than a minute before this.
-    let mut seen = BTreeSet::new();
+    let mut walk = Walk::new();
     for field in fields {
-        walk_field(doc, field, "", 0, &mut seen, &mut out)?;
+        walk_field(doc, field, "", 0, &mut walk, &mut out)?;
     }
     Ok(out)
+}
+
+/// What a walk of an object graph is allowed to spend, and where it currently
+/// is.
+///
+/// Two separate jobs, and neither does the other's. The active path stops a
+/// cycle: an object that is its own ancestor. It does not bound the work -
+/// every node having two parents gives 2^depth distinct paths, all acyclic,
+/// inside a file of a few hundred bytes. Refusing to walk any object twice
+/// bounds that, and silently drops the aliases: one field under two parents has
+/// two legitimate full names and only the first would be reported, which §17.1
+/// counts as a release blocker. So the aliases are kept and the visits are
+/// counted.
+struct Walk {
+    active: BTreeSet<(u32, u16)>,
+    remaining: usize,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Self {
+            active: BTreeSet::new(),
+            remaining: super::graph_nodes(),
+        }
+    }
+
+    /// Charge one visit, or refuse. Found while working, so it is a failure and
+    /// not a skip - `limit-rules.json` says which of the two an overrun is.
+    fn spend(&mut self, what: &str) -> Result<(), NotRun> {
+        self.remaining = self.remaining.checked_sub(1).ok_or(NotRun::Failed {
+            code: FailureCode::ResourceLimitExceeded,
+            message: format!(
+                "{what} spent the whole budget of {} object visits",
+                super::graph_nodes()
+            ),
+        })?;
+        Ok(())
+    }
 }
 
 fn walk_field(
@@ -256,32 +311,51 @@ fn walk_field(
     field: &Object,
     prefix: &str,
     depth: usize,
-    seen: &mut BTreeSet<(u32, u16)>,
+    walk: &mut Walk,
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
-    if let Object::Reference(id) = field {
-        if !seen.insert(*id) {
-            return Ok(());
-        }
-    }
-    if depth > 32 {
+    walk.spend("the form field tree")?;
+    if depth > super::graph_depth() {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
             message: "the form field tree is nested deeper than this detector will walk".into(),
         });
     }
-    let Ok((_, resolved)) = doc.dereference(field) else {
+    // The identity is what the reference resolves to, not the reference: two
+    // chains may end at one object, and a cycle through them would otherwise
+    // read as two different nodes.
+    let Ok((id, resolved)) = doc.dereference(field) else {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
             message: "a form field does not resolve".into(),
         });
     };
+    if let Some(id) = id {
+        if !walk.active.insert(id) {
+            return Ok(());
+        }
+    }
+    let result = walk_field_body(doc, resolved, prefix, depth, walk, out);
+    if let Some(id) = id {
+        walk.active.remove(&id);
+    }
+    result
+}
+
+fn walk_field_body(
+    doc: &Document,
+    resolved: &Object,
+    prefix: &str,
+    depth: usize,
+    walk: &mut Walk,
+    out: &mut Vec<Detected>,
+) -> Result<(), NotRun> {
     let Ok(dict) = resolved.as_dict() else {
         return Ok(());
     };
     // A field's name is its own /T joined to its parents', which is how a
     // grouped form spells `applicant.national_id`.
-    let own = dict.get(b"T").ok().and_then(text_of).unwrap_or_default();
+    let own = text_at(doc, dict, b"T").unwrap_or_default();
     let full = match (prefix.is_empty(), own.is_empty()) {
         (_, true) => prefix.to_string(),
         (true, false) => own.clone(),
@@ -299,7 +373,7 @@ fn walk_field(
             full.clone(),
         ));
     }
-    if let Some(value) = dict.get(b"V").ok().and_then(text_of) {
+    if let Some(value) = text_at(doc, dict, b"V") {
         if !value.is_empty() {
             out.push(found(
                 "form_field_value",
@@ -321,7 +395,7 @@ fn walk_field(
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
-                walk_field(doc, kid, &full, depth + 1, seen, out)?;
+                walk_field(doc, kid, &full, depth + 1, walk, out)?;
             }
         }
     }
@@ -359,8 +433,8 @@ fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     };
     let mut out = Vec::new();
     let mut index = 0usize;
-    let mut seen = BTreeSet::new();
-    walk_name_tree(doc, tree, 0, &mut index, &mut seen, &mut out)?;
+    let mut walk = Walk::new();
+    walk_name_tree(doc, tree, 0, &mut index, &mut walk, &mut out)?;
     Ok(out)
 }
 
@@ -369,27 +443,43 @@ fn walk_name_tree(
     node: &Object,
     depth: usize,
     index: &mut usize,
-    seen: &mut BTreeSet<(u32, u16)>,
+    walk: &mut Walk,
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
-    if let Object::Reference(id) = node {
-        if !seen.insert(*id) {
-            return Ok(());
-        }
-    }
-    if depth > 32 {
+    walk.spend("the embedded-file name tree")?;
+    if depth > super::graph_depth() {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
             message: "the embedded-file name tree is nested deeper than this detector will walk"
                 .into(),
         });
     }
-    let Ok((_, node)) = doc.dereference(node) else {
+    let Ok((id, node)) = doc.dereference(node) else {
         return Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
             message: "a name-tree node does not resolve".into(),
         });
     };
+    if let Some(id) = id {
+        if !walk.active.insert(id) {
+            return Ok(());
+        }
+    }
+    let result = walk_name_tree_body(doc, node, depth, index, walk, out);
+    if let Some(id) = id {
+        walk.active.remove(&id);
+    }
+    result
+}
+
+fn walk_name_tree_body(
+    doc: &Document,
+    node: &Object,
+    depth: usize,
+    index: &mut usize,
+    walk: &mut Walk,
+    out: &mut Vec<Detected>,
+) -> Result<(), NotRun> {
     let Ok(dict) = node.as_dict() else {
         return Ok(());
     };
@@ -405,7 +495,7 @@ fn walk_name_tree(
             // identifies the entry, because a name is not unique and may itself
             // disclose something.
             for chunk in pairs.chunks(2) {
-                let Some(name) = chunk.first().and_then(text_of) else {
+                let Some(name) = chunk.first().and_then(|k| resolved_text(doc, k)) else {
                     continue;
                 };
                 out.push(found(
@@ -430,7 +520,7 @@ fn walk_name_tree(
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
-                walk_name_tree(doc, kid, depth + 1, index, seen, out)?;
+                walk_name_tree(doc, kid, depth + 1, index, walk, out)?;
             }
         }
     }
@@ -450,23 +540,26 @@ fn actions(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let mut out = Vec::new();
     for (id, object) in doc.objects.iter() {
-        walk_actions(object, id.0, 0, &mut out);
+        walk_actions(doc, object, id.0, 0, &mut out);
     }
     Ok(out)
 }
 
-fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detected>) {
+fn walk_actions(
+    doc: &Document,
+    object: &Object,
+    number: u32,
+    depth: usize,
+    out: &mut Vec<Detected>,
+) {
     if depth > 32 {
         return;
     }
     match object {
         Object::Dictionary(dict) => {
             if dict.has(b"JS") {
-                let value = dict
-                    .get(b"JS")
-                    .ok()
-                    .and_then(text_of)
-                    .unwrap_or_else(|| "(JavaScript in a stream)".into());
+                let value =
+                    text_at(doc, dict, b"JS").unwrap_or_else(|| "(JavaScript in a stream)".into());
                 out.push(found(
                     "document_javascript",
                     "pdf.actions",
@@ -489,13 +582,10 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                     "(document-level JavaScript name tree)".into(),
                 ));
             }
-            match dict.get(b"S").ok().and_then(text_of).as_deref() {
+            match text_at(doc, dict, b"S").as_deref() {
                 Some("Launch") => {
-                    let target = dict
-                        .get(b"F")
-                        .ok()
-                        .and_then(text_of)
-                        .unwrap_or_else(|| "(unnamed target)".into());
+                    let target =
+                        text_at(doc, dict, b"F").unwrap_or_else(|| "(unnamed target)".into());
                     out.push(found(
                         "launch_action",
                         "pdf.actions",
@@ -511,7 +601,7 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                 // the disclosure. The mapping says this item is reached through
                 // /URI, /GoToR or /Launch, and only two of the three were here.
                 Some("GoToR") => {
-                    if let Some(target) = dict.get(b"F").ok().and_then(text_of) {
+                    if let Some(target) = text_at(doc, dict, b"F") {
                         out.push(found(
                             "local_file_reference",
                             "pdf.actions",
@@ -525,7 +615,7 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                     }
                 }
                 Some("URI") => {
-                    if let Some(uri) = dict.get(b"URI").ok().and_then(text_of) {
+                    if let Some(uri) = text_at(doc, dict, b"URI") {
                         // A file:// URI names something on this machine, which
                         // is a different disclosure from a link to a server.
                         let category = if uri.starts_with("file:") {
@@ -548,15 +638,16 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                 _ => {}
             }
             for (_, value) in dict.iter() {
-                walk_actions(value, number, depth + 1, out);
+                walk_actions(doc, value, number, depth + 1, out);
             }
         }
         Object::Array(items) => {
             for item in items {
-                walk_actions(item, number, depth + 1, out);
+                walk_actions(doc, item, number, depth + 1, out);
             }
         }
         Object::Stream(stream) => walk_actions(
+            doc,
             &Object::Dictionary(stream.dict.clone()),
             number,
             depth + 1,
@@ -866,9 +957,7 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
 
     for object in doc.objects.values() {
         let Ok(dict) = object.as_dict() else { continue };
-        if dict.has(b"ByteRange")
-            || dict.get(b"Type").ok().and_then(text_of).as_deref() == Some("Sig")
-        {
+        if dict.has(b"ByteRange") || text_at(doc, dict, b"Type").as_deref() == Some("Sig") {
             out.push(found(
                 "digital_signature",
                 "pdf.structure",
@@ -979,7 +1068,8 @@ fn values_the_update_removed(bytes: &[u8]) -> Vec<String> {
             .map(|d| {
                 d.iter()
                     .filter_map(|(k, v)| {
-                        text_of(v).map(|value| (String::from_utf8_lossy(k).to_string(), value))
+                        resolved_text(doc, v)
+                            .map(|value| (String::from_utf8_lossy(k).to_string(), value))
                     })
                     .collect()
             })

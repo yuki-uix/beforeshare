@@ -1265,7 +1265,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=57
+          EXPECTED_RUST_CASES=60
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
@@ -1529,19 +1529,19 @@ jobs:
             $'Object::Array(_) => Vec::new(),'
 
           expect_red_in "src/pdf/detectors.rs" "only the last subpath of a fill kept" \
-            "a_covering_rectangle_is_judged_by_order_and_by_where_it_lands" \
+            "the_text_layer_reads_the_operators_a_page_actually_uses" \
             $'for rect in pending_rects.drain(..) {' \
-            $'for rect in pending_rects.drain(..).rev().take(0) {'
+            $'for rect in pending_rects.drain(..).rev().take(1) {'
 
           expect_red_in "src/pdf/detectors.rs" "a name tree that does not branch" \
             "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
-            $'walk_name_tree(doc, kid, depth + 1, index, seen, out)?;' \
+            $'walk_name_tree(doc, kid, depth + 1, index, walk, out)?;' \
             $'let _ = kid;'
 
           expect_red_in "src/pdf/detectors.rs" "a field tree that does not branch" \
             "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
-            $'for kid in kids {\n                walk_field(doc, kid, &full, depth + 1, seen, out)?;' \
-            $'for kid in kids.iter().take(0) {\n                walk_field(doc, kid, &full, depth + 1, seen, out)?;'
+            $'for kid in kids {\n                walk_field(doc, kid, &full, depth + 1, walk, out)?;' \
+            $'for kid in kids.iter().take(0) {\n                walk_field(doc, kid, &full, depth + 1, walk, out)?;'
 
           expect_red_in "src/pdf/detectors.rs" "text strings read as UTF-8" \
             "shapes_the_fixtures_do_not_have_are_read_rather_than_missed" \
@@ -1623,10 +1623,28 @@ jobs:
             $'limits["budgets"]["expansionRatio"]["default"]\n            .as_f64()\n            .expect("the table declares an expansion ratio")' \
             $'let _ = &limits;\n        1e9'
 
-          expect_red_in "src/pdf/detectors.rs" "a shared child walked from every parent" \
-            "a_shared_child_is_walked_once_rather_than_from_every_parent" \
-            $'if let Object::Reference(id) = field {\n        if !seen.insert(*id) {\n            return Ok(());\n        }\n    }' \
-            $'if let Object::Reference(id) = field {\n        let _ = seen.insert(*id);\n    }'
+          # The budget and the active path do different jobs, so they are
+          # separate cases: removing either leaves the other looking like
+          # coverage for both.
+          expect_red_in "src/pdf/detectors.rs" "a walk that never spends its budget" \
+            "a_graph_that_branches_past_the_budget_is_refused_rather_than_walked" \
+            $'self.remaining = self.remaining.checked_sub(1).ok_or(NotRun::Failed {' \
+            $'self.remaining = usize::MAX.checked_sub(1).ok_or(NotRun::Failed {'
+
+          expect_red_in "src/pdf/detectors.rs" "a visited object never left again" \
+            "a_child_shared_by_two_parents_is_named_under_both" \
+            $'    if let Some(id) = id {\n        walk.active.remove(&id);\n    }\n    result\n}\n\nfn walk_field_body(' \
+            $'    let _ = id;\n    result\n}\n\nfn walk_field_body('
+
+          expect_red_in "src/pdf/detectors.rs" "a cycle followed instead of cut" \
+            "a_cycle_in_the_field_tree_ends_without_spending_the_budget" \
+            $'    if let Some(id) = id {\n        if !walk.active.insert(id) {\n            return Ok(());\n        }\n    }\n    let result = walk_field_body(' \
+            $'    if let Some(id) = id {\n        let _ = walk.active.insert(id);\n    }\n    let result = walk_field_body('
+
+          expect_red_in "src/pdf/detectors.rs" "an indirect value read as absent" \
+            "a_value_behind_an_indirect_reference_is_read_rather_than_missed" \
+            $'Object::Reference(_) => doc.dereference(object).ok().and_then(|(_, o)| text_of(o)),' \
+            $'Object::Reference(_) => None,'
 
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.

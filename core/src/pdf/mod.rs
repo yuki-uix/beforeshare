@@ -420,6 +420,36 @@ fn decompression_budget(input_bytes: usize) -> usize {
     ((input_bytes as f64 * ratio) as usize).max(1 << 20)
 }
 
+/// A whole-number budget from the limit table, by name.
+///
+/// Both of these are `provisional` there with #41 named as owing the measured
+/// value, so they are read rather than written here: when the number arrives it
+/// lands in the table and both walks follow it.
+fn budget(name: &str) -> usize {
+    let limits: serde_json::Value = serde_json::from_str(LIMITS).expect("limit-rules.json");
+    limits["budgets"][name]["default"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("the table declares a default for {name}")) as usize
+}
+
+/// How deep an object graph may nest before a walk refuses it.
+pub fn graph_depth() -> usize {
+    static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| budget("graphDepth"))
+}
+
+/// How many object visits one walk may spend.
+///
+/// Depth does not bound the work on a graph: two parents naming one child
+/// double the number of paths per level with the depth unchanged. Walking each
+/// child once would bound it and would drop the aliases - the same field under
+/// two parents has two legitimate names - so the walks keep the aliases and
+/// spend against this instead.
+pub fn graph_nodes() -> usize {
+    static VALUE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| budget("graphNodes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

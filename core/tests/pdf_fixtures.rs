@@ -786,9 +786,12 @@ fn the_text_layer_reads_the_operators_a_page_actually_uses() {
     let (hidden, _) = read("BT /F1 12 Tf 14 TL 3 Tr 72 720 Td (First) Tj (Second) ' ET");
     assert_eq!(hidden, ["First", "Second"], "the ' operator shows text too");
 
-    // Several subpaths, one fill: all of them are painted.
+    // Several subpaths, one fill: all of them are painted. The covering
+    // rectangle is written first on purpose - with it last, an implementation
+    // that kept only the final subpath still covered the text and the case read
+    // as coverage it did not have.
     let (_, covered) = read(
-        "BT /F1 12 Tf 72 720 Td (Covered) Tj ET\n0 0 0 rg 300 300 20 20 re 70 715 200 18 re f",
+        "BT /F1 12 Tf 72 720 Td (Covered) Tj ET\n0 0 0 rg 70 715 200 18 re 300 300 20 20 re f",
     );
     assert_eq!(
         covered,
@@ -1004,14 +1007,22 @@ fn a_compression_bomb_in_a_page_is_refused_rather_than_expanded() {
     );
 }
 
-/// A field tree is a graph, and a shared child must be walked once.
+/// A field tree is a graph, and branching through it has to stay bounded.
 ///
 /// Two parents may name the same object. Following it from both makes the walk
 /// exponential in the depth while the file stays a few hundred bytes: at
-/// twenty-four levels this did not finish in a minute.
+/// twenty-four levels this did not finish in a minute. Refusing to walk any
+/// object twice bounds it and loses the aliases, which the next vector is
+/// about, so the walk keeps them and spends a budget instead - and a budget
+/// spent is reported, not silently truncated.
 #[test]
-fn a_shared_child_is_walked_once_rather_than_from_every_parent() {
-    let depth = 24;
+fn a_graph_that_branches_past_the_budget_is_refused_rather_than_walked() {
+    // Eighteen levels is 262144 paths, which is past the budget of 100000
+    // visits and still finishes in about a second when the budget is removed:
+    // measured 0.34s at sixteen levels and 1.47s at eighteen. A deeper graph
+    // would prove the same thing and would leave the mutation that removes the
+    // budget running until the job timed out.
+    let depth = 18;
     let mut objects: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>".to_string(),
         "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
@@ -1030,25 +1041,142 @@ fn a_shared_child_is_walked_once_rather_than_from_every_parent() {
     let inspection = pdf::inspect(&doc);
     let elapsed = started.elapsed();
 
-    // A budget rather than a stopwatch reading: the point is that the work is
-    // linear in the graph, and two seconds is far above any linear walk of
-    // twenty-six objects on any machine while being far below 2^24.
+    // A ceiling rather than a stopwatch reading: the point is that the work is
+    // bounded by the budget, and ten seconds is far above the budget's own cost
+    // on any machine while being far below 2^24 traversals.
     assert!(
-        elapsed < std::time::Duration::from_secs(2),
+        elapsed < std::time::Duration::from_secs(10),
         "walking a shared graph took {elapsed:?}, which is the shape of a traversal from every parent"
     );
-    let found = inspection
+    let (code, message) = inspection
+        .coverage
+        .failed
+        .get("pdf.form_fields")
+        .unwrap_or_else(|| {
+            panic!(
+                "a graph with 2^18 paths should have spent the budget; coverage was {:?}",
+                inspection.coverage
+            )
+        });
+    assert_eq!(code.as_str(), "resource_limit_exceeded");
+    assert!(message.contains("object visits"), "{message}");
+    assert!(
+        !inspection.coverage.completed.contains("pdf.form_fields"),
+        "a detector that ran out of budget reported completing"
+    );
+}
+
+/// The same child under two parents has two names, and both are disclosures.
+///
+/// This is what walking each object once costs, and why the budget above is not
+/// simply a visited set: `applicant.national_id` and `guarantor.national_id`
+/// are one object, and reporting only the first leaves a form field nobody is
+/// told about - §17.1 counts a silent miss as a release blocker.
+#[test]
+fn a_child_shared_by_two_parents_is_named_under_both() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R 4 0 R] >> >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /T (applicant) /Kids [5 0 R] >>",
+        "<< /T (guarantor) /Kids [5 0 R] >>",
+        "<< /T (national_id) /V (4404) >>",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    let names: Vec<&str> = inspection
         .detected
         .iter()
-        .filter(|d| d.detector == "pdf.form_fields")
-        .count();
+        .filter(|d| d.category == "form_field_name")
+        .map(|d| d.value.as_str())
+        .collect();
     assert!(
-        (1..=64).contains(&found),
-        "{found} findings from twenty-six objects: the walk is repeating itself"
+        names.contains(&"applicant.national_id") && names.contains(&"guarantor.national_id"),
+        "a shared child lost one of its names: {names:?}"
+    );
+}
+
+/// A cycle ends, and ends as a cycle rather than by exhausting the budget.
+///
+/// The active path is what tells the two apart: an object that is its own
+/// ancestor is a cycle, and the same object reached again by a different path
+/// is an alias.
+#[test]
+fn a_cycle_in_the_field_tree_ends_without_spending_the_budget() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /T (a) /Kids [4 0 R] >>",
+        "<< /T (b) /Kids [3 0 R] /V (reached) >>",
+    ]);
+    let started = std::time::Instant::now();
+    let inspection = pdf::inspect(&doc);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "a cycle of two objects should not take a measurable amount of time"
     );
     assert!(
-        inspection.detected.iter().any(|d| d.value == "secret"),
-        "cutting the repeat also cut the leaf, which is the value the walk exists to reach"
+        inspection.coverage.completed.contains("pdf.form_fields"),
+        "a cycle is not a failure; coverage was {:?}",
+        inspection.coverage
+    );
+    assert!(
+        inspection.detected.iter().any(|d| d.value == "reached"),
+        "stopping at the cycle also cut the value on the way to it"
+    );
+}
+
+/// Every string a detector reads may be an indirect object.
+///
+/// lopdf hands back the `Object::Reference` from a dictionary or an array, and
+/// a reader that does not resolve it sees no text at all: the detector returns
+/// success having found nothing, which §17.1 counts as a release blocker rather
+/// than as a gap. Reported against /T, /V and the name tree; the same shape is
+/// in the metadata, the annotations and the actions, so all six are here.
+#[test]
+fn a_value_behind_an_indirect_reference_is_read_rather_than_missed() {
+    let doc = build_pdf_with_trailer(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> \
+             /Names << /EmbeddedFiles 7 0 R >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [8 0 R] >>",
+            "<< /T 5 0 R /V 6 0 R >>",
+            "(national_id)",
+            "(4404)",
+            "<< /Names [9 0 R 10 0 R] >>",
+            "<< /Type /Annot /Subtype /Text /Contents 11 0 R /A 12 0 R >>",
+            "(payroll.xlsx)",
+            "<< /Type /Filespec /F (payroll.xlsx) >>",
+            "(a comment on the draft)",
+            "<< /S /URI /URI 13 0 R >>",
+            "(https://example.test/leak)",
+            "<< /Title 15 0 R >>",
+            "(Q3 board pack)",
+        ],
+        "/Info 14 0 R",
+    );
+    let inspection = pdf::inspect(&doc);
+    let values: Vec<(&str, &str)> = inspection
+        .detected
+        .iter()
+        .map(|d| (d.category.as_str(), d.value.as_str()))
+        .collect();
+    for expected in [
+        ("document_title", "Q3 board pack"),
+        ("annotation", "a comment on the draft"),
+        ("form_field_name", "national_id"),
+        ("form_field_value", "4404"),
+        ("embedded_file", "payroll.xlsx"),
+        ("external_reference", "https://example.test/leak"),
+    ] {
+        assert!(
+            values.contains(&expected),
+            "{expected:?} was behind an indirect reference and was not read; found {values:?}"
+        );
+    }
+    assert!(
+        inspection.coverage.failed.is_empty(),
+        "nothing here is malformed: {:?}",
+        inspection.coverage.failed
     );
 }
 
@@ -1058,6 +1186,12 @@ fn a_shared_child_is_walked_once_rather_than_from_every_parent() {
 /// case is about, and strict loading refuses them - as it refused the first
 /// version of the document above.
 fn build_pdf(objects: &[&str]) -> Vec<u8> {
+    build_pdf_with_trailer(objects, "")
+}
+
+/// The same, with extra trailer entries - `/Info` is one, and it is the only
+/// way to reach the metadata detector from a hand-built document.
+fn build_pdf_with_trailer(objects: &[&str], extra: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for (index, body) in objects.iter().enumerate() {
@@ -1073,7 +1207,7 @@ fn build_pdf(objects: &[&str]) -> Vec<u8> {
         out.push_str(&format!("{offset:010} 00000 n \n"));
     }
     out.push_str(&format!(
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        "trailer\n<< /Size {} /Root 1 0 R {extra} >>\nstartxref\n{xref_at}\n%%EOF\n",
         objects.len() + 1
     ));
     out.into_bytes()
