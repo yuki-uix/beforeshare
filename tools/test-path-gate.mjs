@@ -88,6 +88,16 @@ if (isMain) {
       if (missing.includes(cur)) throw err('ENOENT');
       return cur;
     },
+    /**
+     * node:fs throws EINVAL for a path that is not a link and ENOENT for one
+     * that is not there. The stub was missing this member entirely, which is
+     * why no vector could express a dangling link - and a dangling link was an
+     * authorisation bypass.
+     */
+    readlink(p) {
+      if (Object.prototype.hasOwnProperty.call(links, p)) return links[p];
+      throw err(missing.includes(p) ? 'ENOENT' : 'EINVAL');
+    },
     isDirectory: (p) => dirs.includes(p),
     read: () => 'bytes',
     write: () => true,
@@ -175,6 +185,15 @@ if (isMain) {
   try { createGate({ fs: stubFs(), authorisedRoots: ['Documents'] }); } catch { relRoot = true; }
   check('a relative authorised root is refused at construction', relRoot);
 
+  // The gate asks a filesystem three things. A stub missing one of them used to
+  // construct fine and then fail at whichever path first needed the member,
+  // with an error naming that path.
+  let thinFs = false;
+  try {
+    createGate({ fs: { realpath: (p) => p, isDirectory: () => false }, authorisedRoots: [ROOT] });
+  } catch (e) { thinFs = /missing readlink/.test(e.message); }
+  check('a filesystem that cannot answer every question is refused at construction', thinFs);
+
   checkOk('an authorised root is matched after normalisation',
     () => createGate({ fs: stubFs(), authorisedRoots: ['/Users/u/caf\u00e9'] })
       .forRead('/Users/u/cafe\u0301/a.pdf').path === '/Users/u/cafe\u0301/a.pdf');
@@ -193,7 +212,11 @@ if (isMain) {
     'symlink_loop');
   rejects('a filesystem that cannot answer is refused',
     () => createGate({
-      fs: { realpath() { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); }, isDirectory: () => false },
+      fs: {
+        realpath() { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); },
+        readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
+        isDirectory: () => false,
+      },
       authorisedRoots: [ROOT],
     }).forRead(`${ROOT}/a.pdf`),
     'unresolvable');
@@ -205,6 +228,26 @@ if (isMain) {
   checkOk('a path several missing levels deep still resolves to its real ancestor',
     () => gate({ missing: [`${ROOT}/a`, `${ROOT}/a/b`, `${ROOT}/a/b/c.pdf`] })
       .forWrite(`${ROOT}/a/b/c.pdf`, { input: null }).path === `${ROOT}/a/b/c.pdf`);
+  // A link whose target does not exist yet. realpath throws ENOENT for it just
+  // as it does for a plain missing file, so treating ENOENT as "not there"
+  // discarded the link and authorised the write under its in-root name. The
+  // write then followed the link and landed outside.
+  rejects('a dangling link whose target is outside the root is refused',
+    () => gate({
+      links: { [`${ROOT}/out.pdf`]: '/private/tmp/escaped.pdf' },
+      missing: ['/private/tmp/escaped.pdf'],
+    }).forWrite(`${ROOT}/out.pdf`, { input: null }),
+    'symlink_escape');
+  checkOk('a dangling link whose target is inside the root is allowed',
+    () => gate({
+      links: { [`${ROOT}/out.pdf`]: `${ROOT}/new.pdf` },
+      missing: [`${ROOT}/new.pdf`],
+    }).forWrite(`${ROOT}/out.pdf`, { input: null }).path === `${ROOT}/new.pdf`);
+  rejects('a dangling link pointing at itself is refused',
+    () => gate({ links: { [`${ROOT}/self`]: `${ROOT}/self` }, missing: [`${ROOT}/self`] })
+      .forWrite(`${ROOT}/self`, { input: null }),
+    'symlink_loop');
+
   rejects('an escaping link several missing levels above the leaf is refused',
     () => gate({
       links: { [`${ROOT}/evil`]: '/private/tmp' },
@@ -293,7 +336,7 @@ if (isMain) {
   // first version of this file passed while assuming realpath returned null on
   // absence.
   {
-    const { realpathSync, mkdtempSync, symlinkSync, writeFileSync, rmSync } = await import('node:fs');
+    const { realpathSync, readlinkSync, mkdtempSync, symlinkSync, writeFileSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'bs-gate-')));
@@ -323,6 +366,33 @@ if (isMain) {
       check('the stub agrees with node:fs on dereferencing',
         stub.realpath(join(dir, 'link.txt')) === realpathSync(join(dir, 'link.txt')));
 
+      // The member the stub did not have. Its absence is why no vector could
+      // describe a dangling link, and a dangling link was an authorisation
+      // bypass in both this implementation and the Rust port.
+      symlinkSync(join(dir, 'gone.txt'), join(dir, 'dangling.txt'));
+      check('node:fs readlink reports a dangling link target rather than failing',
+        readlinkSync(join(dir, 'dangling.txt')) === join(dir, 'gone.txt'));
+      check('node:fs readlink throws EINVAL for a file that is not a link',
+        realCode(() => readlinkSync(join(dir, 'real.txt'))) === 'EINVAL');
+      check('node:fs readlink throws ENOENT for a path that is not there',
+        realCode(() => readlinkSync(join(dir, 'nope.txt'))) === 'ENOENT');
+
+      const danglingStub = stubFs({
+        links: { [join(dir, 'dangling.txt')]: join(dir, 'gone.txt') },
+        missing: [join(dir, 'gone.txt'), join(dir, 'nope.txt')],
+      });
+      check('the stub agrees with node:fs on a dangling link target',
+        danglingStub.readlink(join(dir, 'dangling.txt')) === readlinkSync(join(dir, 'dangling.txt')));
+      check('the stub agrees with node:fs on a path that is not a link',
+        stubCode(() => danglingStub.readlink(join(dir, 'real.txt'))) === 'EINVAL');
+      check('the stub agrees with node:fs on readlink of an absent path',
+        stubCode(() => danglingStub.readlink(join(dir, 'nope.txt'))) === 'ENOENT');
+      // realpath still fails for the dangling link, which is exactly what made
+      // it indistinguishable from a missing file before readlink existed.
+      check('node:fs realpath cannot tell a dangling link from a missing file',
+        realCode(() => realpathSync(join(dir, 'dangling.txt'))) === 'ENOENT'
+        && realCode(() => realpathSync(join(dir, 'nope.txt'))) === 'ENOENT');
+
       // A relative target resolves against the directory holding the link. The
       // stub treated it as absolute until a review pointed out that no
       // filesystem does.
@@ -349,6 +419,7 @@ if (isMain) {
         swap() { swapped = true; },
         withHandles: {
           realpath: deref,
+          readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
           isDirectory: () => false,
           open: (p) => ({ boundTo: deref(p) }),
           readHandle: (h) => `content-of:${h.boundTo}`,
@@ -356,6 +427,7 @@ if (isMain) {
         },
         pathOnly: {
           realpath: deref,
+          readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
           isDirectory: () => false,
           read: (p) => `content-of:${deref(p)}`,
           write: () => true,
@@ -375,6 +447,7 @@ if (isMain) {
     // use. Keying issuance off open() alone made readFile call a missing method.
     const halfBound = {
       realpath: (p) => p,
+      readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
       isDirectory: () => false,
       open: (p) => ({ boundTo: p }),
       read: (p) => `path-read:${p}`,

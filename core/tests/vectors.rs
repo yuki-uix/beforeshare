@@ -157,6 +157,37 @@ fn a_missing_leaf_under_an_escaping_link_is_still_refused() {
 }
 
 #[test]
+fn a_dangling_link_is_resolved_rather_than_taken_for_a_missing_file() {
+    // A link whose target does not exist yet reports NotFound exactly as a plain
+    // missing file does. Treating that as "a file that does not exist yet"
+    // discarded the link and authorised the write under its own in-root name;
+    // the write then followed the link and created a file outside the roots.
+    // The JavaScript reference had the identical hole, and neither suite could
+    // express it - its stub filesystem had no way to report a link target.
+    let t = Tree::new();
+    let outside = std::env::temp_dir()
+        .canonicalize()
+        .expect("canonical temp")
+        .join("beforeshare-escaped-by-a-dangling-link.pdf");
+    let _ = std::fs::remove_file(&outside);
+    symlink(&outside, t.root.join("out.pdf")).expect("dangling link out");
+    symlink(t.root.join("new.pdf"), t.root.join("in.pdf")).expect("dangling link in");
+    symlink(t.root.join("self"), t.root.join("self")).expect("dangling self-link");
+    let g = t.gate();
+
+    rejects(
+        "a dangling link whose target is outside",
+        g.for_write(&t.at("out.pdf"), None),
+        "symlink_escape",
+    );
+    assert!(!outside.exists(), "the target was created despite the refusal");
+    let inside = g.for_write(&t.at("in.pdf"), None).expect("a dangling link inside the root");
+    assert_eq!(inside.path(), t.root.join("new.pdf"), "the link was not followed");
+    rejects("a link pointing at itself", g.for_read(&t.at("self")), "symlink_loop");
+    let _ = t.keep();
+}
+
+#[test]
 fn a_path_that_does_not_exist_yet_can_be_written() {
     let t = Tree::new();
     let g = t.gate();
@@ -377,6 +408,7 @@ fn every_declared_reason_is_triggered_by_a_vector() {
     traversal_is_judged_after_collapsing();
     a_link_anywhere_along_the_path_is_resolved_first();
     a_missing_leaf_under_an_escaping_link_is_still_refused();
+    a_dangling_link_is_resolved_rather_than_taken_for_a_missing_file();
     a_cycle_is_named_rather_than_spun_on();
     a_filesystem_that_cannot_answer_is_refused_rather_than_assumed();
     a_gate_authorising_everything_cannot_be_built();

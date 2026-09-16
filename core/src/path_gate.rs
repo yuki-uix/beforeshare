@@ -302,10 +302,16 @@ impl Gate {
             // Which of the two it is matters to whoever reads it: a path that
             // left the roots by following a link is a different problem from
             // one that was never inside them.
-            return Err(if collapsed == real {
-                Rejected::OutsideAuthorisedRoots(real.display().to_string())
-            } else {
+            //
+            // The test for that is whether the name given was inside a root,
+            // not whether resolution changed it. `collapsed == real` said
+            // "symlink escape" for /etc/passwd, because /etc is a link to
+            // /private/etc on macOS - a path that was never inside anything,
+            // reported as though it had broken out.
+            return Err(if self.within_roots(&collapsed) {
                 Rejected::SymlinkEscape(format!("{} -> {}", collapsed.display(), real.display()))
+            } else {
+                Rejected::OutsideAuthorisedRoots(real.display().to_string())
             });
         }
         Ok(real)
@@ -344,6 +350,31 @@ fn real_path(path: &Path) -> Result<PathBuf, Rejected> {
     match std::fs::canonicalize(path) {
         Ok(real) => Ok(real),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // A dangling symlink also reports NotFound, and treating it as "a
+            // file that does not exist yet" discarded the link entirely: the
+            // name was rejoined to its resolved parent, so a link pointing
+            // anywhere outside was authorised under its own in-root name, and
+            // the write landed at the target. That is the CWE-59 the fallback
+            // below claims to close, reached through the leaf instead of
+            // through a directory component.
+            if let Ok(meta) = std::fs::symlink_metadata(path) {
+                if meta.is_symlink() {
+                    let target = std::fs::read_link(path).map_err(|e| {
+                        Rejected::Unresolvable(format!("{}: {e}", path.display()))
+                    })?;
+                    let absolute = if target.is_absolute() {
+                        target
+                    } else {
+                        path.parent().unwrap_or(Path::new("/")).join(target)
+                    };
+                    let collapsed = collapse(&absolute)
+                        .ok_or_else(|| Rejected::Traversal(absolute.display().to_string()))?;
+                    if collapsed == path {
+                        return Err(Rejected::SymlinkLoop(path.display().to_string()));
+                    }
+                    return real_path(&collapsed);
+                }
+            }
             let parent = path.parent().ok_or_else(|| {
                 Rejected::Unresolvable(format!("{}: no ancestor could be resolved", path.display()))
             })?;

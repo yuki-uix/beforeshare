@@ -7,7 +7,7 @@
  */
 import {
   mkdtempSync, statSync, openSync, closeSync, rmSync, writeFileSync, readFileSync,
-  realpathSync, readdirSync, linkSync, unlinkSync, lstatSync,
+  realpathSync, readlinkSync, readdirSync, linkSync, unlinkSync, lstatSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -66,6 +66,7 @@ if (isMain) {
       files,
       modes,
       realpath: (p) => p,
+      readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
       isDirectory: (p) => p === ROOT,
       read: (p) => files.get(p),
       write: (p, bytes) => (files.set(p, bytes), true),
@@ -101,6 +102,7 @@ if (isMain) {
       writeFileSync(realInput, 'original');
       const adapter = {
         realpath: (p) => { try { return realpathSync(p); } catch { return p; } },
+        readlink: (p) => readlinkSync(p),
         isDirectory: (p) => { try { return lstatSync(p).isDirectory(); } catch { return false; } },
         read: (p) => readFileSync(p, 'utf8'),
         write: (p, bytes) => (writeFileSync(p, bytes), true),

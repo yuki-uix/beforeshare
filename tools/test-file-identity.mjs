@@ -61,6 +61,7 @@ if (isMain) {
       set(next) { files.set(INPUT, next); },
       setAt(p, next) { files.set(p, next); },
       realpath: (p) => p,
+      readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
       isDirectory: () => false,
       read(p) {
         reads.push(p);
@@ -200,7 +201,8 @@ if (isMain) {
     // the copy bytesOf returns, which cannot see this.
     const held = Buffer.from('original bytes');
     const fsHolding = {
-      realpath: (p) => p, isDirectory: () => false, read: () => held, write: () => true,
+      realpath: (p) => p, readlink() { throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' }); },
+      isDirectory: () => false, read: () => held, write: () => true,
     };
     const r = intake(fsHolding, gateFor(fsHolding).forRead(INPUT), { runId: 'run-alias' });
     held.write('EVIL', 0);
