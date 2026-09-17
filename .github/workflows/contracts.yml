@@ -79,6 +79,9 @@ jobs:
       # which npm install would quietly paper over.
       - run: npm ci
 
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install stable
+
       - name: Validate schemas, examples and enum drift
         run: npm run validate
 
@@ -88,8 +91,28 @@ jobs:
       - name: Test status rules and exit codes
         run: npm run test:status
 
+      # The command line is a real process to the suites below: the equivalence
+      # check runs the binary rather than calling the core, because an adapter
+      # that called the core would check the core against itself and pass while
+      # the command printed something else.
+      - name: Build the command line
+        run: cargo build -p beforeshare-cli
+
       - name: Test contract boundaries
         run: npm run test:contracts
+
+      - name: Test the command line end to end
+        run: npm run test:cli
+
+      # Neither of these had a step of its own. Both were reachable only as
+      # subjects of the mutation job, whose control case runs them - so a
+      # failure in either showed up as "this guard no longer checks anything",
+      # which is a true sentence about the wrong thing.
+      - name: Test the emitted results
+        run: npm run test:results
+
+      - name: Test the parser bake-off against its recorded run
+        run: npm run test:bakeoff
 
       - name: Test the path safety gate
         run: npm run test:path-gate
@@ -238,7 +261,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=78
+          EXPECTED_CASES=84
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -304,8 +327,14 @@ jobs:
           node -e "
             const fs=require('fs'), p='schemas/v1/examples/capabilities.json';
             const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            // The adapter, not the status. This used to set the status to
+            // implemented, and the seven PDF detectors are implemented now, so
+            // it changed nothing and the guard reported that it no longer
+            // checked anything - which is the guard working. What the schema
+            // forbids either way is an entry that says it exists without
+            // naming what implements it.
             const d=c.formats[0].detectors[0];
-            d.status='implemented'; delete d.waitingOn;
+            delete d.adapter;
             fs.writeFileSync(p, JSON.stringify(c,null,2));
           "
           expect_failure "a detector claiming to exist without an adapter" \
@@ -334,8 +363,11 @@ jobs:
           node -e "
             const fs=require('fs'), p='schemas/v1/interface-registry.json';
             const r=JSON.parse(fs.readFileSync(p,'utf8'));
-            r.interfaces.cli.status='implemented';
-            delete r.interfaces.cli.waitingOn;
+            // Same shape as the detector above: cli is implemented now, so
+            // the mutation that used to make it claim to be does nothing. An
+            // interface that claims to exist without naming an adapter is
+            // still the defect.
+            delete r.interfaces.cli.adapter;
             fs.writeFileSync(p, JSON.stringify(r,null,2));
           "
           expect_failure "an interface claiming to exist without an adapter" \
@@ -1247,11 +1279,95 @@ jobs:
             "tools/masking.mjs" \
             "test:masking" || failed=1
 
+          # The command line, as a process. Each of these is a defect the suite
+          # would have to catch on a real run: the binary is rebuilt by the
+          # suite itself, so a mutation to its source reaches the test.
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('let media_type = media_type_of(&bytes);',
+                        'let media_type = if raw.ends_with(\".pdf\") { \"application/pdf\" } else { media_type_of(&bytes) };');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a format taken from the file name" \
+            "the format comes from the bytes, not the name" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if json {\n        println!(',
+                        '    if json {\n        print!(\"{}\", render::human(&value));\n        println!(');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "human output printed alongside the JSON" \
+            "stdout is JSON and nothing else" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          # The header at offset zero. A PDF behind a byte-order mark is read by
+          # the core and was declined by the command, which is the answer that
+          # tells an agent there is nothing to see.
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if window.windows(5).any(|candidate| candidate == b\"%PDF-\") {',
+                        '    if window.starts_with(b\"%PDF-\") {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a header required at the first byte" \
+            "is still a PDF" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    eprintln!(\"beforeshare: {message}\");',
+                        '    println!(\"beforeshare: {message}\");');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a diagnostic on stdout" \
+            "puts nothing on stdout" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          # The exit code half of #24's question. A run that did not look
+          # everywhere and exits 0 is the pair a script cannot tell from a
+          # complete one.
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('        coverage_incomplete: !value[\"coverage\"][\"skipped\"]',
+                        '        coverage_incomplete: false && !value[\"coverage\"][\"skipped\"]');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an incomplete run reported as complete" \
+            "a complete run and an incomplete one produced different codes" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          # The declaration against the build. It said this build implements no
+          # detector while seven of them were running, and nothing failed.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/detector-registry.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.detectors['pdf.metadata'].status='not_implemented';
+            d.detectors['pdf.metadata'].waitingOn='#4';
+            delete d.detectors['pdf.metadata'].adapter;
+            fs.writeFileSync(p, JSON.stringify(d,null,2));
+          "
+          expect_failure "a detector that runs and is declared missing" \
+            "every detector that ran is declared implemented" \
+            "schemas/v1/detector-registry.json" \
+            "test:results" || failed=1
+
           # The control, per suite. One control over `validate` left every case
           # that names a different suite unproven: a `test:bakeoff` that failed
           # for any input would have satisfied its case above while this control
           # stayed green, because the control was not running it.
-          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries test:results test:masking; do
+          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries test:results test:masking test:cli; do
             if ! npm run "$suite" --silent > /dev/null 2>&1; then
               echo "::error::control case: ${suite} fails even with no mutation applied"
               failed=1

@@ -775,10 +775,13 @@ for (const entry of committedCaps.actions) {
     `registered but not implemented, or absent: ${missing.join(', ')}`);
 }
 
-// --- nothing may be published as a working capability ------------------------
-// capabilities.md states that no format adapter exists. The declaration has to
-// agree: a consumer reading eight PDF detectors with no status would conclude
-// this build inspects PDFs.
+// --- nothing may be published as a capability it does not have ---------------
+// Both directions, and both have been wrong here. A detector with no status at
+// all was published as working, which is how a consumer would have concluded
+// this build inspected PDFs before it did; and the seven that do work stayed
+// declared not_implemented for two PRs after they shipped, which published a
+// build less capable than the one running. An implemented entry names its
+// adapter, so the status cannot be advanced by editing a string.
 for (const f of committedCaps.formats) {
   for (const d of f.detectors) {
     check(`${f.mediaType} detector ${d.id} declares its implementation state`,
@@ -1478,6 +1481,56 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
     .filter((name) => !/^test:[a-z-]+:/.test(name));
   check('every claimed check names the suite it ran in', unqualified.length === 0,
     unqualified.join(' / '));
+}
+
+// --- the exit codes, and which status each may appear with --------------------
+//
+// The command line is a second implementation of this contract. The order the
+// conditions are checked in decides what a run with two of them reports, so it
+// lives in the table and both implementations walk it; this checks the table
+// against the enums it has to agree with.
+{
+  const exits = read(join(schemaDir, 'exit-code-rules.json'));
+  const names = Object.keys(exits.codes);
+  const statuses = enumAt('enums.schema.json', '$defs.status.enum');
+
+  const unknownInOrder = exits.order.map((r) => r.code).filter((c) => !names.includes(c));
+  check('every ordered condition names a code the table declares',
+    unknownInOrder.length === 0, unknownInOrder.join(', '));
+  check('the default names a code the table declares', names.includes(exits.default.code),
+    exits.default.code);
+
+  const conditions = exits.order.map((r) => r.condition);
+  check('no condition is checked twice', new Set(conditions).size === conditions.length,
+    conditions.join(', '));
+
+  // Both directions. A status with no row would exit by whatever the code
+  // happened to be, and a row for a status that no longer exists is a rule
+  // nobody notices has stopped applying.
+  const missing = statuses.filter((s) => !(s in exits.statusExitMatrix));
+  check('every status says which exit codes it may appear with', missing.length === 0,
+    missing.join(', '));
+  const stray = Object.keys(exits.statusExitMatrix).filter((s) => !statuses.includes(s));
+  check('every row of the matrix names a status that exists', stray.length === 0,
+    stray.join(', '));
+
+  const unknownInMatrix = Object.entries(exits.statusExitMatrix)
+    .flatMap(([status, codes]) => codes.filter((c) => !names.includes(c)).map((c) => `${status}=${c}`));
+  check('every code in the matrix is one the table declares', unknownInMatrix.length === 0,
+    unknownInMatrix.join(', '));
+
+  // §12.2 lists these eight numbers. A renumbering would be a contract change
+  // and has to be made deliberately rather than by editing one row.
+  check('the numbers are the ones §12.2 names',
+    JSON.stringify(Object.values(exits.codes).slice().sort((a, b) => a - b))
+      === JSON.stringify([0, 2, 3, 4, 5, 6, 7, 8]),
+    Object.values(exits.codes).join(', '));
+
+  const severityLeaks = Object.entries(exits.statusExitMatrix)
+    .filter(([status, codes]) => ['review_required', 'blocking_findings'].includes(status)
+      && !codes.includes('ok'));
+  check('severity does not reach the exit code', severityLeaks.length === 0,
+    severityLeaks.map(([s]) => s).join(', '));
 }
 
 // --- what a run may consume, and what an overrun is called --------------------

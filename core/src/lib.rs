@@ -15,6 +15,11 @@
 
 #![forbid(unsafe_code)]
 
+/// This build's version, so an interface reports the core it is actually
+/// running rather than its own.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub mod identity;
 pub mod masking;
 pub mod path_gate;
 pub mod pdf;

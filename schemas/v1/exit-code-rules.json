@@ -1,0 +1,38 @@
+{
+  "$comment": "§12.2's exit codes, the order the conditions are checked in, and which codes each status may appear with. Data because there are now two implementations: tools/exit-codes.mjs, which was the only one, and the command line itself. A second implementation that restated the order would agree with the prose in docs/contracts/status-and-exit-codes.md and could disagree with the first, which is how one run reports a code the other would not.",
+  "schemaVersion": "1.0",
+
+  "$codesComment": "The number, and what it says about the run rather than about the file. The exit code describes the run; the status describes the result. Neither is derivable from the other, which is why severity never reaches the exit code: §12.2 requires severity to be communicated in the JSON, and a contract that let the exit code look like a safety verdict would be the misleading safe language §15 lists as a threat.",
+  "codes": {
+    "ok": 0,
+    "invalid_arguments": 2,
+    "unsupported_input": 3,
+    "partial_inspection": 4,
+    "processing_failure": 5,
+    "verification_failure": 6,
+    "unsafe_output_path": 7,
+    "approval_required": 8
+  },
+
+  "$orderComment": "Checked in this order, outward-in: what stops the command before it touches the file, then what puts the file out of scope, then what went wrong during the run, then completeness. The order is the contract - a condition moved up or down changes which code a run with two conditions reports - so it is written once here and both implementations walk it.",
+  "order": [
+    { "condition": "invalidArguments", "code": "invalid_arguments", "reason": "arguments were rejected before any file was opened" },
+    { "condition": "unsafeOutputPath", "code": "unsafe_output_path", "reason": "the requested output path was refused" },
+    { "condition": "approvalRequired", "code": "approval_required", "reason": "the requested action needs explicit approval that was not given" },
+    { "condition": "unsupportedMediaType", "code": "unsupported_input", "reason": "the input is outside the supported formats" },
+    { "condition": "processingFailure", "code": "processing_failure", "reason": "the run could not complete" },
+    { "condition": "verificationFailure", "code": "verification_failure", "reason": "verification did not confirm the requested removal" },
+    { "condition": "coverageIncomplete", "code": "partial_inspection", "reason": "some checks did not run" }
+  ],
+  "default": { "code": "ok", "reason": "the command completed and a result is available" },
+
+  "$matrixComment": "Which codes each status may legitimately appear with. blocking_findings is the only status with two, and that is deliberate: an inspection that did not look everywhere is a partial inspection regardless of what it did find, so the code and the status disagree on purpose. A run whose pair is not in this table is a defect in one of the two, and the end-to-end test reads this rather than a list written beside it.",
+  "statusExitMatrix": {
+    "no_findings": ["ok"],
+    "review_required": ["ok"],
+    "blocking_findings": ["ok", "partial_inspection"],
+    "partial": ["partial_inspection"],
+    "unsupported": ["unsupported_input"],
+    "failed": ["processing_failure"]
+  }
+}
