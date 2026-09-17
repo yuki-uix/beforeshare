@@ -7,7 +7,7 @@
  * and with the result - #24 left exactly that here, because it needs a real
  * process to be true or false about.
  */
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, symlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -97,6 +97,41 @@ if (isMain) {
     const { stdout, code } = run(['inspect', lying, '--json']);
     check('the format comes from the bytes, not the name',
       JSON.parse(stdout).status === 'unsupported' && code === 3, String(code));
+  }
+
+  // --- 2b. a file this build cannot read at all -------------------------------
+  //
+  // A PDF by its bytes and not a document by its structure: the run started and
+  // could not finish, which is the difference between 5 and 3.
+  const broken = join(scratch, 'truncated.pdf');
+  writeFileSync(broken, '%PDF-1.7\n1 0 obj\n<< /Type /Catalog\n');
+  {
+    const { stdout, code } = run(['inspect', broken, '--json']);
+    const result = JSON.parse(stdout);
+    check('a file that cannot be read is failed, not unsupported',
+      result.status === 'failed', result.status);
+    check('a failed run exits 5', code === 5, String(code));
+    check('a failed run still produces a result on stdout', validateResult(result),
+      (validateResult.errors ?? []).map((e) => `${e.instancePath} ${e.message}`).join('; '));
+  }
+
+  // --- 2c. the path gate is in front of the read ------------------------------
+  //
+  // §13.4 is about every access. The gate authorises the directory the user
+  // named, so a link out of it is refused before anything opens it - the user
+  // asked about a file in a place, not about wherever that name points.
+  {
+    const outside = mkdtempSync(join(tmpdir(), 'beforeshare-elsewhere-'));
+    const secret = join(outside, 'payroll.pdf');
+    writeFileSync(secret, readFileSync(join(filesDir, 'form-fields.positive.pdf')));
+    const link = join(scratch, 'innocent.pdf');
+    symlinkSync(secret, link);
+    const { stdout, stderr, code } = run(['inspect', link, '--json']);
+    check('a link out of the named directory is refused', code === 2, String(code));
+    check('the refusal says nothing about the file it did not read', stdout === '',
+      stdout.slice(0, 60));
+    check('the refusal names a reason from the gate', /link|root|outside|symlink/i.test(stderr),
+      stderr.split('\n')[0]);
   }
 
   // --- 3. arguments ----------------------------------------------------------
