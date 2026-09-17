@@ -169,9 +169,29 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
     let mut silent_checked = 0usize;
     let mut excepted_checked = 0usize;
 
+    let mut no_categories = 0usize;
     for f in fixtures.iter().filter(|f| !f.positive) {
         let expected = categories_for(&f.item, &rules);
         if expected.is_empty() {
+            // Skipping a control because its item declares no categories is
+            // only honest when the item is one this build does not detect at
+            // all - the image-only page, which needs OCR. The manifest says so
+            // independently of the rules table: the positive of a detectable
+            // item expects its coverage completed, so a row that lost its
+            // categories takes its control out of this check and fails here
+            // rather than quietly reducing what is checked.
+            no_categories += 1;
+            let positive_name = f.name.replace(".control.", ".positive.");
+            let coverage = m["fixtures"][&positive_name]["expectedCoverage"]
+                .as_str()
+                .unwrap_or("?");
+            if coverage != "skipped" {
+                wrong.push(format!(
+                    "{}: its item declares no categories, but {positive_name} expects coverage \
+                     {coverage} - a detectable item with nothing to detect",
+                    f.name
+                ));
+            }
             continue;
         }
         let entry = &m["fixtures"][&f.name];
@@ -264,6 +284,34 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
         (expected_silent, expected_excepted),
         "the manifest describes {expected_silent} silent and {expected_excepted} excepted controls"
     );
+    // The two counts above are computed over the same subset this loop walks,
+    // so they cannot tell whether a control fell out of it: an item whose rules
+    // row lost its categories would be skipped here and dropped from the
+    // expectation in the same breath. This is the independent basis. Every
+    // control is accounted for: checked for silence, checked against its stated
+    // exception, or skipped because its item declares no categories at all -
+    // and that last number comes from the rules table rather than from the same
+    // loop, so a row losing its categories moves a control out of the check and
+    // fails here.
+    let controls = fixtures.iter().filter(|f| !f.positive).count();
+    let items_without_categories = rules["mapping"]
+        .as_object()
+        .expect("the rules declare a mapping")
+        .iter()
+        .filter(|(item, _)| !item.starts_with('$'))
+        .filter(|(item, _)| categories_for(item, &rules).is_empty())
+        .count();
+    assert_eq!(
+        silent_checked + excepted_checked + no_categories,
+        controls,
+        "{controls} controls, of which {silent_checked} were checked for silence, \
+         {excepted_checked} against a stated exception and {no_categories} not at all"
+    );
+    assert_eq!(
+        no_categories, items_without_categories,
+        "the rules declare {items_without_categories} items with no categories, \
+         and {no_categories} controls went unchecked"
+    );
     assert!(
         excepted_checked >= 1,
         "no control exercised the stated-exception path"
@@ -319,8 +367,9 @@ fn coverage_names_every_detector_exactly_once() {
         // cannot do that from a sentence.
         for (name, (reason, message)) in &c.skipped {
             assert!(
-                ["not_applicable_to_media_type", "blocked_by_encryption"]
-                    .contains(&reason.as_str()),
+                pdf::SkipReason::ALL
+                    .iter()
+                    .any(|r| r.as_str() == reason.as_str()),
                 "{}: {name} skipped for {:?}, which the result schema does not allow",
                 f.name,
                 reason.as_str()
@@ -333,7 +382,9 @@ fn coverage_names_every_detector_exactly_once() {
         }
         for (name, (code, message)) in &c.failed {
             assert!(
-                ["parser_error", "malformed_input", "internal_error"].contains(&code.as_str()),
+                pdf::FailureCode::ALL
+                    .iter()
+                    .any(|c| c.as_str() == code.as_str()),
                 "{}: {name} failed with {:?}, which the result schema does not allow",
                 f.name,
                 code.as_str()
@@ -1177,6 +1228,88 @@ fn a_value_behind_an_indirect_reference_is_read_rather_than_missed() {
         inspection.coverage.failed.is_empty(),
         "nothing here is malformed: {:?}",
         inspection.coverage.failed
+    );
+}
+
+/// An image is an image even when its /Subtype is an indirect object.
+///
+/// Reading the reference as a name answers "not an image", and nothing says so:
+/// the OCR gap disappears from the coverage, and a scanned page with no other
+/// finding reports as a document with nothing in it.
+#[test]
+fn an_image_behind_an_indirect_subtype_still_counts_as_an_image() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /XObject /Subtype 6 0 R /Width 2 /Height 2 /ColorSpace /DeviceGray \
+         /BitsPerComponent 8 /Length 4 >>\nstream\n\u{0}\u{1}\u{2}\u{3}\nendstream",
+        "<< /Length 30 >>\nstream\nq 612 0 0 792 0 0 cm /Im1 Do Q\nendstream",
+        "/Image",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    assert!(
+        inspection.has_images,
+        "an indirect /Subtype was read as the reference rather than as the name it points at"
+    );
+}
+
+/// A tree deeper than the budget is a budget, not a broken file.
+#[test]
+fn a_tree_deeper_than_the_budget_is_refused_as_a_budget_not_as_malformed() {
+    let depth = pdf::graph_depth() + 2;
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>".to_string(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+    ];
+    for level in 0..depth {
+        objects.push(format!("<< /T (n{level}) /Kids [{} 0 R] >>", 3 + level + 1));
+    }
+    objects.push("<< /T (leaf) >>".to_string());
+    let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+    let inspection = pdf::inspect(&build_pdf(&refs));
+    let (code, message) = inspection
+        .coverage
+        .failed
+        .get("pdf.form_fields")
+        .unwrap_or_else(|| panic!("coverage was {:?}", inspection.coverage));
+    assert_eq!(
+        code.as_str(),
+        "resource_limit_exceeded",
+        "a legitimate deep form was reported as a malformed file: {message}"
+    );
+}
+
+/// The trigger says where the action is reached from, and two are not the same.
+///
+/// Every action reported document_open, including a script on a link. A
+/// consumer deciding how alarming an action is needs to know whether it runs
+/// when the file opens or when someone clicks something, and a field with one
+/// value answers neither question.
+#[test]
+fn an_action_says_where_it_is_reached_from() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R] >>",
+        "<< /S /JavaScript /JS (app.alert(\"on open\");) >>",
+        "<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] \
+         /A << /S /JavaScript /JS (app.alert(\"on click\");) >> >>",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    let triggers: Vec<&str> = inspection
+        .detected
+        .iter()
+        .filter(|d| d.category == "document_javascript")
+        .map(|d| match &d.location {
+            pdf::Location::PdfAction { trigger, .. } => trigger.as_str(),
+            other => panic!("javascript reported somewhere else: {other:?}"),
+        })
+        .collect();
+    assert!(
+        triggers.contains(&"document_open") && triggers.contains(&"annotation"),
+        "both scripts were given the same trigger: {triggers:?}"
     );
 }
 

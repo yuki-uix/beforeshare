@@ -233,7 +233,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=76
+          EXPECTED_CASES=78
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1202,11 +1202,44 @@ jobs:
             "no suite in tools/ ends the process that imports it" \
             "tools/test-parser-bakeoff.mjs" || failed=1
 
+          # The values a document put in the file, in a result. Every category
+          # has a masking policy and the policy was applied to the evidence and
+          # to nothing else, so a location carried a field name in full and a
+          # whole script went out unmasked. The check reads the fixture's own
+          # declared values, and this proves it reads them: a result with one
+          # put back must fail.
+          node -e "
+            const fs=require('fs'), p='fixtures/pdf/results/form-fields.positive.json';
+            const r=JSON.parse(fs.readFileSync(p,'utf8'));
+            r.findings[0].location.fieldName='applicant_national_id';
+            fs.writeFileSync(p, JSON.stringify(r,null,2));
+          "
+          expect_failure "a document's own value back in a result" \
+            "carries none of its document's values verbatim" \
+            "fixtures/pdf/results/form-fields.positive.json" \
+            "test:results" || failed=1
+
+          # The masking vectors name the resulting policy as well as the display
+          # value, and the suite read only the display value: an implementation
+          # that masked correctly and reported the wrong policy passed, which is
+          # what a degradation is.
+          node -e "
+            const fs=require('fs'), p='tools/masking.mjs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    maskPolicy: \'fully_masked\',\n    redacted: true,\n    truncated,\n    degradedFrom: p,',
+                        '    maskPolicy: p,\n    redacted: true,\n    truncated,\n    degradedFrom: p,');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a degradation reported as the policy that failed" \
+            "documented: coordinate_coarsened" \
+            "tools/masking.mjs" \
+            "test:masking" || failed=1
+
           # The control, per suite. One control over `validate` left every case
           # that names a different suite unproven: a `test:bakeoff` that failed
           # for any input would have satisfied its case above while this control
           # stayed green, because the control was not running it.
-          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries; do
+          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries test:results test:masking; do
             if ! npm run "$suite" --silent > /dev/null 2>&1; then
               echo "::error::control case: ${suite} fails even with no mutation applied"
               failed=1
@@ -1279,7 +1312,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=60
+          EXPECTED_RUST_CASES=65
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
@@ -1654,6 +1687,31 @@ jobs:
             "a_cycle_in_the_field_tree_ends_without_spending_the_budget" \
             $'    if let Some(id) = id {\n        if !walk.active.insert(id) {\n            return Ok(());\n        }\n    }\n    let result = walk_field_body(' \
             $'    if let Some(id) = id {\n        let _ = walk.active.insert(id);\n    }\n    let result = walk_field_body('
+
+          expect_red_in "src/pdf/mod.rs" "a subtype read as the reference" \
+            "an_image_behind_an_indirect_subtype_still_counts_as_an_image" \
+            $'            .and_then(|v| document.dereference(v).ok())\n            .and_then(|(_, v)| v.as_name().ok())' \
+            $'            .and_then(|v| v.as_name().ok())'
+
+          expect_red_in "src/pdf/detectors.rs" "a deep tree called malformed" \
+            "a_tree_deeper_than_the_budget_is_refused_as_a_budget_not_as_malformed" \
+            $'        return Err(NotRun::Failed {\n            code: FailureCode::ResourceLimitExceeded,\n            message: format!(\n                "the form field tree is nested deeper than the budget of {} objects",' \
+            $'        return Err(NotRun::Failed {\n            code: FailureCode::MalformedInput,\n            message: format!(\n                "the form field tree is nested deeper than the budget of {} objects",'
+
+          expect_red_in "src/pdf/detectors.rs" "every action given the same trigger" \
+            "an_action_says_where_it_is_reached_from" \
+            $'let trigger = triggers.get(id).copied().unwrap_or(Trigger::NamedAction);' \
+            $'let trigger = Trigger::DocumentOpen;\n        let _ = &triggers;'
+
+          expect_red_in "src/result.rs" "a document value shown in full" \
+            "a_documents_own_value_is_not_shown_under_the_unredacted_policy" \
+            $'        if policy == "structural_label"\n            && detected.provenance == Provenance::Document\n            && !masking::shown_in_full(category)\n        {' \
+            $'        if false {'
+
+          expect_red_in "src/result.rs" "a location name left unmasked" \
+            "a_field_name_in_a_location_is_masked_like_the_value_beside_it" \
+            $'let field_name = masked_label(field_name, "form_field_name")?;' \
+            $'let field_name = field_name.clone();'
 
           expect_red_in "src/pdf/detectors.rs" "an indirect value read as absent" \
             "a_value_behind_an_indirect_reference_is_read_rather_than_missed" \

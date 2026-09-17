@@ -68,3 +68,117 @@ fn complete_coverage_with_nothing_found_is_the_only_clean_state() {
     let (status, _) = decide_status(7, &["pdf.text_layer".to_string()], &[], "application/pdf");
     assert_eq!(status, "partial");
 }
+
+/// The one policy that shows a value in full is for values a detector wrote.
+///
+/// A review found a whole JavaScript program in a result because nothing could
+/// tell a sentence about the file from a value copied out of it. The core
+/// refuses the second under that policy rather than printing it, and the
+/// exceptions are the categories the table lists as shown in full, each with a
+/// reason.
+#[test]
+fn a_documents_own_value_is_not_shown_under_the_unredacted_policy() {
+    use beforeshare_core::pdf::{
+        Coverage, Detected, Inspection, Location, Provenance, StructureDetail,
+    };
+    use beforeshare_core::result::{assemble, InputFacts};
+
+    let detected = |provenance| Detected {
+        category: "document_producer".to_string(),
+        detector: "pdf.metadata".to_string(),
+        location: Location::FileStructure {
+            detail: StructureDetail::IncrementalUpdate,
+            revision: None,
+        },
+        value: "something the document said".to_string(),
+        hides_a_removal: false,
+        provenance,
+    };
+    let facts = InputFacts {
+        path: "/tmp/x.pdf".into(),
+        media_type: "application/pdf".into(),
+        sha256: "0".repeat(64),
+        size_bytes: 1,
+    };
+    let inspection = |d: Detected| Inspection {
+        detected: vec![d],
+        coverage: Coverage::default(),
+        unreadable: None,
+        has_images: false,
+    };
+
+    // document_producer is one of the listed exceptions, so it is allowed.
+    assert!(
+        assemble(
+            &inspection(detected(Provenance::Document)),
+            &facts,
+            "01J0000000000000000000001",
+            "2026-01-01T00:00:00Z",
+            0
+        )
+        .is_ok(),
+        "a category the table lists as shown in full was refused"
+    );
+
+    // The same value under a category that is not listed is refused.
+    let mut unlisted = detected(Provenance::Document);
+    unlisted.category = "encryption_state".to_string();
+    unlisted.detector = "pdf.structure".to_string();
+    let refused = assemble(
+        &inspection(unlisted),
+        &facts,
+        "01J0000000000000000000002",
+        "2026-01-01T00:00:00Z",
+        0,
+    );
+    assert!(
+        refused.is_err(),
+        "a value copied out of the document was shown in full under structural_label"
+    );
+}
+
+/// A location names data too, and the same gate applies to it.
+///
+/// The evidence beside it was masked under the category's policy while the
+/// field name went out in full: one exit through the gate, one around it.
+#[test]
+fn a_field_name_in_a_location_is_masked_like_the_value_beside_it() {
+    use beforeshare_core::pdf::{Coverage, Detected, Inspection, Location, Provenance};
+    use beforeshare_core::result::{assemble, InputFacts};
+
+    let inspection = Inspection {
+        detected: vec![Detected {
+            category: "form_field_value".to_string(),
+            detector: "pdf.form_fields".to_string(),
+            location: Location::PdfFormField {
+                field_name: "applicant_national_id".to_string(),
+                page: None,
+            },
+            value: "QQ-123456-C".to_string(),
+            hides_a_removal: false,
+            provenance: Provenance::Document,
+        }],
+        coverage: Coverage::default(),
+        unreadable: None,
+        has_images: false,
+    };
+    let facts = InputFacts {
+        path: "/tmp/x.pdf".into(),
+        media_type: "application/pdf".into(),
+        sha256: "0".repeat(64),
+        size_bytes: 1,
+    };
+    let result = assemble(
+        &inspection,
+        &facts,
+        "01J0000000000000000000003",
+        "2026-01-01T00:00:00Z",
+        0,
+    )
+    .expect("assembles");
+    let text = serde_json::to_string(&result).expect("serialisable");
+    assert!(
+        !text.contains("applicant_national_id"),
+        "the field name went out in full: {text}"
+    );
+}

@@ -365,16 +365,22 @@ pub fn assemble(
     // §14.1 wants the parser's version as well as the detectors': it is the
     // layer most likely to change what was found, and the first version of this
     // omitted it - the schema said so before anyone had to notice.
+    // The same answer the findings path gives to the same absence. Skipping a
+    // detector the registry does not know left coverage naming it and versions
+    // silent about it, which is the field §14.1 asks for.
     let detector_versions: Vec<Value> = inspection
         .coverage
         .completed
         .iter()
-        .filter_map(|name| {
-            registry()
+        .map(|name| {
+            let version = registry()
                 .get(name)
-                .map(|d| json!({ "id": name, "version": d.version }))
+                .ok_or_else(|| format!("{name} is not in the detector registry"))?
+                .version
+                .clone();
+            Ok(json!({ "id": name, "version": version }))
         })
-        .collect();
+        .collect::<Result<Vec<Value>, String>>()?;
     let parsers: Vec<Value> = registry_file()
         .parsers
         .iter()
@@ -394,8 +400,13 @@ pub fn assemble(
         "status": status.0,
         "coverage": { "completed": completed, "skipped": skipped, "failed": failed },
         "findings": findings,
-        // §7.1's image-only item needs OCR, which E5 owns; a result that said
-        // nothing about it would be claiming the page was read.
+        // §7.1's image-only item needs OCR, which E5 owns. The gap is reported
+        // in coverage, as a skip with a reason, and not here: limitationCode
+        // has no member for "this build cannot read pictures" - the two
+        // OCR-shaped codes are about resolution and language, which are answers
+        // from an OCR that ran. Saying it in prose under a code that means
+        // something else would be worse than the one place it is said now.
+        // Handed to E5 with the detector.
         "limitations": limitations_for(inspection),
         "versions": {
             "core": env!("CARGO_PKG_VERSION"),
@@ -484,11 +495,24 @@ fn limitations_for(inspection: &Inspection) -> Vec<Value> {
         .values()
         .any(|(reason, _)| *reason == SkipReason::BlockedByEncryption)
     {
+        // Named by the coverage rather than written here: the list said one
+        // detector while three were being skipped for that reason, and a
+        // consumer reading limitations was told less than coverage knew.
+        let affected: Vec<&str> = inspection
+            .coverage
+            .skipped
+            .iter()
+            .filter(|(_, (reason, _))| *reason == SkipReason::BlockedByEncryption)
+            .map(|(name, _)| name.as_str())
+            .collect();
         out.push(json!({
             "code": "encrypted_content_not_inspected",
             "impact": "coverage_incomplete",
-            "affectedDetectors": ["pdf.text_layer"],
-            "message": "the content streams are encrypted and were not decrypted, so text on the page was not read",
+            "affectedDetectors": affected,
+            "message": format!(
+                "the document is encrypted and was not decrypted, so {} could not look",
+                affected.join(", ")
+            ),
         }));
     }
     out

@@ -31,7 +31,7 @@
       "location": {
         "kind": "pdf_action",
         "objectNumber": 1,
-        "trigger": "document_open"
+        "trigger": "named_action"
       },
       "message": "document_javascript found in pdf_action",
       "remediation": {
@@ -57,7 +57,7 @@
       "location": {
         "kind": "pdf_action",
         "objectNumber": 6,
-        "trigger": "document_open"
+        "trigger": "named_action"
       },
       "message": "document_javascript found in pdf_action",
       "remediation": {
@@ -83,7 +83,7 @@
       "location": {
         "kind": "pdf_action",
         "objectNumber": 7,
-        "trigger": "annotation"
+        "trigger": "document_open"
       },
       "message": "launch_action found in pdf_action",
       "remediation": {

@@ -3,7 +3,7 @@
 //! Each answers two things the coverage report needs kept apart: what it found,
 //! and whether it ran at all. Returning an empty list means "ran, found
 //! nothing", which is a claim; `NotRun` means the claim was never made.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use lopdf::{Dictionary, Document, Object};
 
@@ -193,9 +193,14 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
             continue;
         };
         for item in items {
+            // Only a reference has an object number. A direct dictionary in
+            // /Annots is not what the specification asks for but does occur,
+            // and calling it object zero put a number in the location that
+            // names nothing - the contract says to leave the field out when
+            // there is no number to give.
             let number = match item {
-                Object::Reference(id) => id.0,
-                _ => 0,
+                Object::Reference(id) => Some(id.0),
+                _ => None,
             };
             let Ok((_, annot)) = doc.dereference(item) else {
                 continue;
@@ -215,7 +220,7 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
                 "pdf.annotations",
                 Location::PdfAnnotation {
                     page: page_number,
-                    object_number: Some(number),
+                    object_number: number,
                     subtype: (!subtype.is_empty()).then(|| subtype.clone()),
                 },
                 value,
@@ -234,14 +239,33 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
 /// The field list is a tree. A node with `/Kids` holds its children, and the
 /// value may sit on any of them; reading only the top level answered "ran,
 /// found nothing" for a form whose fields were grouped, which is a silent miss.
-fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
+/// The catalog, or the reason there is not one.
+///
+/// lopdf keeps the encryption dictionary and nothing else when it cannot
+/// authenticate, so the catalog is missing and every question about content is
+/// unanswerable. Reporting that as malformed input told a consumer the file was
+/// damaged when it is encrypted - the text layer already answered
+/// blocked_by_encryption for the same document, so one file got two accounts of
+/// itself depending on which detector spoke.
+fn catalog_of(source: &Source) -> Result<lopdf::Dictionary, NotRun> {
     let doc = source.document;
-    let Ok(catalog) = doc.catalog() else {
-        return Err(NotRun::Failed {
+    match doc.catalog() {
+        Ok(catalog) => Ok(catalog.clone()),
+        Err(_) if doc.trailer.get(b"Encrypt").is_ok() => Err(NotRun::Skipped {
+            reason: SkipReason::BlockedByEncryption,
+            message: "the document is encrypted and was not decrypted, so its catalog was not read"
+                .into(),
+        }),
+        Err(_) => Err(NotRun::Failed {
             code: FailureCode::MalformedInput,
             message: "the catalog does not resolve".into(),
-        });
-    };
+        }),
+    }
+}
+
+fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
+    let doc = source.document;
+    let catalog = catalog_of(source)?;
     let Ok(acro) = catalog.get(b"AcroForm") else {
         return Ok(Vec::new());
     };
@@ -329,9 +353,16 @@ fn walk_field(
 ) -> Result<(), NotRun> {
     walk.spend("the form field tree")?;
     if depth > super::graph_depth() {
+        // A budget, like the visit count beside it, and reported the same way.
+        // Saying malformed_input here told a consumer the file was broken when
+        // what happened is that this detector would not go further - two
+        // different answers, and only one of them is about the document.
         return Err(NotRun::Failed {
-            code: FailureCode::MalformedInput,
-            message: "the form field tree is nested deeper than this detector will walk".into(),
+            code: FailureCode::ResourceLimitExceeded,
+            message: format!(
+                "the form field tree is nested deeper than the budget of {} objects",
+                super::graph_depth()
+            ),
         });
     }
     // The identity is what the reference resolves to, not the reference: two
@@ -423,12 +454,7 @@ fn walk_field_body(
 /// miss, which §17.1 counts as a release blocker rather than a gap.
 fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
-    let Ok(catalog) = doc.catalog() else {
-        return Err(NotRun::Failed {
-            code: FailureCode::MalformedInput,
-            message: "the catalog does not resolve".into(),
-        });
-    };
+    let catalog = catalog_of(source)?;
     let Ok(names) = catalog.get(b"Names") else {
         return Ok(Vec::new());
     };
@@ -462,9 +488,11 @@ fn walk_name_tree(
     walk.spend("the embedded-file name tree")?;
     if depth > super::graph_depth() {
         return Err(NotRun::Failed {
-            code: FailureCode::MalformedInput,
-            message: "the embedded-file name tree is nested deeper than this detector will walk"
-                .into(),
+            code: FailureCode::ResourceLimitExceeded,
+            message: format!(
+                "the embedded-file name tree is nested deeper than the budget of {} objects",
+                super::graph_depth()
+            ),
         });
     }
     let Ok((id, node)) = doc.dereference(node) else {
@@ -552,16 +580,100 @@ fn walk_name_tree_body(
 fn actions(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let mut out = Vec::new();
+    // What triggers an object, taken from where the document references it.
+    // Every finding here said document_open before, including a script on an
+    // annotation, which made the field a constant: a consumer deciding how
+    // alarming an action is has to know whether it runs when the file opens or
+    // when someone clicks something, and a constant answers neither.
+    let triggers = triggers_by_reference(doc);
     for (id, object) in doc.objects.iter() {
-        walk_actions(doc, object, id.0, 0, &mut out);
+        let trigger = triggers.get(id).copied().unwrap_or(Trigger::NamedAction);
+        walk_actions(doc, object, id.0, trigger, 0, &mut out);
     }
     Ok(out)
+}
+
+/// The objects the document points at from a place that names an event.
+///
+/// An object nobody points at from one of these is left as `named_action`: it
+/// is in the file and has to be reported, and none of the six names in the
+/// vocabulary describes "reached some other way". That is an imprecision, and
+/// it is a smaller one than telling every consumer that a link's script runs
+/// when the document opens.
+fn triggers_by_reference(doc: &Document) -> BTreeMap<(u32, u16), Trigger> {
+    let mut out = BTreeMap::new();
+    let note = |object: Option<&Object>, trigger: Trigger, out: &mut BTreeMap<_, _>| {
+        if let Some(Object::Reference(id)) = object {
+            out.entry(*id).or_insert(trigger);
+        }
+    };
+    if let Ok(catalog) = doc.catalog() {
+        note(
+            catalog.get(b"OpenAction").ok(),
+            Trigger::DocumentOpen,
+            &mut out,
+        );
+        if let Some(tree) = catalog
+            .get(b"Names")
+            .ok()
+            .and_then(|n| doc.dereference(n).ok())
+            .and_then(|(_, n)| n.as_dict().ok().cloned())
+            .and_then(|n| n.get(b"JavaScript").ok().cloned())
+        {
+            note(Some(&tree), Trigger::NamedAction, &mut out);
+        }
+        if let Ok(acro) = catalog
+            .get(b"AcroForm")
+            .ok()
+            .and_then(|a| doc.dereference(a).ok())
+            .map(|(_, a)| a)
+            .ok_or(())
+            .and_then(|a| a.as_dict().map_err(|_| ()))
+        {
+            if let Some(fields) = acro
+                .get(b"Fields")
+                .ok()
+                .and_then(|f| doc.dereference(f).ok())
+                .and_then(|(_, f)| f.as_array().ok().cloned())
+            {
+                for field in &fields {
+                    note(Some(field), Trigger::FormField, &mut out);
+                }
+            }
+        }
+    }
+    for (_, page_id) in doc.get_pages() {
+        let Ok(page) = doc.get_object(page_id).and_then(|o| o.as_dict().cloned()) else {
+            continue;
+        };
+        if let Some(annots) = page
+            .get(b"Annots")
+            .ok()
+            .and_then(|a| doc.dereference(a).ok())
+            .and_then(|(_, a)| a.as_array().ok().cloned())
+        {
+            for annot in &annots {
+                note(Some(annot), Trigger::Annotation, &mut out);
+            }
+        }
+        if let Some(additional) = page
+            .get(b"AA")
+            .ok()
+            .and_then(|a| doc.dereference(a).ok())
+            .and_then(|(_, a)| a.as_dict().ok().cloned())
+        {
+            note(additional.get(b"O").ok(), Trigger::PageOpen, &mut out);
+            note(additional.get(b"C").ok(), Trigger::PageClose, &mut out);
+        }
+    }
+    out
 }
 
 fn walk_actions(
     doc: &Document,
     object: &Object,
     number: u32,
+    trigger: Trigger,
     depth: usize,
     out: &mut Vec<Detected>,
 ) {
@@ -577,7 +689,7 @@ fn walk_actions(
                     "document_javascript",
                     "pdf.actions",
                     Location::PdfAction {
-                        trigger: Trigger::DocumentOpen,
+                        trigger,
                         page: None,
                         object_number: Some(number),
                     },
@@ -588,7 +700,7 @@ fn walk_actions(
                     "document_javascript",
                     "pdf.actions",
                     Location::PdfAction {
-                        trigger: Trigger::DocumentOpen,
+                        trigger,
                         page: None,
                         object_number: Some(number),
                     },
@@ -603,7 +715,7 @@ fn walk_actions(
                         "launch_action",
                         "pdf.actions",
                         Location::PdfAction {
-                            trigger: Trigger::Annotation,
+                            trigger,
                             page: None,
                             object_number: Some(number),
                         },
@@ -619,7 +731,7 @@ fn walk_actions(
                             "local_file_reference",
                             "pdf.actions",
                             Location::PdfAction {
-                                trigger: Trigger::Annotation,
+                                trigger,
                                 page: None,
                                 object_number: Some(number),
                             },
@@ -640,7 +752,7 @@ fn walk_actions(
                             category,
                             "pdf.actions",
                             Location::PdfAction {
-                                trigger: Trigger::Annotation,
+                                trigger,
                                 page: None,
                                 object_number: Some(number),
                             },
@@ -651,18 +763,19 @@ fn walk_actions(
                 _ => {}
             }
             for (_, value) in dict.iter() {
-                walk_actions(doc, value, number, depth + 1, out);
+                walk_actions(doc, value, number, trigger, depth + 1, out);
             }
         }
         Object::Array(items) => {
             for item in items {
-                walk_actions(doc, item, number, depth + 1, out);
+                walk_actions(doc, item, number, trigger, depth + 1, out);
             }
         }
         Object::Stream(stream) => walk_actions(
             doc,
             &Object::Dictionary(stream.dict.clone()),
             number,
+            trigger,
             depth + 1,
             out,
         ),
@@ -997,7 +1110,7 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
         // the chain and hands back only the current state, so the earlier one is
         // loaded from the bytes: the file up to its first %%EOF is itself a
         // complete PDF.
-        let removed = values_the_update_removed(source.bytes);
+        let removed = values_the_update_removed(source);
         // The count and not the names. Naming them put a list of the document's
         // own keys at the end of the sentence, where the display cap cut it off
         // - the evidence for the one severity this table raises ended mid-word,
@@ -1065,19 +1178,29 @@ fn cross_reference_sections(bytes: &[u8]) -> usize {
 /// A reader trusting the newest cross-reference table never sees them, which is
 /// the whole reason §7.1 lists incremental updates: the person about to send the
 /// file cannot see what they are about to send.
-fn values_the_update_removed(bytes: &[u8]) -> Vec<String> {
+/// The current revision is the document already loaded, and only the earlier
+/// one is parsed here.
+///
+/// It used to load the whole file a second time to read the current /Info,
+/// which it was handed a parsed copy of - and with more than one cross-
+/// reference section that happened once per section. The earlier revision has
+/// to be parsed, because lopdf follows the chain and hands back only the
+/// current state, and it is parsed under the same decompression budget as
+/// anything else: strict is off here, so the refusals that bound a load are
+/// off with it.
+fn values_the_update_removed(source: &Source) -> Vec<String> {
+    let bytes = source.bytes;
+    let new = source.document;
     let Some(first_eof) = find(bytes, b"%%EOF") else {
         return Vec::new();
     };
     let earlier = &bytes[..first_eof + 5];
     let options = lopdf::LoadOptions {
         strict: false,
+        max_decompressed_size: Some(source.decompression_budget),
         ..Default::default()
     };
-    let (Ok(old), Ok(new)) = (
-        Document::load_mem_with_options(earlier, options.clone()),
-        Document::load_mem_with_options(bytes, options),
-    ) else {
+    let Ok(old) = Document::load_mem_with_options(earlier, options) else {
         return Vec::new();
     };
     let info_of = |doc: &Document| -> Vec<(String, String)> {
@@ -1096,7 +1219,7 @@ fn values_the_update_removed(bytes: &[u8]) -> Vec<String> {
             })
             .unwrap_or_default()
     };
-    let current = info_of(&new);
+    let current = info_of(new);
     info_of(&old)
         .into_iter()
         .filter(|(key, value)| !current.iter().any(|(k, v)| k == key && v == value))

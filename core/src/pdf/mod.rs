@@ -48,6 +48,12 @@ pub enum SkipReason {
 }
 
 impl SkipReason {
+    /// Every variant, so a list of them is derived rather than copied. A
+    /// hand-written list does not fail when a variant is added: the one in the
+    /// fixture test was missing a code the core had started producing, and a
+    /// legitimate failure would have been reported as a contract violation.
+    pub const ALL: &'static [Self] = &[Self::NotApplicableToMediaType, Self::BlockedByEncryption];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::NotApplicableToMediaType => "not_applicable_to_media_type",
@@ -70,6 +76,14 @@ pub enum FailureCode {
 }
 
 impl FailureCode {
+    /// Every variant. See `SkipReason::ALL`.
+    pub const ALL: &'static [Self] = &[
+        Self::ParserError,
+        Self::MalformedInput,
+        Self::ResourceLimitExceeded,
+        Self::InternalError,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ParserError => "parser_error",
@@ -169,14 +183,22 @@ pub enum Location {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
     DocumentOpen,
+    PageOpen,
+    PageClose,
     Annotation,
+    FormField,
+    NamedAction,
 }
 
 impl Trigger {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::DocumentOpen => "document_open",
+            Self::PageOpen => "page_open",
+            Self::PageClose => "page_close",
             Self::Annotation => "annotation",
+            Self::FormField => "form_field",
+            Self::NamedAction => "named_action",
         }
     }
 }
@@ -331,8 +353,13 @@ fn location_kind_for(category: &str) -> Option<&'static str> {
 /// answers Ok with no objects for a file whose cross-reference table is wrong,
 /// and every detector would then complete having seen nothing.
 pub fn inspect(bytes: &[u8]) -> Inspection {
+    // The budget reaches the load as well. It bounds object and cross-reference
+    // streams, which are expanded while the document is being built - before
+    // any detector exists to refuse anything - and the field defaults to no
+    // limit at all.
     let options = lopdf::LoadOptions {
         strict: true,
+        max_decompressed_size: Some(decompression_budget(bytes.len())),
         ..Default::default()
     };
     let document = match lopdf::Document::load_mem_with_options(bytes, options) {
@@ -407,8 +434,13 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
             lopdf::Object::Stream(st) => Some(&st.dict),
             _ => None,
         };
+        // Through the reference. A /Subtype may be an indirect object like any
+        // other value, and reading the reference as a name answers "not an
+        // image" - which drops the OCR gap from the coverage and can make a
+        // scanned page report as a document with nothing in it.
         dict.and_then(|d| d.get(b"Subtype").ok())
-            .and_then(|v| v.as_name().ok())
+            .and_then(|v| document.dereference(v).ok())
+            .and_then(|(_, v)| v.as_name().ok())
             .map(|n| n == b"Image")
             .unwrap_or(false)
     });
@@ -441,7 +473,7 @@ fn decompression_budget(input_bytes: usize) -> usize {
 
 /// A whole-number budget from the limit table, by name.
 ///
-/// Both of these are `provisional` there with #41 named as owing the measured
+/// Both of these are `provisional` there with #56 named as owing the measured
 /// value, so they are read rather than written here: when the number arrives it
 /// lands in the table and both walks follow it.
 fn budget(name: &str) -> usize {

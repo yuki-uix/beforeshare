@@ -50,7 +50,7 @@ fn main() {
         };
         // A ULID-shaped identifier derived from the index, so it is stable and
         // still matches the pattern the schema requires.
-        let run_id = format!("01J{:023}", index + 1).replace('0', "0");
+        let run_id = format!("01J{:023}", index + 1);
         let result = assemble(&inspection, &facts, &run_id, "2026-01-01T00:00:00Z", 0)
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         let text = serde_json::to_string_pretty(&result).expect("serialisable") + "\n";
@@ -62,12 +62,16 @@ fn main() {
 
     // The directory is exactly what was written: a fixture removed upstream
     // must not leave its result behind to be validated as if it still existed.
+    // Results only. This deleted whatever it found, so a README or a directory
+    // left here would have gone with the stale results - and a directory would
+    // have ended the run with a panic from remove_file rather than a message.
     for entry in std::fs::read_dir(&out).expect("the results directory") {
         let path = entry.expect("readable").path();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
-        if !written.contains(&name) {
-            std::fs::remove_file(&path).expect("remove");
-            println!("{name:<40} removed: no fixture produces it");
+        if !path.is_file() || !name.ends_with(".json") || written.contains(&name) {
+            continue;
         }
+        std::fs::remove_file(&path).expect("remove");
+        println!("{name:<40} removed: no fixture produces it");
     }
 }

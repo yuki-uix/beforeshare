@@ -6,19 +6,18 @@
       "pdf.metadata",
       "pdf.structure"
     ],
-    "failed": [
+    "failed": [],
+    "skipped": [
       {
         "detector": "pdf.embedded_files",
-        "errorCode": "malformed_input",
-        "message": "the catalog does not resolve"
+        "message": "the document is encrypted and was not decrypted, so its catalog was not read",
+        "reason": "blocked_by_encryption"
       },
       {
         "detector": "pdf.form_fields",
-        "errorCode": "malformed_input",
-        "message": "the catalog does not resolve"
-      }
-    ],
-    "skipped": [
+        "message": "the document is encrypted and was not decrypted, so its catalog was not read",
+        "reason": "blocked_by_encryption"
+      },
       {
         "detector": "pdf.text_layer",
         "message": "the content streams are encrypted and were not decrypted",
@@ -88,11 +87,13 @@
   "limitations": [
     {
       "affectedDetectors": [
+        "pdf.embedded_files",
+        "pdf.form_fields",
         "pdf.text_layer"
       ],
       "code": "encrypted_content_not_inspected",
       "impact": "coverage_incomplete",
-      "message": "the content streams are encrypted and were not decrypted, so text on the page was not read"
+      "message": "the document is encrypted and was not decrypted, so pdf.embedded_files, pdf.form_fields, pdf.text_layer could not look"
     }
   ],
   "runId": "01J00000000000000000000010",
