@@ -8,6 +8,11 @@
 //!
 //! What it deliberately does not do: prompt, write a file, keep a run, or say
 //! anything about a file it did not read. `sanitize` and `verify` are #72.
+//!
+//! §12.1 requires that JSON mode never prompts, and nothing here asserts that -
+//! an absent behaviour cannot be caught by a test that watches for it. What
+//! holds it is that no path in this crate reads standard input at all, which is
+//! a property of the source rather than of a run.
 
 mod clock;
 mod exit;
@@ -199,6 +204,12 @@ fn inspect(raw: &str, json: bool) -> i32 {
     };
     let (code, _) = exit::code_for(&outcome);
 
+    // A runtime assertion, not a guard: nothing can make it fail while the two
+    // are computed correctly, so it counts as no coverage - the pairs the table
+    // allows are checked by the end-to-end suite. It is here because the cost
+    // of shipping a contradiction is a script that reads the code and sends the
+    // file.
+    //
     // The two answers, checked against each other before either leaves. The
     // status is computed by the core from the coverage; the code is computed
     // here from the same result. They are allowed to differ - an incomplete
@@ -248,13 +259,28 @@ fn version(json: bool) -> i32 {
     0
 }
 
+/// How many bytes a PDF header may hide behind.
+///
+/// Readers have tolerated leading junk since forever, and real files have it: a
+/// byte-order mark, a stray newline, a mail gateway's preamble. Requiring the
+/// header at offset zero made the command answer "not a format I check" about a
+/// document the core reads and finds disclosures in - which is the worst answer
+/// available, because §6.4's agent takes it as permission to carry on sharing.
+/// A thousand bytes is the conventional tolerance.
+const HEADER_SEARCH_WINDOW: usize = 1024;
+
 /// The magic bytes, for the formats the contract knows.
 ///
 /// Anything else is named as what it is not: `application/octet-stream` is not
 /// in the supported set, which is what makes the run `unsupported` rather than
 /// failed.
+///
+/// The image signatures must be at the start - a JPEG or a PNG with anything in
+/// front of it is not one - and only the PDF header is searched for, which is
+/// the one the format's own readers scan for.
 fn media_type_of(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(b"%PDF-") {
+    let window = &bytes[..bytes.len().min(HEADER_SEARCH_WINDOW)];
+    if window.windows(5).any(|candidate| candidate == b"%PDF-") {
         "application/pdf"
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         "image/jpeg"

@@ -118,6 +118,26 @@ if (isMain) {
       result.status);
     check('an unsupported input exits 3', code === 3, String(code));
   }
+  // A PDF with something in front of its header. Real files have it - a
+  // byte-order mark, a stray newline, a gateway's preamble - and the core reads
+  // them: measured, seven detectors complete and two findings come out. The
+  // command used to answer "not a format I check", which is the worst answer
+  // available, because it reads as permission to carry on sharing.
+  for (const [label, prefix] of [['a newline', '\n'], ['a byte-order mark', '\uFEFF']]) {
+    const shifted = join(scratch, `shifted-${label.replace(/\W/g, '')}.pdf`);
+    writeFileSync(shifted, Buffer.concat([
+      Buffer.from(prefix, 'utf8'),
+      readFileSync(join(filesDir, 'form-fields.positive.pdf')),
+    ]));
+    const { stdout, code } = run(['inspect', shifted, '--json']);
+    const result = JSON.parse(stdout);
+    check(`a PDF behind ${label} is still a PDF`,
+      result.input.mediaType === 'application/pdf', result.input.mediaType);
+    check(`a PDF behind ${label} is inspected rather than declined`,
+      result.findings.length > 0 && code !== 3,
+      `${result.status}, ${result.findings.length} findings, exit ${code}`);
+  }
+
   // Named .pdf and not a PDF: the extension is a claim by whoever named it.
   const lying = join(scratch, 'report.pdf');
   writeFileSync(lying, 'still not a PDF');
@@ -183,6 +203,24 @@ if (isMain) {
     check('a blocking run that looked everywhere exits 0',
       JSON.parse(complete.stdout).status === 'blocking_findings' && complete.code === 0,
       String(complete.code));
+  }
+
+  // The spelling on disk, not the one that was typed. APFS folds case, so
+  // report.pdf and Report.pdf are one file - and the path in the result is what
+  // an agent will quote back to a person or hand to the next tool, so it has to
+  // be the file's own name.
+  {
+    const cased = mkdtempSync(join(tmpdir(), 'beforeshare-case-'));
+    writeFileSync(join(cased, 'Report.pdf'), readFileSync(join(filesDir, 'form-fields.positive.pdf')));
+    const { stdout, code } = run(['inspect', join(cased, 'report.pdf'), '--json']);
+    if (code === 0) {
+      check('a result names the file as the disk spells it',
+        JSON.parse(stdout).input.path.endsWith('/Report.pdf'), JSON.parse(stdout).input.path);
+    } else {
+      // A case-sensitive volume is the other legitimate answer, and it is a
+      // refusal rather than a different file.
+      check('on a case-sensitive volume the other spelling is refused', code === 2, String(code));
+    }
   }
 
   // A path that leaves the directory the user named, spelled with `..` rather
