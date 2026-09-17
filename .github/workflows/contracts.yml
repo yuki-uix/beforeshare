@@ -261,7 +261,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=83
+          EXPECTED_CASES=84
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1303,6 +1303,21 @@ jobs:
           "
           expect_failure "human output printed alongside the JSON" \
             "stdout is JSON and nothing else" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          # The header at offset zero. A PDF behind a byte-order mark is read by
+          # the core and was declined by the command, which is the answer that
+          # tells an agent there is nothing to see.
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if window.windows(5).any(|candidate| candidate == b\"%PDF-\") {',
+                        '    if window.starts_with(b\"%PDF-\") {');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a header required at the first byte" \
+            "is still a PDF" \
             "cli/src/main.rs" \
             "test:cli" || failed=1
 
