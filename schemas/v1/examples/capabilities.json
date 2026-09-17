@@ -1,13 +1,12 @@
 {
   "schemaVersion": "1.0",
   "operational": {
-    "canInspect": false,
+    "canInspect": true,
     "canRemediate": false,
-    "summary": "This build implements no detector and no remediation action. It can describe what it will do, not do it."
+    "summary": "Some capabilities are implemented; see each entry."
   },
   "versions": {
     "core": "0.1.0",
-    "app": "0.1.0",
     "detectors": [
       {
         "id": "pdf.metadata",
@@ -76,8 +75,8 @@
             "document_keywords",
             "document_timestamp"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "pdf.annotations",
@@ -86,8 +85,8 @@
           "emits": [
             "annotation"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "pdf.form_fields",
@@ -97,8 +96,8 @@
             "form_field_name",
             "form_field_value"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "pdf.embedded_files",
@@ -107,8 +106,8 @@
           "emits": [
             "embedded_file"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "pdf.actions",
@@ -120,8 +119,8 @@
             "external_reference",
             "local_file_reference"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "pdf.text_layer",
@@ -131,8 +130,8 @@
             "hidden_text",
             "text_under_redaction"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "pdf.structure",
@@ -144,8 +143,8 @@
             "digital_signature",
             "incremental_update"
           ],
-          "status": "not_implemented",
-          "waitingOn": "#4"
+          "status": "implemented",
+          "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
         },
         {
           "id": "ocr.visible_text",
@@ -205,7 +204,7 @@
       ],
       "testedLimits": {
         "status": "not_established",
-        "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+        "reason": "The PDF adapter reads files, and no limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
       }
     },
     {
@@ -284,7 +283,7 @@
       ],
       "testedLimits": {
         "status": "not_established",
-        "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+        "reason": "The PDF adapter reads files, and no limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
       }
     },
     {
@@ -364,7 +363,7 @@
       ],
       "testedLimits": {
         "status": "not_established",
-        "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+        "reason": "The PDF adapter reads files, and no limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
       }
     }
   ],

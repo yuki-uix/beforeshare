@@ -35,6 +35,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "beforeshare-cli"
+version = "0.1.0"
+dependencies = [
+ "beforeshare-core",
+ "serde_json",
+]
+
+[[package]]
 name = "beforeshare-core"
 version = "0.1.0"
 dependencies = [

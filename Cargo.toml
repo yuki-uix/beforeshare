@@ -1,0 +1,11 @@
+# A workspace, so the interfaces §14.1 draws over the core are separate crates.
+#
+# The CLI could have been a binary inside the core crate and was not: a binary
+# in the same crate can reach anything the crate marks `pub(crate)`, and the
+# claim this repository makes about the core - that its guarantees hold by
+# construction rather than by convention - is a claim about what a caller
+# outside it can do. An interface that can only use the public API is the one
+# that proves the API is enough.
+[workspace]
+members = ["core", "cli"]
+resolver = "2"
