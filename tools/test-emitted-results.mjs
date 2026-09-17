@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { reducesCoverage } from './status.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -87,6 +88,30 @@ if (isMain) {
         check(`${file} carries none of its document's values verbatim`,
           leaked.length === 0, leaked.map((v) => JSON.stringify(v)).join(', '));
       }
+    }
+
+    // Every suppressed check is explained, over what the core emits and not
+    // only over the hand-written examples. The rule is stated in
+    // contract-tests.md and enforced in the validator, which reads the examples
+    // directory - so the results the product actually produces were never held
+    // to it, and the OCR gap went unexplained in every one of them.
+    for (const file of files) {
+      const result = JSON.parse(readFileSync(join(resultsDir, file), 'utf8'));
+      const needsExplaining = [
+        ...result.coverage.skipped.filter((s) => reducesCoverage(s.reason)).map((s) => s.detector),
+        ...result.coverage.failed.map((f) => f.detector),
+      ];
+      const explained = new Set((result.limitations ?? []).flatMap((l) => l.affectedDetectors));
+      const unexplained = needsExplaining.filter((d) => !explained.has(d));
+      check(`${file} explains every check that did not run`, unexplained.length === 0,
+        `no limitation names: ${unexplained.join(', ')}`);
+
+      const claimsNotRun = new Set((result.limitations ?? [])
+        .filter((l) => l.impact === 'coverage_incomplete')
+        .flatMap((l) => l.affectedDetectors));
+      const ranAnyway = [...claimsNotRun].filter((d) => result.coverage.completed.includes(d));
+      check(`${file} claims no completed check was skipped`, ranAnyway.length === 0,
+        ranAnyway.join(', '));
     }
   }
 

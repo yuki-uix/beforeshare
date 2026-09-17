@@ -6,9 +6,26 @@
       "version": "1.0",
       "date": "2026-09-14",
       "changes": [
-        { "type": "additive", "target": "inspection-result.schema.json", "description": "Initial canonical inspection result." },
-        { "type": "additive", "target": "verification-result.schema.json", "description": "Initial verification result." },
-        { "type": "additive", "target": "capabilities.schema.json", "description": "Initial capability declaration." }
+        {
+          "type": "additive",
+          "target": "inspection-result.schema.json",
+          "description": "Initial canonical inspection result."
+        },
+        {
+          "type": "additive",
+          "target": "verification-result.schema.json",
+          "description": "Initial verification result."
+        },
+        {
+          "type": "additive",
+          "target": "capabilities.schema.json",
+          "description": "Initial capability declaration."
+        },
+        {
+          "type": "additive",
+          "target": "enums.schema.json",
+          "description": "limitationCode gains ocr_not_available. A coverage-reducing skip must be named by a limitation, and the nearest existing codes are answers from an OCR that ran - a build with no OCR could not say what it lacked."
+        }
       ]
     }
   ]

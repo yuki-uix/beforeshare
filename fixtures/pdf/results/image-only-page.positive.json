@@ -26,7 +26,16 @@
     "sha256": "a4d4cdc70829dd57617ffabe0084d84966428bff55c95134b27bdfea03538b4d",
     "sizeBytes": 773
   },
-  "limitations": [],
+  "limitations": [
+    {
+      "affectedDetectors": [
+        "ocr.visible_text"
+      ],
+      "code": "ocr_not_available",
+      "impact": "coverage_incomplete",
+      "message": "this build has no local OCR, so text that exists only inside an image was not read"
+    }
+  ],
   "runId": "01J00000000000000000000016",
   "schemaVersion": "1.0",
   "startedAt": "2026-01-01T00:00:00Z",

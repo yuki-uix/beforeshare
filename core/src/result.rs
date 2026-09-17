@@ -411,13 +411,13 @@ pub fn assemble(
         "status": status.0,
         "coverage": { "completed": completed, "skipped": skipped, "failed": failed },
         "findings": findings,
-        // §7.1's image-only item needs OCR, which E5 owns. The gap is reported
-        // in coverage, as a skip with a reason, and not here: limitationCode
-        // has no member for "this build cannot read pictures" - the two
-        // OCR-shaped codes are about resolution and language, which are answers
-        // from an OCR that ran. Saying it in prose under a code that means
-        // something else would be worse than the one place it is said now.
-        // Handed to E5 with the detector.
+        // §7.1's image-only item needs OCR, which E5 owns, and the gap is
+        // named here as well as in coverage: contract-tests.md requires every
+        // coverage-reducing skip to be named by some limitation, and this one
+        // was not. There was no code that said "this build has no OCR" - the
+        // two OCR-shaped ones are answers from an OCR that ran - so the enum
+        // gained one rather than the result staying silent under a code that
+        // means something else.
         "limitations": limitations_for(inspection),
         "versions": {
             "core": env!("CARGO_PKG_VERSION"),
@@ -524,6 +524,19 @@ fn limitations_for(inspection: &Inspection) -> Vec<Value> {
                 "the document is encrypted and was not decrypted, so {} could not look",
                 affected.join(", ")
             ),
+        }));
+    }
+    // The OCR gap, from the same fact that puts it in the coverage: a picture
+    // in the document and no OCR to read it. Decided here rather than by
+    // reading the skip back, so the two cannot disagree about whether the gap
+    // exists - that shape was a defect once already, where coverage could name
+    // a gap the status ignored.
+    if inspection.has_images {
+        out.push(json!({
+            "code": "ocr_not_available",
+            "impact": "coverage_incomplete",
+            "affectedDetectors": ["ocr.visible_text"],
+            "message": "this build has no local OCR, so text that exists only inside an image was not read",
         }));
     }
     out
