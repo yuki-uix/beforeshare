@@ -17,6 +17,10 @@ rustix = { version = "0.38", features = ["fs"] }
 # objects for a file whose cross-reference offsets are wrong, and a checker that
 # trusts Ok would report "no findings" about a document it never read.
 lopdf = { version = "0.45", default-features = false }
+# §14.1 binds the three stages by hash, and every interface needs the same
+# answer for the same bytes. One implementation, in the core, rather than one
+# per interface.
+sha2 = "0.10"
 
 [dev-dependencies]
 # So a test can build a real compression bomb. A stored-block "deflate" written

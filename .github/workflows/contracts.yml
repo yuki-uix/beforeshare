@@ -79,6 +79,9 @@ jobs:
       # which npm install would quietly paper over.
       - run: npm ci
 
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install stable
+
       - name: Validate schemas, examples and enum drift
         run: npm run validate
 
@@ -88,8 +91,28 @@ jobs:
       - name: Test status rules and exit codes
         run: npm run test:status
 
+      # The command line is a real process to the suites below: the equivalence
+      # check runs the binary rather than calling the core, because an adapter
+      # that called the core would check the core against itself and pass while
+      # the command printed something else.
+      - name: Build the command line
+        run: cargo build -p beforeshare-cli
+
       - name: Test contract boundaries
         run: npm run test:contracts
+
+      - name: Test the command line end to end
+        run: npm run test:cli
+
+      # Neither of these had a step of its own. Both were reachable only as
+      # subjects of the mutation job, whose control case runs them - so a
+      # failure in either showed up as "this guard no longer checks anything",
+      # which is a true sentence about the wrong thing.
+      - name: Test the emitted results
+        run: npm run test:results
+
+      - name: Test the parser bake-off against its recorded run
+        run: npm run test:bakeoff
 
       - name: Test the path safety gate
         run: npm run test:path-gate

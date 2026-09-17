@@ -3,9 +3,9 @@
   "schemaVersion": "1.0",
   "interfaces": {
     "cli": {
-      "status": "not_implemented",
-      "waitingOn": "#9",
-      "note": "beforeshare inspect --json must emit the canonical result on stdout."
+      "status": "implemented",
+      "adapter": "tools/cli-adapter.mjs",
+      "note": "beforeshare inspect --json emits the canonical result on stdout, and the adapter runs the real binary: one that called the core directly would check the core against itself."
     },
     "desktop": {
       "status": "not_implemented",
