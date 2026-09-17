@@ -261,7 +261,7 @@ jobs:
           # script syntactically valid while one case vanished into a quoted
           # string, and the step reported the remaining ones as if nothing were
           # missing. A case that silently disappears now fails the job.
-          EXPECTED_CASES=78
+          EXPECTED_CASES=83
 
           node -e "
             const fs=require('fs'), p='schemas/v1/enums.schema.json';
@@ -1270,11 +1270,80 @@ jobs:
             "tools/masking.mjs" \
             "test:masking" || failed=1
 
+          # The command line, as a process. Each of these is a defect the suite
+          # would have to catch on a real run: the binary is rebuilt by the
+          # suite itself, so a mutation to its source reaches the test.
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('let media_type = media_type_of(&bytes);',
+                        'let media_type = if raw.ends_with(\".pdf\") { \"application/pdf\" } else { media_type_of(&bytes) };');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a format taken from the file name" \
+            "the format comes from the bytes, not the name" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    if json {\n        println!(',
+                        '    if json {\n        print!(\"{}\", render::human(&value));\n        println!(');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "human output printed alongside the JSON" \
+            "stdout is JSON and nothing else" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('    eprintln!(\"beforeshare: {message}\");',
+                        '    println!(\"beforeshare: {message}\");');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "a diagnostic on stdout" \
+            "puts nothing on stdout" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          # The exit code half of #24's question. A run that did not look
+          # everywhere and exits 0 is the pair a script cannot tell from a
+          # complete one.
+          node -e "
+            const fs=require('fs'), p='cli/src/main.rs';
+            let s=fs.readFileSync(p,'utf8');
+            s=s.replace('        coverage_incomplete: !value[\"coverage\"][\"skipped\"]',
+                        '        coverage_incomplete: false && !value[\"coverage\"][\"skipped\"]');
+            fs.writeFileSync(p, s);
+          "
+          expect_failure "an incomplete run reported as complete" \
+            "a complete run and an incomplete one produced different codes" \
+            "cli/src/main.rs" \
+            "test:cli" || failed=1
+
+          # The declaration against the build. It said this build implements no
+          # detector while seven of them were running, and nothing failed.
+          node -e "
+            const fs=require('fs'), p='schemas/v1/detector-registry.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.detectors['pdf.metadata'].status='not_implemented';
+            d.detectors['pdf.metadata'].waitingOn='#4';
+            delete d.detectors['pdf.metadata'].adapter;
+            fs.writeFileSync(p, JSON.stringify(d,null,2));
+          "
+          expect_failure "a detector that runs and is declared missing" \
+            "every detector that ran is declared implemented" \
+            "schemas/v1/detector-registry.json" \
+            "test:results" || failed=1
+
           # The control, per suite. One control over `validate` left every case
           # that names a different suite unproven: a `test:bakeoff` that failed
           # for any input would have satisfied its case above while this control
           # stayed green, because the control was not running it.
-          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries test:results test:masking; do
+          for suite in validate test:bakeoff test:path-gate test:fixtures test:detection test:boundaries test:results test:masking test:cli; do
             if ! npm run "$suite" --silent > /dev/null 2>&1; then
               echo "::error::control case: ${suite} fails even with no mutation applied"
               failed=1
