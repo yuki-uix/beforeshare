@@ -39,6 +39,11 @@ export function buildManifest(directory) {
       ...(w.kind === 'clean_control' && spec.controlIsNotSilentBecause
         ? { controlIsNotSilentBecause: spec.controlIsNotSilentBecause }
         : {}),
+      // Both files of a pair carry the same list. A value a control does not
+      // contain cannot leak from it, so applying the pair's list to both costs
+      // nothing and means a value moved from one file to the other stays
+      // covered.
+      mustNotLeak: spec.mustNotLeak,
       evalVersion: EVAL_VERSION,
       bytes: w.bytes,
     };

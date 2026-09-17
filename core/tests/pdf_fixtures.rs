@@ -169,9 +169,29 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
     let mut silent_checked = 0usize;
     let mut excepted_checked = 0usize;
 
+    let mut no_categories = 0usize;
     for f in fixtures.iter().filter(|f| !f.positive) {
         let expected = categories_for(&f.item, &rules);
         if expected.is_empty() {
+            // Skipping a control because its item declares no categories is
+            // only honest when the item is one this build does not detect at
+            // all - the image-only page, which needs OCR. The manifest says so
+            // independently of the rules table: the positive of a detectable
+            // item expects its coverage completed, so a row that lost its
+            // categories takes its control out of this check and fails here
+            // rather than quietly reducing what is checked.
+            no_categories += 1;
+            let positive_name = f.name.replace(".control.", ".positive.");
+            let coverage = m["fixtures"][&positive_name]["expectedCoverage"]
+                .as_str()
+                .unwrap_or("?");
+            if coverage != "skipped" {
+                wrong.push(format!(
+                    "{}: its item declares no categories, but {positive_name} expects coverage \
+                     {coverage} - a detectable item with nothing to detect",
+                    f.name
+                ));
+            }
             continue;
         }
         let entry = &m["fixtures"][&f.name];
@@ -207,11 +227,14 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
         if reason.len() < 10 {
             wrong.push(format!("{}: is not silent and gives no reason", f.name));
         }
-        // It declared it would not be silent, so silence is a broken promise.
-        // The subset check below is satisfied by producing nothing at all.
-        if found.is_empty() {
+        // It declared it would not be silent, so producing nothing at all is a
+        // broken promise. Not in its own categories, though: a control that is
+        // clean for its item and carries a disclosure of a different kind is
+        // exactly what these three are, and requiring the noise to be in its own
+        // categories would have forced them to stop being controls.
+        if f.inspection.detected.is_empty() {
             wrong.push(format!(
-                "{}: expects {} and produced nothing in {expected:?}",
+                "{}: expects {} and produced no findings at all",
                 f.name,
                 entry["expectedStatus"].as_str().unwrap_or("?")
             ));
@@ -230,6 +253,9 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
             .filter(|d| expected.iter().any(|e| e == &d.category))
             .map(|d| d.category.clone())
             .collect();
+        // And it must still separate something from its positive: a control that
+        // finds everything its positive does is not a control, whatever else it
+        // carries.
         if !(found.len() < positive_found.len() && found.is_subset(&positive_found)) {
             wrong.push(format!(
                 "{}: produced {found:?} against its positive's {positive_found:?}, so the pair separates nothing",
@@ -238,13 +264,61 @@ fn a_control_is_silent_unless_its_manifest_says_why_not() {
         }
     }
 
-    assert!(
-        silent_checked >= 10,
-        "only {silent_checked} silent controls were checked"
+    // Counted from the manifest rather than written here. The number was a 10
+    // that was true the day it was written, and four controls have since been
+    // found to carry a disclosure of their own - a constant would have to be
+    // edited every time one moves, and editing it is how a check stops
+    // checking.
+    let (expected_silent, expected_excepted) = fixtures
+        .iter()
+        .filter(|f| !f.positive && !categories_for(&f.item, &rules).is_empty())
+        .fold((0usize, 0usize), |(silent, excepted), f| {
+            if m["fixtures"][&f.name]["expectedStatus"] == "no_findings" {
+                (silent + 1, excepted)
+            } else {
+                (silent, excepted + 1)
+            }
+        });
+    assert_eq!(
+        (silent_checked, excepted_checked),
+        (expected_silent, expected_excepted),
+        "the manifest describes {expected_silent} silent and {expected_excepted} excepted controls"
+    );
+    // The two counts above are computed over the same subset this loop walks,
+    // so they cannot tell whether a control fell out of it: an item whose rules
+    // row lost its categories would be skipped here and dropped from the
+    // expectation in the same breath. This is the independent basis. Every
+    // control is accounted for: checked for silence, checked against its stated
+    // exception, or skipped because its item declares no categories at all -
+    // and that last number comes from the rules table rather than from the same
+    // loop, so a row losing its categories moves a control out of the check and
+    // fails here.
+    let controls = fixtures.iter().filter(|f| !f.positive).count();
+    let items_without_categories = rules["mapping"]
+        .as_object()
+        .expect("the rules declare a mapping")
+        .iter()
+        .filter(|(item, _)| !item.starts_with('$'))
+        .filter(|(item, _)| categories_for(item, &rules).is_empty())
+        .count();
+    assert_eq!(
+        silent_checked + excepted_checked + no_categories,
+        controls,
+        "{controls} controls, of which {silent_checked} were checked for silence, \
+         {excepted_checked} against a stated exception and {no_categories} not at all"
+    );
+    assert_eq!(
+        no_categories, items_without_categories,
+        "the rules declare {items_without_categories} items with no categories, \
+         and {no_categories} controls went unchecked"
     );
     assert!(
         excepted_checked >= 1,
         "no control exercised the stated-exception path"
+    );
+    assert!(
+        silent_checked >= 5,
+        "only {silent_checked} controls expect silence at all"
     );
     assert!(
         wrong.is_empty(),
@@ -287,10 +361,37 @@ fn coverage_names_every_detector_exactly_once() {
             "{}: coverage names detectors the rule table does not declare, or omits some",
             f.name
         );
-        for (name, why) in c.skipped.iter().chain(c.failed.iter()) {
+        // A reason the schema recognises, and a message a person can act on.
+        // The reason used to be prose, which the result cannot carry: a
+        // consumer decides whether a gap reduces coverage from the code, and
+        // cannot do that from a sentence.
+        for (name, (reason, message)) in &c.skipped {
             assert!(
-                !why.is_empty(),
-                "{}: {name} is not completed and gives no reason",
+                pdf::SkipReason::ALL
+                    .iter()
+                    .any(|r| r.as_str() == reason.as_str()),
+                "{}: {name} skipped for {:?}, which the result schema does not allow",
+                f.name,
+                reason.as_str()
+            );
+            assert!(
+                message.len() > 10,
+                "{}: {name} skipped with no message",
+                f.name
+            );
+        }
+        for (name, (code, message)) in &c.failed {
+            assert!(
+                pdf::FailureCode::ALL
+                    .iter()
+                    .any(|c| c.as_str() == code.as_str()),
+                "{}: {name} failed with {:?}, which the result schema does not allow",
+                f.name,
+                code.as_str()
+            );
+            assert!(
+                message.len() > 10,
+                "{}: {name} failed with no message",
                 f.name
             );
         }
@@ -313,22 +414,27 @@ fn every_emitted_location_kind_is_declared() {
     // Per category, not merely "a kind somebody declares". A finding carrying a
     // kind that belongs to a different category is as uninterpretable as an
     // invented one, and the looser check accepted it.
-    let kind_of: BTreeMap<String, String> = rules["mapping"]
-        .as_object()
-        .expect("mapping")
-        .values()
-        .filter_map(|item| {
-            let kind = item["location"].as_str()?;
-            Some(
-                item["categories"]
-                    .as_array()?
-                    .iter()
-                    .filter_map(|c| c.as_str().map(|c| (c.to_string(), kind.to_string())))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .flatten()
-        .collect();
+    // Built by insertion rather than collected, so two rows giving one category
+    // two different kinds is a failure rather than whichever row happened to be
+    // last. Collecting into a map silently kept one of them, and the check below
+    // would then have compared every finding against a kind nobody chose.
+    let mut kind_of: BTreeMap<String, String> = BTreeMap::new();
+    for item in rules["mapping"].as_object().expect("mapping").values() {
+        let Some(kind) = item["location"].as_str() else {
+            continue;
+        };
+        let Some(categories) = item["categories"].as_array() else {
+            continue;
+        };
+        for category in categories.iter().filter_map(|c| c.as_str()) {
+            if let Some(previous) = kind_of.insert(category.to_string(), kind.to_string()) {
+                assert_eq!(
+                    previous, kind,
+                    "the mapping gives {category} two location kinds; a finding could not carry both"
+                );
+            }
+        }
+    }
     assert!(
         known.len() >= 6,
         "only {} location kinds were read",
@@ -343,9 +449,13 @@ fn every_emitted_location_kind_is_declared() {
                 )
             });
             assert_eq!(
-                &d.location.kind, expected,
+                d.location.kind(),
+                expected.as_str(),
                 "{}: {} put {} at {:?}, but the mapping says {expected:?}",
-                f.name, d.detector, d.category, d.location.kind
+                f.name,
+                d.detector,
+                d.category,
+                d.location.kind()
             );
         }
     }
@@ -394,7 +504,10 @@ fn metadata_is_reported_field_by_field() {
         .detected
         .iter()
         .filter(|d| d.detector == "pdf.metadata")
-        .filter_map(|d| d.location.field.clone())
+        .filter_map(|d| match &d.location {
+            beforeshare_core::pdf::Location::PdfMetadata { field } => Some(field.clone()),
+            _ => None,
+        })
         .collect();
 
     let missing: Vec<&String> = present.difference(&reported).collect();
@@ -457,25 +570,25 @@ fn an_unreadable_document_fails_every_detector_rather_than_completing_them() {
     );
 }
 
-/// A detector that does not apply says so, and the reason travels.
+/// A detector that cannot apply says so, with a reason the result can carry.
 ///
-/// No §7.1 fixture reaches a skip, so a mutation folding skipped into completed
-/// survived. The case is built here rather than left unreachable — with the
-/// cross-reference offsets computed, because the first version wrote them by
-/// hand and strict loading rightly refused the result.
+/// The case here was a document with no pages, which was wrong twice over: a
+/// document with no pages has no text because it has no pages, and reporting a
+/// skip claimed a gap that does not exist. Encryption is the real one - the
+/// content streams are there and cannot be read, so a detector that completed
+/// would be claiming it looked.
 #[test]
 fn a_detector_that_cannot_apply_is_skipped_with_a_reason() {
-    let pageless = build_pdf(&[
-        "<< /Type /Catalog /Pages 2 0 R >>",
-        "<< /Type /Pages /Kids [] /Count 0 >>",
-    ]);
-    let inspection = pdf::inspect(&pageless);
+    let encrypted =
+        std::fs::read(repo_root().join("fixtures/pdf/files/encryption-state.positive.pdf"))
+            .expect("the encryption fixture");
+    let inspection = pdf::inspect(&encrypted);
     assert!(
         inspection.unreadable.is_none(),
-        "the pageless document was meant to parse: {:?}",
+        "the fixture was meant to parse: {:?}",
         inspection.unreadable
     );
-    let why = inspection
+    let (reason, message) = inspection
         .coverage
         .skipped
         .get("pdf.text_layer")
@@ -485,13 +598,31 @@ fn a_detector_that_cannot_apply_is_skipped_with_a_reason() {
                 inspection.coverage
             )
         });
+    assert_eq!(
+        reason.as_str(),
+        "blocked_by_encryption",
+        "the skip must name a reason the result schema allows"
+    );
     assert!(
-        why.len() > 10,
-        "the skip reason is too thin to act on: {why:?}"
+        message.len() > 10,
+        "the skip message is too thin to act on: {message:?}"
     );
     assert!(
         !inspection.coverage.completed.contains("pdf.text_layer"),
         "a detector was both skipped and completed"
+    );
+
+    // And a document with no pages completes rather than skipping: there is no
+    // text because there are no pages, which is a finding of nothing, not a gap.
+    let pageless = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+    ]);
+    let pageless = pdf::inspect(&pageless);
+    assert!(
+        pageless.coverage.completed.contains("pdf.text_layer"),
+        "a pageless document should complete, not skip: {:?}",
+        pageless.coverage
     );
 }
 
@@ -635,10 +766,11 @@ fn a_covering_rectangle_is_judged_by_order_and_by_where_it_lands() {
         "q 0 1 -1 0 0 0 cm BT /F1 12 Tf 72 720 Td (Claimant) Tj ET Q\n0 0 0 rg 70 715 200 18 re f",
     );
     assert_eq!(hits, 0);
-    let why = failed.expect("rotated content must be refused rather than answered");
+    let (code, message) = failed.expect("rotated content must be refused rather than answered");
+    assert_eq!(code.as_str(), "malformed_input");
     assert!(
-        why.contains("rotates or skews"),
-        "the reason does not say what happened: {why}"
+        message.contains("rotates or skews"),
+        "the reason does not say what happened: {message}"
     );
 }
 
@@ -705,9 +837,12 @@ fn the_text_layer_reads_the_operators_a_page_actually_uses() {
     let (hidden, _) = read("BT /F1 12 Tf 14 TL 3 Tr 72 720 Td (First) Tj (Second) ' ET");
     assert_eq!(hidden, ["First", "Second"], "the ' operator shows text too");
 
-    // Several subpaths, one fill: all of them are painted.
+    // Several subpaths, one fill: all of them are painted. The covering
+    // rectangle is written first on purpose - with it last, an implementation
+    // that kept only the final subpath still covered the text and the case read
+    // as coverage it did not have.
     let (_, covered) = read(
-        "BT /F1 12 Tf 72 720 Td (Covered) Tj ET\n0 0 0 rg 300 300 20 20 re 70 715 200 18 re f",
+        "BT /F1 12 Tf 72 720 Td (Covered) Tj ET\n0 0 0 rg 70 715 200 18 re 300 300 20 20 re f",
     );
     assert_eq!(
         covered,
@@ -841,12 +976,355 @@ fn shapes_the_fixtures_do_not_have_are_read_rather_than_missed() {
     );
 }
 
+/// A page whose content stream decompresses far past what the file could
+/// justify is refused, not decompressed.
+///
+/// `LoadOptions::max_decompressed_size` bounds what is decoded while the
+/// document loads and does not reach page content streams, so a bomb in a page
+/// would have been expanded in full before anything here ran.
+#[test]
+fn a_compression_bomb_in_a_page_is_refused_rather_than_expanded() {
+    // 64 MB of zeroes, deflated. The file is a few hundred bytes.
+    let payload = vec![b'0'; 64 * 1024 * 1024];
+    let compressed = {
+        use flate2::{write::ZlibEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&payload).expect("deflate");
+        encoder.finish().expect("deflate")
+    };
+    assert!(
+        compressed.len() < 200_000,
+        "the bomb should be small: {} bytes",
+        compressed.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    let objects: Vec<(String, Option<&[u8]>)> = vec![
+        ("<< /Type /Catalog /Pages 2 0 R >>".to_string(), None),
+        (
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            None,
+        ),
+        (
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>".to_string(),
+            None,
+        ),
+        (
+            format!("<< /Length {} /Filter /FlateDecode >>", compressed.len()),
+            Some(&compressed),
+        ),
+    ];
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(out.as_bytes());
+    for (index, (dict, stream)) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n{dict}\n", index + 1).as_bytes());
+        if let Some(data) = stream {
+            bytes.extend_from_slice(b"stream\n");
+            bytes.extend_from_slice(data);
+            bytes.extend_from_slice(b"\nendstream\n");
+        }
+        bytes.extend_from_slice(b"endobj\n");
+    }
+    let xref_at = bytes.len();
+    out = format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1);
+    for offset in &offsets {
+        out.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    out.push_str(&format!(
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    ));
+    bytes.extend_from_slice(out.as_bytes());
+
+    let inspection = pdf::inspect(&bytes);
+    let (code, message) = inspection
+        .coverage
+        .failed
+        .get("pdf.text_layer")
+        .unwrap_or_else(|| {
+            panic!(
+                "the text layer should have refused the bomb; coverage was {:?}",
+                inspection.coverage
+            )
+        });
+    assert_eq!(code.as_str(), "resource_limit_exceeded");
+    assert!(message.contains("budget"), "{message}");
+    assert!(
+        !inspection.coverage.completed.contains("pdf.text_layer"),
+        "a detector that refused the page reported completing it"
+    );
+}
+
+/// A field tree is a graph, and branching through it has to stay bounded.
+///
+/// Two parents may name the same object. Following it from both makes the walk
+/// exponential in the depth while the file stays a few hundred bytes: at
+/// twenty-four levels this did not finish in a minute. Refusing to walk any
+/// object twice bounds it and loses the aliases, which the next vector is
+/// about, so the walk keeps them and spends a budget instead - and a budget
+/// spent is reported, not silently truncated.
+#[test]
+fn a_graph_that_branches_past_the_budget_is_refused_rather_than_walked() {
+    // Eighteen levels is 262144 paths, which is past the budget of 100000
+    // visits and still finishes in about a second when the budget is removed:
+    // measured 0.34s at sixteen levels and 1.47s at eighteen. A deeper graph
+    // would prove the same thing and would leave the mutation that removes the
+    // budget running until the job timed out.
+    let depth = 18;
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>".to_string(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+    ];
+    for level in 0..depth {
+        let child = 3 + level + 1;
+        objects.push(format!(
+            "<< /T (n{level}) /Kids [{child} 0 R {child} 0 R] >>"
+        ));
+    }
+    objects.push("<< /T (leaf) /V (secret) >>".to_string());
+    let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+    let doc = build_pdf(&refs);
+
+    let started = std::time::Instant::now();
+    let inspection = pdf::inspect(&doc);
+    let elapsed = started.elapsed();
+
+    // A ceiling rather than a stopwatch reading: the point is that the work is
+    // bounded by the budget, and ten seconds is far above the budget's own cost
+    // on any machine while being far below 2^24 traversals.
+    assert!(
+        elapsed < std::time::Duration::from_secs(10),
+        "walking a shared graph took {elapsed:?}, which is the shape of a traversal from every parent"
+    );
+    let (code, message) = inspection
+        .coverage
+        .failed
+        .get("pdf.form_fields")
+        .unwrap_or_else(|| {
+            panic!(
+                "a graph with 2^18 paths should have spent the budget; coverage was {:?}",
+                inspection.coverage
+            )
+        });
+    assert_eq!(code.as_str(), "resource_limit_exceeded");
+    assert!(message.contains("object visits"), "{message}");
+    assert!(
+        !inspection.coverage.completed.contains("pdf.form_fields"),
+        "a detector that ran out of budget reported completing"
+    );
+}
+
+/// The same child under two parents has two names, and both are disclosures.
+///
+/// This is what walking each object once costs, and why the budget above is not
+/// simply a visited set: `applicant.national_id` and `guarantor.national_id`
+/// are one object, and reporting only the first leaves a form field nobody is
+/// told about - §17.1 counts a silent miss as a release blocker.
+#[test]
+fn a_child_shared_by_two_parents_is_named_under_both() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R 4 0 R] >> >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /T (applicant) /Kids [5 0 R] >>",
+        "<< /T (guarantor) /Kids [5 0 R] >>",
+        "<< /T (national_id) /V (4404) >>",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    let names: Vec<&str> = inspection
+        .detected
+        .iter()
+        .filter(|d| d.category == "form_field_name")
+        .map(|d| d.value.as_str())
+        .collect();
+    assert!(
+        names.contains(&"applicant.national_id") && names.contains(&"guarantor.national_id"),
+        "a shared child lost one of its names: {names:?}"
+    );
+}
+
+/// A cycle ends, and ends as a cycle rather than by exhausting the budget.
+///
+/// The active path is what tells the two apart: an object that is its own
+/// ancestor is a cycle, and the same object reached again by a different path
+/// is an alias.
+#[test]
+fn a_cycle_in_the_field_tree_ends_without_spending_the_budget() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>",
+        "<< /Type /Pages /Kids [] /Count 0 >>",
+        "<< /T (a) /Kids [4 0 R] >>",
+        "<< /T (b) /Kids [3 0 R] /V (reached) >>",
+    ]);
+    let started = std::time::Instant::now();
+    let inspection = pdf::inspect(&doc);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "a cycle of two objects should not take a measurable amount of time"
+    );
+    assert!(
+        inspection.coverage.completed.contains("pdf.form_fields"),
+        "a cycle is not a failure; coverage was {:?}",
+        inspection.coverage
+    );
+    assert!(
+        inspection.detected.iter().any(|d| d.value == "reached"),
+        "stopping at the cycle also cut the value on the way to it"
+    );
+}
+
+/// Every string a detector reads may be an indirect object.
+///
+/// lopdf hands back the `Object::Reference` from a dictionary or an array, and
+/// a reader that does not resolve it sees no text at all: the detector returns
+/// success having found nothing, which §17.1 counts as a release blocker rather
+/// than as a gap. Reported against /T, /V and the name tree; the same shape is
+/// in the metadata, the annotations and the actions, so all six are here.
+#[test]
+fn a_value_behind_an_indirect_reference_is_read_rather_than_missed() {
+    let doc = build_pdf_with_trailer(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> \
+             /Names << /EmbeddedFiles 7 0 R >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [8 0 R] >>",
+            "<< /T 5 0 R /V 6 0 R >>",
+            "(national_id)",
+            "(4404)",
+            "<< /Names [9 0 R 10 0 R] >>",
+            "<< /Type /Annot /Subtype /Text /Contents 11 0 R /A 12 0 R >>",
+            "(payroll.xlsx)",
+            "<< /Type /Filespec /F (payroll.xlsx) >>",
+            "(a comment on the draft)",
+            "<< /S /URI /URI 13 0 R >>",
+            "(https://example.test/leak)",
+            "<< /Title 15 0 R >>",
+            "(Q3 board pack)",
+        ],
+        "/Info 14 0 R",
+    );
+    let inspection = pdf::inspect(&doc);
+    let values: Vec<(&str, &str)> = inspection
+        .detected
+        .iter()
+        .map(|d| (d.category.as_str(), d.value.as_str()))
+        .collect();
+    for expected in [
+        ("document_title", "Q3 board pack"),
+        ("annotation", "a comment on the draft"),
+        ("form_field_name", "national_id"),
+        ("form_field_value", "4404"),
+        ("embedded_file", "payroll.xlsx"),
+        ("external_reference", "https://example.test/leak"),
+    ] {
+        assert!(
+            values.contains(&expected),
+            "{expected:?} was behind an indirect reference and was not read; found {values:?}"
+        );
+    }
+    assert!(
+        inspection.coverage.failed.is_empty(),
+        "nothing here is malformed: {:?}",
+        inspection.coverage.failed
+    );
+}
+
+/// An image is an image even when its /Subtype is an indirect object.
+///
+/// Reading the reference as a name answers "not an image", and nothing says so:
+/// the OCR gap disappears from the coverage, and a scanned page with no other
+/// finding reports as a document with nothing in it.
+#[test]
+fn an_image_behind_an_indirect_subtype_still_counts_as_an_image() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+         /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /XObject /Subtype 6 0 R /Width 2 /Height 2 /ColorSpace /DeviceGray \
+         /BitsPerComponent 8 /Length 4 >>\nstream\n\u{0}\u{1}\u{2}\u{3}\nendstream",
+        "<< /Length 30 >>\nstream\nq 612 0 0 792 0 0 cm /Im1 Do Q\nendstream",
+        "/Image",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    assert!(
+        inspection.has_images,
+        "an indirect /Subtype was read as the reference rather than as the name it points at"
+    );
+}
+
+/// A tree deeper than the budget is a budget, not a broken file.
+#[test]
+fn a_tree_deeper_than_the_budget_is_refused_as_a_budget_not_as_malformed() {
+    let depth = pdf::graph_depth() + 2;
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>".to_string(),
+        "<< /Type /Pages /Kids [] /Count 0 >>".to_string(),
+    ];
+    for level in 0..depth {
+        objects.push(format!("<< /T (n{level}) /Kids [{} 0 R] >>", 3 + level + 1));
+    }
+    objects.push("<< /T (leaf) >>".to_string());
+    let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+    let inspection = pdf::inspect(&build_pdf(&refs));
+    let (code, message) = inspection
+        .coverage
+        .failed
+        .get("pdf.form_fields")
+        .unwrap_or_else(|| panic!("coverage was {:?}", inspection.coverage));
+    assert_eq!(
+        code.as_str(),
+        "resource_limit_exceeded",
+        "a legitimate deep form was reported as a malformed file: {message}"
+    );
+}
+
+/// The trigger says where the action is reached from, and two are not the same.
+///
+/// Every action reported document_open, including a script on a link. A
+/// consumer deciding how alarming an action is needs to know whether it runs
+/// when the file opens or when someone clicks something, and a field with one
+/// value answers neither question.
+#[test]
+fn an_action_says_where_it_is_reached_from() {
+    let doc = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R] >>",
+        "<< /S /JavaScript /JS (app.alert(\"on open\");) >>",
+        "<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] \
+         /A << /S /JavaScript /JS (app.alert(\"on click\");) >> >>",
+    ]);
+    let inspection = pdf::inspect(&doc);
+    let triggers: Vec<&str> = inspection
+        .detected
+        .iter()
+        .filter(|d| d.category == "document_javascript")
+        .map(|d| match &d.location {
+            pdf::Location::PdfAction { trigger, .. } => trigger.as_str(),
+            other => panic!("javascript reported somewhere else: {other:?}"),
+        })
+        .collect();
+    assert!(
+        triggers.contains(&"document_open") && triggers.contains(&"annotation"),
+        "both scripts were given the same trigger: {triggers:?}"
+    );
+}
+
 /// A minimal PDF whose cross-reference offsets are computed from the bytes.
 ///
 /// Hand-written offsets are exactly what ADR 0002's `xref-offsets-off-by-one`
 /// case is about, and strict loading refuses them - as it refused the first
 /// version of the document above.
 fn build_pdf(objects: &[&str]) -> Vec<u8> {
+    build_pdf_with_trailer(objects, "")
+}
+
+/// The same, with extra trailer entries - `/Info` is one, and it is the only
+/// way to reach the metadata detector from a hand-built document.
+fn build_pdf_with_trailer(objects: &[&str], extra: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for (index, body) in objects.iter().enumerate() {
@@ -862,7 +1340,7 @@ fn build_pdf(objects: &[&str]) -> Vec<u8> {
         out.push_str(&format!("{offset:010} 00000 n \n"));
     }
     out.push_str(&format!(
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        "trailer\n<< /Size {} /Root 1 0 R {extra} >>\nstartxref\n{xref_at}\n%%EOF\n",
         objects.len() + 1
     ));
     out.into_bytes()

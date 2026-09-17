@@ -102,7 +102,10 @@ export function mask(value, policy) {
     }
 
     case 'coordinate_coarsened': {
-      const nums = value.match(/-?\d+(\.\d+)?/g);
+      // The capped value, not the original. Every other branch works on the
+      // capped code points; this one went back to the input, so a coordinate
+      // written past the sixty-fourth code point was parsed and shown anyway.
+      const nums = chars.join('').match(/-?\d+(\.\d+)?/g);
       if (!nums || nums.length < 2) return degrade(policy);
       displayValue = nums.slice(0, 2).map((n) => Number(n).toFixed(1)).join(', ');
       break;

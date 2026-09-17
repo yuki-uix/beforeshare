@@ -945,6 +945,74 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
   // each of which would have let an unregistered list through. A guard whose
   // reach depends on how the code was typed is the same problem it exists to
   // solve.
+  // --- every category's evidence is shown under a policy somebody chose -------
+  //
+  // The policy was picked per finding by hand: the examples named one and
+  // nothing checked the rest, so a category could be shown unredacted because
+  // nobody had decided about it. The table makes adding a category force the
+  // decision, and this makes the table force it back.
+  {
+    const policyTable = read(join(schemaDir, 'evidence-policy.json'));
+    const chosen = Object.fromEntries(
+      Object.entries(policyTable.categories).filter(([k]) => !k.startsWith('$')));
+    const categories = Object.keys(read(join(schemaDir, 'category-defaults.json')).categories);
+    const known = read(join(schemaDir, 'evidence.schema.json')).properties.maskPolicy.enum;
+
+    const undecided = categories.filter((c) => !(c in chosen));
+    check('every category has an evidence policy', undecided.length === 0, undecided.join(', '));
+
+    const orphans = Object.keys(chosen).filter((c) => !categories.includes(c));
+    check('every evidence policy names a category that exists', orphans.length === 0,
+      orphans.join(', '));
+
+    const unknown = Object.entries(chosen).filter(([, p]) => !known.includes(p));
+    check('every evidence policy is one the evidence schema allows', unknown.length === 0,
+      unknown.map(([c, p]) => `${c}=${p}`).join(', '));
+
+    // `structural_label` is the only policy that shows a value unredacted, so
+    // choosing it is a claim that the value carries nothing about a person.
+    // The claim is cheap to make silently and expensive to be wrong about, so
+    // each one is named here rather than counted.
+    const unredacted = Object.entries(chosen)
+      .filter(([, p]) => p === 'structural_label')
+      .map(([c]) => c);
+    const personal = unredacted.filter((c) => c.startsWith('pii_'));
+    check('no personal-information category is shown unredacted', personal.length === 0,
+      personal.join(', '));
+    check('the unredacted categories are the ones recorded here',
+      JSON.stringify(unredacted.sort()) === JSON.stringify([
+        'digital_signature', 'document_producer', 'document_timestamp', 'encryption_state',
+        'image_capture_timestamp', 'image_device_make', 'image_device_model',
+        'image_modification_timestamp', 'incremental_update', 'permission_state',
+      ]),
+      unredacted.join(', '));
+
+    // Two different things were being spelled the same way. A value the
+    // detector wrote - "this document declares an /Encrypt dictionary" - has
+    // nothing in it to hide. A value copied out of the document does, and
+    // showing it in full is a decision somebody has to make on purpose. The
+    // core refuses the second under this policy unless the category is listed
+    // here, and this checks the list is what it claims to be: the categories
+    // named must carry the unredacted policy, and each must say why.
+    const shownInFull = policyTable.shownInFull ?? [];
+    const notUnredacted = shownInFull.filter((c) => chosen[c] !== 'structural_label');
+    check('every category shown in full carries the unredacted policy',
+      notUnredacted.length === 0, notUnredacted.join(', '));
+    const unexplained = shownInFull.filter((c) => !(c in policyTable.reasons));
+    check('every category shown in full says why', unexplained.length === 0,
+      unexplained.join(', '));
+    const shownPersonal = shownInFull.filter((c) => c.startsWith('pii_'));
+    check('no personal-information category is shown in full', shownPersonal.length === 0,
+      shownPersonal.join(', '));
+
+    // A reason is not required for every row - most are obvious - but a reason
+    // for a row that is gone is a rule nobody notices has stopped applying.
+    const reasons = Object.keys(policyTable.reasons).filter((k) => !k.startsWith('$'));
+    const strayReasons = reasons.filter((c) => !(c in chosen));
+    check('every reason explains a category that still has a policy',
+      strayReasons.length === 0, strayReasons.join(', '));
+  }
+
   const toolsDir = join(schemaDir, '..', '..', 'tools');
 
   // Before importing anything. A suite that runs on import would end this

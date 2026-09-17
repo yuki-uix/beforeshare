@@ -3,14 +3,21 @@
 //! Each answers two things the coverage report needs kept apart: what it found,
 //! and whether it ran at all. Returning an empty list means "ran, found
 //! nothing", which is a claim; `NotRun` means the claim was never made.
-use lopdf::{Document, Object};
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::{location_for, Detected, Location, NotRun};
+use lopdf::{Dictionary, Document, Object};
+
+use super::{
+    Detected, FailureCode, Location, NotRun, Provenance, SkipReason, StructureDetail, Trigger,
+};
 
 /// What a detector is given: the parsed document and the bytes behind it.
 pub(super) struct Source<'a> {
     pub document: &'a Document,
     pub bytes: &'a [u8],
+    /// How many bytes one page's content streams may decompress to, from
+    /// `limit-rules.json`'s expansion ratio applied to this input.
+    pub decompression_budget: usize,
 }
 
 type Detector = fn(&Source) -> Result<Vec<Detected>, NotRun>;
@@ -48,12 +55,49 @@ fn text_of(object: &Object) -> Option<String> {
     }
 }
 
+/// Read an object as text, following an indirect reference first.
+///
+/// Every string in a PDF may be an indirect object, and lopdf's dictionary and
+/// array accessors hand back the `Object::Reference` rather than what it points
+/// at. `text_of` does not match a reference, so the value reads as absent: the
+/// detector returns success having found nothing, which §17.1 counts as a
+/// release blocker rather than as a gap. Reported against /T, /V and the name
+/// tree; every dictionary value this file reads as text goes through here,
+/// because the ones not reported are the same shape as the ones that were.
+///
+/// Content-stream operands are the exception and do not use this: a stream's
+/// operands are direct by construction, and there is no document to resolve
+/// them against.
+fn resolved_text(doc: &Document, object: &Object) -> Option<String> {
+    match object {
+        Object::Reference(_) => doc.dereference(object).ok().and_then(|(_, o)| text_of(o)),
+        direct => text_of(direct),
+    }
+}
+
+/// `resolved_text` for a dictionary entry, which is how it is read everywhere.
+fn text_at(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
+    dict.get(key).ok().and_then(|v| resolved_text(doc, v))
+}
+
+/// A finding whose value was copied out of the document.
 fn found(category: &str, detector: &str, location: Location, value: String) -> Detected {
     Detected {
         category: category.to_string(),
         detector: detector.to_string(),
         location,
         value,
+        hides_a_removal: false,
+        provenance: Provenance::Document,
+    }
+}
+
+/// A finding whose value the detector wrote: a fact about the file with no
+/// document content in it. This is the only kind the unredacted policy accepts.
+fn found_structural(category: &str, detector: &str, location: Location, value: String) -> Detected {
+    Detected {
+        provenance: Provenance::Detector,
+        ..found(category, detector, location, value)
     }
 }
 
@@ -77,22 +121,28 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
         return Ok(Vec::new());
     };
     let Ok((_, info)) = doc.dereference(info_ref) else {
-        return Err(NotRun::Failed(
-            "the /Info reference does not resolve".into(),
-        ));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the /Info reference does not resolve".into(),
+        });
     };
     let Ok(dict) = info.as_dict() else {
-        return Err(NotRun::Failed("/Info is not a dictionary".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/Info is not a dictionary".into(),
+        });
     };
     let mut out = Vec::new();
     for (key, category) in FIELDS {
-        if let Ok(value) = dict.get(key.as_bytes()) {
-            if let Some(text) = text_of(value) {
+        {
+            if let Some(text) = text_at(doc, dict, key.as_bytes()) {
                 if !text.is_empty() {
                     out.push(found(
                         category,
                         "pdf.metadata",
-                        Location::field(&location_for(category), key),
+                        Location::PdfMetadata {
+                            field: key.to_string(),
+                        },
                         text,
                     ));
                 }
@@ -101,13 +151,15 @@ fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
     }
     // CreationDate carries the same disclosure as ModDate and maps to the same
     // category; both are reported so a document with only one is not silent.
-    if let Ok(value) = dict.get(b"CreationDate") {
-        if let Some(text) = text_of(value) {
+    {
+        if let Some(text) = text_at(doc, dict, b"CreationDate") {
             if !text.is_empty() {
                 out.push(found(
                     "document_timestamp",
                     "pdf.metadata",
-                    Location::field(&location_for("document_timestamp"), "CreationDate"),
+                    Location::PdfMetadata {
+                        field: "CreationDate".to_string(),
+                    },
                     text,
                 ));
             }
@@ -123,25 +175,32 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
     for (index, (_, page_id)) in doc.get_pages().iter().enumerate() {
         let page_number = index as u32 + 1;
         let Ok(page) = doc.get_object(*page_id).and_then(|o| o.as_dict().cloned()) else {
-            return Err(NotRun::Failed(format!(
-                "page {page_number} does not resolve"
-            )));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: format!("page {page_number} does not resolve"),
+            });
         };
         let Ok(annots) = page.get(b"Annots") else {
             continue;
         };
         let Ok((_, annots)) = doc.dereference(annots) else {
-            return Err(NotRun::Failed(format!(
-                "/Annots on page {page_number} does not resolve"
-            )));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: format!("/Annots on page {page_number} does not resolve"),
+            });
         };
         let Ok(items) = annots.as_array() else {
             continue;
         };
         for item in items {
+            // Only a reference has an object number. A direct dictionary in
+            // /Annots is not what the specification asks for but does occur,
+            // and calling it object zero put a number in the location that
+            // names nothing - the contract says to leave the field out when
+            // there is no number to give.
             let number = match item {
-                Object::Reference(id) => id.0,
-                _ => 0,
+                Object::Reference(id) => Some(id.0),
+                _ => None,
             };
             let Ok((_, annot)) = doc.dereference(item) else {
                 continue;
@@ -149,16 +208,8 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
             let Ok(dict) = annot.as_dict() else { continue };
             // The subtype and any contents are what a reader would see; an
             // annotation with neither is still an annotation and still reported.
-            let subtype = dict
-                .get(b"Subtype")
-                .ok()
-                .and_then(text_of)
-                .unwrap_or_default();
-            let contents = dict
-                .get(b"Contents")
-                .ok()
-                .and_then(text_of)
-                .unwrap_or_default();
+            let subtype = text_at(doc, dict, b"Subtype").unwrap_or_default();
+            let contents = text_at(doc, dict, b"Contents").unwrap_or_default();
             let value = if contents.is_empty() {
                 format!("/{subtype}")
             } else {
@@ -167,7 +218,11 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
             out.push(found(
                 "annotation",
                 "pdf.annotations",
-                Location::on_page(&location_for("annotation"), page_number, number),
+                Location::PdfAnnotation {
+                    page: page_number,
+                    object_number: number,
+                    subtype: (!subtype.is_empty()).then(|| subtype.clone()),
+                },
                 value,
             ));
         }
@@ -184,34 +239,108 @@ fn annotations(source: &Source) -> Result<Vec<Detected>, NotRun> {
 /// The field list is a tree. A node with `/Kids` holds its children, and the
 /// value may sit on any of them; reading only the top level answered "ran,
 /// found nothing" for a form whose fields were grouped, which is a silent miss.
+/// The catalog, or the reason there is not one.
+///
+/// lopdf keeps the encryption dictionary and nothing else when it cannot
+/// authenticate, so the catalog is missing and every question about content is
+/// unanswerable. Reporting that as malformed input told a consumer the file was
+/// damaged when it is encrypted - the text layer already answered
+/// blocked_by_encryption for the same document, so one file got two accounts of
+/// itself depending on which detector spoke.
+fn catalog_of(source: &Source) -> Result<lopdf::Dictionary, NotRun> {
+    let doc = source.document;
+    match doc.catalog() {
+        Ok(catalog) => Ok(catalog.clone()),
+        Err(_) if doc.trailer.get(b"Encrypt").is_ok() => Err(NotRun::Skipped {
+            reason: SkipReason::BlockedByEncryption,
+            message: "the document is encrypted and was not decrypted, so its catalog was not read"
+                .into(),
+        }),
+        Err(_) => Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "the catalog does not resolve".into(),
+        }),
+    }
+}
+
 fn form_fields(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
-    let Ok(catalog) = doc.catalog() else {
-        return Err(NotRun::Failed("the catalog does not resolve".into()));
-    };
+    let catalog = catalog_of(source)?;
     let Ok(acro) = catalog.get(b"AcroForm") else {
         return Ok(Vec::new());
     };
     let Ok((_, acro)) = doc.dereference(acro) else {
-        return Err(NotRun::Failed("/AcroForm does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/AcroForm does not resolve".into(),
+        });
     };
     let Ok(acro) = acro.as_dict() else {
-        return Err(NotRun::Failed("/AcroForm is not a dictionary".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/AcroForm is not a dictionary".into(),
+        });
     };
     let Ok(fields) = acro.get(b"Fields") else {
         return Ok(Vec::new());
     };
     let Ok((_, fields)) = doc.dereference(fields) else {
-        return Err(NotRun::Failed("/Fields does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/Fields does not resolve".into(),
+        });
     };
     let Ok(fields) = fields.as_array() else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
+    // Objects already walked. A field tree is a graph, not a tree: two parents
+    // may name the same child, and following it from both makes the traversal
+    // exponential in the depth while the file stays a few hundred bytes. A
+    // twenty-four level graph took longer than a minute before this.
+    let mut walk = Walk::new();
     for field in fields {
-        walk_field(doc, field, "", 0, &mut out)?;
+        walk_field(doc, field, "", 0, &mut walk, &mut out)?;
     }
     Ok(out)
+}
+
+/// What a walk of an object graph is allowed to spend, and where it currently
+/// is.
+///
+/// Two separate jobs, and neither does the other's. The active path stops a
+/// cycle: an object that is its own ancestor. It does not bound the work -
+/// every node having two parents gives 2^depth distinct paths, all acyclic,
+/// inside a file of a few hundred bytes. Refusing to walk any object twice
+/// bounds that, and silently drops the aliases: one field under two parents has
+/// two legitimate full names and only the first would be reported, which §17.1
+/// counts as a release blocker. So the aliases are kept and the visits are
+/// counted.
+struct Walk {
+    active: BTreeSet<(u32, u16)>,
+    remaining: usize,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Self {
+            active: BTreeSet::new(),
+            remaining: super::graph_nodes(),
+        }
+    }
+
+    /// Charge one visit, or refuse. Found while working, so it is a failure and
+    /// not a skip - `limit-rules.json` says which of the two an overrun is.
+    fn spend(&mut self, what: &str) -> Result<(), NotRun> {
+        self.remaining = self.remaining.checked_sub(1).ok_or(NotRun::Failed {
+            code: FailureCode::ResourceLimitExceeded,
+            message: format!(
+                "{what} spent the whole budget of {} object visits",
+                super::graph_nodes()
+            ),
+        })?;
+        Ok(())
+    }
 }
 
 fn walk_field(
@@ -219,26 +348,58 @@ fn walk_field(
     field: &Object,
     prefix: &str,
     depth: usize,
+    walk: &mut Walk,
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
-    if depth > 32 {
-        return Err(NotRun::Failed(
-            "the form field tree is nested deeper than this detector will walk".into(),
-        ));
+    walk.spend("the form field tree")?;
+    if depth > super::graph_depth() {
+        // A budget, like the visit count beside it, and reported the same way.
+        // Saying malformed_input here told a consumer the file was broken when
+        // what happened is that this detector would not go further - two
+        // different answers, and only one of them is about the document.
+        return Err(NotRun::Failed {
+            code: FailureCode::ResourceLimitExceeded,
+            message: format!(
+                "the form field tree is nested deeper than the budget of {} objects",
+                super::graph_depth()
+            ),
+        });
     }
-    let number = match field {
-        Object::Reference(id) => id.0,
-        _ => 0,
+    // The identity is what the reference resolves to, not the reference: two
+    // chains may end at one object, and a cycle through them would otherwise
+    // read as two different nodes.
+    let Ok((id, resolved)) = doc.dereference(field) else {
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "a form field does not resolve".into(),
+        });
     };
-    let Ok((_, resolved)) = doc.dereference(field) else {
-        return Err(NotRun::Failed("a form field does not resolve".into()));
-    };
+    if let Some(id) = id {
+        if !walk.active.insert(id) {
+            return Ok(());
+        }
+    }
+    let result = walk_field_body(doc, resolved, prefix, depth, walk, out);
+    if let Some(id) = id {
+        walk.active.remove(&id);
+    }
+    result
+}
+
+fn walk_field_body(
+    doc: &Document,
+    resolved: &Object,
+    prefix: &str,
+    depth: usize,
+    walk: &mut Walk,
+    out: &mut Vec<Detected>,
+) -> Result<(), NotRun> {
     let Ok(dict) = resolved.as_dict() else {
         return Ok(());
     };
     // A field's name is its own /T joined to its parents', which is how a
     // grouped form spells `applicant.national_id`.
-    let own = dict.get(b"T").ok().and_then(text_of).unwrap_or_default();
+    let own = text_at(doc, dict, b"T").unwrap_or_default();
     let full = match (prefix.is_empty(), own.is_empty()) {
         (_, true) => prefix.to_string(),
         (true, false) => own.clone(),
@@ -249,29 +410,36 @@ fn walk_field(
         out.push(found(
             "form_field_name",
             "pdf.form_fields",
-            Location::object(&location_for("form_field_name"), number),
+            Location::PdfFormField {
+                field_name: full.clone(),
+                page: None,
+            },
             full.clone(),
         ));
     }
-    if let Some(value) = dict.get(b"V").ok().and_then(text_of) {
+    if let Some(value) = text_at(doc, dict, b"V") {
         if !value.is_empty() {
             out.push(found(
                 "form_field_value",
                 "pdf.form_fields",
-                Location::object(&location_for("form_field_value"), number),
+                Location::PdfFormField {
+                    field_name: full.clone(),
+                    page: None,
+                },
                 value,
             ));
         }
     }
     if let Ok(kids) = dict.get(b"Kids") {
         let Ok((_, kids)) = doc.dereference(kids) else {
-            return Err(NotRun::Failed(
-                "a form field's /Kids does not resolve".into(),
-            ));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: "a form field's /Kids does not resolve".into(),
+            });
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
-                walk_field(doc, kid, &full, depth + 1, out)?;
+                walk_field(doc, kid, &full, depth + 1, walk, out)?;
             }
         }
     }
@@ -286,14 +454,15 @@ fn walk_field(
 /// miss, which §17.1 counts as a release blocker rather than a gap.
 fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
-    let Ok(catalog) = doc.catalog() else {
-        return Err(NotRun::Failed("the catalog does not resolve".into()));
-    };
+    let catalog = catalog_of(source)?;
     let Ok(names) = catalog.get(b"Names") else {
         return Ok(Vec::new());
     };
     let Ok((_, names)) = doc.dereference(names) else {
-        return Err(NotRun::Failed("/Names does not resolve".into()));
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "/Names does not resolve".into(),
+        });
     };
     let Ok(names) = names.as_dict() else {
         return Ok(Vec::new());
@@ -303,7 +472,8 @@ fn embedded_files(source: &Source) -> Result<Vec<Detected>, NotRun> {
     };
     let mut out = Vec::new();
     let mut index = 0usize;
-    walk_name_tree(doc, tree, 0, &mut index, &mut out)?;
+    let mut walk = Walk::new();
+    walk_name_tree(doc, tree, 0, &mut index, &mut walk, &mut out)?;
     Ok(out)
 }
 
@@ -312,37 +482,69 @@ fn walk_name_tree(
     node: &Object,
     depth: usize,
     index: &mut usize,
+    walk: &mut Walk,
     out: &mut Vec<Detected>,
 ) -> Result<(), NotRun> {
-    if depth > 32 {
-        return Err(NotRun::Failed(
-            "the embedded-file name tree is nested deeper than this detector will walk".into(),
-        ));
+    walk.spend("the embedded-file name tree")?;
+    if depth > super::graph_depth() {
+        return Err(NotRun::Failed {
+            code: FailureCode::ResourceLimitExceeded,
+            message: format!(
+                "the embedded-file name tree is nested deeper than the budget of {} objects",
+                super::graph_depth()
+            ),
+        });
     }
-    let Ok((_, node)) = doc.dereference(node) else {
-        return Err(NotRun::Failed("a name-tree node does not resolve".into()));
+    let Ok((id, node)) = doc.dereference(node) else {
+        return Err(NotRun::Failed {
+            code: FailureCode::MalformedInput,
+            message: "a name-tree node does not resolve".into(),
+        });
     };
+    if let Some(id) = id {
+        if !walk.active.insert(id) {
+            return Ok(());
+        }
+    }
+    let result = walk_name_tree_body(doc, node, depth, index, walk, out);
+    if let Some(id) = id {
+        walk.active.remove(&id);
+    }
+    result
+}
+
+fn walk_name_tree_body(
+    doc: &Document,
+    node: &Object,
+    depth: usize,
+    index: &mut usize,
+    walk: &mut Walk,
+    out: &mut Vec<Detected>,
+) -> Result<(), NotRun> {
     let Ok(dict) = node.as_dict() else {
         return Ok(());
     };
     if let Ok(pairs) = dict.get(b"Names") {
         let Ok((_, pairs)) = doc.dereference(pairs) else {
-            return Err(NotRun::Failed("a name-tree leaf does not resolve".into()));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: "a name-tree leaf does not resolve".into(),
+            });
         };
         if let Ok(pairs) = pairs.as_array() {
             // The leaf alternates name, value. The index rather than the name
             // identifies the entry, because a name is not unique and may itself
             // disclose something.
             for chunk in pairs.chunks(2) {
-                let Some(name) = chunk.first().and_then(text_of) else {
+                let Some(name) = chunk.first().and_then(|k| resolved_text(doc, k)) else {
                     continue;
                 };
                 out.push(found(
                     "embedded_file",
                     "pdf.embedded_files",
-                    Location {
-                        object_number: Some(*index as u32),
-                        ..Location::of(&location_for("embedded_file"))
+                    Location::PdfEmbeddedFile {
+                        index: *index as u32,
+                        name: Some(name.clone()),
                     },
                     name,
                 ));
@@ -352,11 +554,14 @@ fn walk_name_tree(
     }
     if let Ok(kids) = dict.get(b"Kids") {
         let Ok((_, kids)) = doc.dereference(kids) else {
-            return Err(NotRun::Failed("a name-tree branch does not resolve".into()));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: "a name-tree branch does not resolve".into(),
+            });
         };
         if let Ok(kids) = kids.as_array() {
             for kid in kids {
-                walk_name_tree(doc, kid, depth + 1, index, out)?;
+                walk_name_tree(doc, kid, depth + 1, index, walk, out)?;
             }
         }
     }
@@ -375,49 +580,145 @@ fn walk_name_tree(
 fn actions(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
     let mut out = Vec::new();
+    // What triggers an object, taken from where the document references it.
+    // Every finding here said document_open before, including a script on an
+    // annotation, which made the field a constant: a consumer deciding how
+    // alarming an action is has to know whether it runs when the file opens or
+    // when someone clicks something, and a constant answers neither.
+    let triggers = triggers_by_reference(doc);
     for (id, object) in doc.objects.iter() {
-        walk_actions(object, id.0, 0, &mut out);
+        let trigger = triggers.get(id).copied().unwrap_or(Trigger::NamedAction);
+        walk_actions(doc, object, id.0, trigger, 0, &mut out);
     }
     Ok(out)
 }
 
-fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detected>) {
+/// The objects the document points at from a place that names an event.
+///
+/// An object nobody points at from one of these is left as `named_action`: it
+/// is in the file and has to be reported, and none of the six names in the
+/// vocabulary describes "reached some other way". That is an imprecision, and
+/// it is a smaller one than telling every consumer that a link's script runs
+/// when the document opens.
+fn triggers_by_reference(doc: &Document) -> BTreeMap<(u32, u16), Trigger> {
+    let mut out = BTreeMap::new();
+    let note = |object: Option<&Object>, trigger: Trigger, out: &mut BTreeMap<_, _>| {
+        if let Some(Object::Reference(id)) = object {
+            out.entry(*id).or_insert(trigger);
+        }
+    };
+    if let Ok(catalog) = doc.catalog() {
+        note(
+            catalog.get(b"OpenAction").ok(),
+            Trigger::DocumentOpen,
+            &mut out,
+        );
+        if let Some(tree) = catalog
+            .get(b"Names")
+            .ok()
+            .and_then(|n| doc.dereference(n).ok())
+            .and_then(|(_, n)| n.as_dict().ok().cloned())
+            .and_then(|n| n.get(b"JavaScript").ok().cloned())
+        {
+            note(Some(&tree), Trigger::NamedAction, &mut out);
+        }
+        if let Ok(acro) = catalog
+            .get(b"AcroForm")
+            .ok()
+            .and_then(|a| doc.dereference(a).ok())
+            .map(|(_, a)| a)
+            .ok_or(())
+            .and_then(|a| a.as_dict().map_err(|_| ()))
+        {
+            if let Some(fields) = acro
+                .get(b"Fields")
+                .ok()
+                .and_then(|f| doc.dereference(f).ok())
+                .and_then(|(_, f)| f.as_array().ok().cloned())
+            {
+                for field in &fields {
+                    note(Some(field), Trigger::FormField, &mut out);
+                }
+            }
+        }
+    }
+    for (_, page_id) in doc.get_pages() {
+        let Ok(page) = doc.get_object(page_id).and_then(|o| o.as_dict().cloned()) else {
+            continue;
+        };
+        if let Some(annots) = page
+            .get(b"Annots")
+            .ok()
+            .and_then(|a| doc.dereference(a).ok())
+            .and_then(|(_, a)| a.as_array().ok().cloned())
+        {
+            for annot in &annots {
+                note(Some(annot), Trigger::Annotation, &mut out);
+            }
+        }
+        if let Some(additional) = page
+            .get(b"AA")
+            .ok()
+            .and_then(|a| doc.dereference(a).ok())
+            .and_then(|(_, a)| a.as_dict().ok().cloned())
+        {
+            note(additional.get(b"O").ok(), Trigger::PageOpen, &mut out);
+            note(additional.get(b"C").ok(), Trigger::PageClose, &mut out);
+        }
+    }
+    out
+}
+
+fn walk_actions(
+    doc: &Document,
+    object: &Object,
+    number: u32,
+    trigger: Trigger,
+    depth: usize,
+    out: &mut Vec<Detected>,
+) {
     if depth > 32 {
         return;
     }
     match object {
         Object::Dictionary(dict) => {
             if dict.has(b"JS") {
-                let value = dict
-                    .get(b"JS")
-                    .ok()
-                    .and_then(text_of)
-                    .unwrap_or_else(|| "(JavaScript in a stream)".into());
+                let value =
+                    text_at(doc, dict, b"JS").unwrap_or_else(|| "(JavaScript in a stream)".into());
                 out.push(found(
                     "document_javascript",
                     "pdf.actions",
-                    Location::object(&location_for("document_javascript"), number),
+                    Location::PdfAction {
+                        trigger,
+                        page: None,
+                        object_number: Some(number),
+                    },
                     value,
                 ));
             } else if dict.has(b"JavaScript") {
-                out.push(found(
+                out.push(found_structural(
                     "document_javascript",
                     "pdf.actions",
-                    Location::object(&location_for("document_javascript"), number),
+                    Location::PdfAction {
+                        trigger,
+                        page: None,
+                        object_number: Some(number),
+                    },
                     "(document-level JavaScript name tree)".into(),
                 ));
             }
-            match dict.get(b"S").ok().and_then(text_of).as_deref() {
+            match text_at(doc, dict, b"S").as_deref() {
                 Some("Launch") => {
-                    let target = dict
-                        .get(b"F")
-                        .ok()
-                        .and_then(text_of)
-                        .unwrap_or_else(|| "(unnamed target)".into());
+                    let target =
+                        text_at(doc, dict, b"F").unwrap_or_else(|| "(unnamed target)".into());
                     out.push(found(
                         "launch_action",
                         "pdf.actions",
-                        Location::object(&location_for("launch_action"), number),
+                        Location::PdfAction {
+                            trigger,
+                            page: None,
+                            object_number: Some(number),
+                        },
                         target,
                     ));
                 }
@@ -425,17 +726,21 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                 // the disclosure. The mapping says this item is reached through
                 // /URI, /GoToR or /Launch, and only two of the three were here.
                 Some("GoToR") => {
-                    if let Some(target) = dict.get(b"F").ok().and_then(text_of) {
+                    if let Some(target) = text_at(doc, dict, b"F") {
                         out.push(found(
                             "local_file_reference",
                             "pdf.actions",
-                            Location::object(&location_for("local_file_reference"), number),
+                            Location::PdfAction {
+                                trigger,
+                                page: None,
+                                object_number: Some(number),
+                            },
                             target,
                         ));
                     }
                 }
                 Some("URI") => {
-                    if let Some(uri) = dict.get(b"URI").ok().and_then(text_of) {
+                    if let Some(uri) = text_at(doc, dict, b"URI") {
                         // A file:// URI names something on this machine, which
                         // is a different disclosure from a link to a server.
                         let category = if uri.starts_with("file:") {
@@ -446,7 +751,11 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                         out.push(found(
                             category,
                             "pdf.actions",
-                            Location::object(&location_for(category), number),
+                            Location::PdfAction {
+                                trigger,
+                                page: None,
+                                object_number: Some(number),
+                            },
                             uri,
                         ));
                     }
@@ -454,17 +763,19 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
                 _ => {}
             }
             for (_, value) in dict.iter() {
-                walk_actions(value, number, depth + 1, out);
+                walk_actions(doc, value, number, trigger, depth + 1, out);
             }
         }
         Object::Array(items) => {
             for item in items {
-                walk_actions(item, number, depth + 1, out);
+                walk_actions(doc, item, number, trigger, depth + 1, out);
             }
         }
         Object::Stream(stream) => walk_actions(
+            doc,
             &Object::Dictionary(stream.dict.clone()),
             number,
+            trigger,
             depth + 1,
             out,
         ),
@@ -480,21 +791,47 @@ fn walk_actions(object: &Object, number: u32, depth: usize, out: &mut Vec<Detect
 /// first, and in the second the text is drawn normally and then covered.
 fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
-    let pages = doc.get_pages();
-    if pages.is_empty() {
-        return Err(NotRun::Skipped("this document has no pages to read"));
+    // Encryption is the honest skip: the content streams are there and cannot be
+    // read, so a detector that completed would be claiming it looked.
+    if doc.trailer.get(b"Encrypt").is_ok() {
+        return Err(NotRun::Skipped {
+            reason: SkipReason::BlockedByEncryption,
+            message: "the content streams are encrypted and were not decrypted".into(),
+        });
     }
+    // A document with no pages is not a skip. There is no text because there are
+    // no pages, and "ran and found nothing" is true - the first version reported
+    // a skip here, which claimed a gap that does not exist.
+    let pages = doc.get_pages();
     let mut out = Vec::new();
     for (index, (_, page_id)) in pages.iter().enumerate() {
         let page_number = index as u32 + 1;
-        let content = doc.get_page_content(*page_id);
+        // With a limit. `get_page_content` decompresses without one, and
+        // `LoadOptions::max_decompressed_size` does not reach page content
+        // streams - it bounds what is decoded while the document loads. A
+        // compression bomb in a page would exhaust memory before any of this
+        // ran. The budget is the expansion ratio from `limit-rules.json` times
+        // the input, not a number chosen here.
+        let content = match doc.get_page_content_with_limit(*page_id, source.decompression_budget) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Err(NotRun::Failed {
+                    code: FailureCode::ResourceLimitExceeded,
+                    message: format!(
+                        "page {page_number} decompresses past the budget of {} bytes: {e}",
+                        source.decompression_budget
+                    ),
+                })
+            }
+        };
         if content.is_empty() {
             continue;
         }
         let Ok(decoded) = lopdf::content::Content::decode(&content) else {
-            return Err(NotRun::Failed(format!(
-                "the content stream of page {page_number} does not decode"
-            )));
+            return Err(NotRun::Failed {
+                code: FailureCode::MalformedInput,
+                message: format!("the content stream of page {page_number} does not decode"),
+            });
         };
 
         // The graphics state, as translation and scale only, with the text
@@ -589,11 +926,11 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                             numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
                         );
                         if b != 0.0 || c != 0.0 {
-                            return Err(NotRun::Failed(format!(
+                            return Err(NotRun::Failed { code: FailureCode::MalformedInput, message: format!(
                                 "page {page_number} rotates or skews its content, and this detector \
                                  reasons about translation and scale only - reporting nothing here \
                                  would be a silent miss"
-                            )));
+                            ) });
                         }
                         let top = stack.last_mut().expect("the stack is never empty");
                         top.tx += e * top.sx;
@@ -632,10 +969,13 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                 "Tm" => {
                     if numbers.len() == 6 {
                         if numbers[1] != 0.0 || numbers[2] != 0.0 {
-                            return Err(NotRun::Failed(format!(
+                            return Err(NotRun::Failed {
+                                code: FailureCode::MalformedInput,
+                                message: format!(
                                 "page {page_number} rotates or skews its text, and this detector \
                                  reasons about translation and scale only"
-                            )));
+                            ),
+                            });
                         }
                         line = TextMatrix {
                             sx: numbers[0],
@@ -686,7 +1026,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                     out.push(found(
                         "hidden_text",
                         "pdf.text_layer",
-                        Location::on_page(&location_for("hidden_text"), page_number, 0),
+                        Location::PdfTextLayer { page: page_number },
                         run,
                     ));
                 } else {
@@ -706,7 +1046,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                 out.push(found(
                     "text_under_redaction",
                     "pdf.text_layer",
-                    Location::on_page(&location_for("text_under_redaction"), page_number, 0),
+                    Location::PdfTextLayer { page: page_number },
                     run,
                 ));
             }
@@ -721,29 +1061,36 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let mut out = Vec::new();
 
     if doc.trailer.get(b"Encrypt").is_ok() {
-        out.push(found(
+        out.push(found_structural(
             "encryption_state",
             "pdf.structure",
-            Location::of(&location_for("encryption_state")),
+            Location::FileStructure {
+                detail: StructureDetail::EncryptionDictionary,
+                revision: None,
+            },
             "this document declares an /Encrypt dictionary".into(),
         ));
-        out.push(found(
+        out.push(found_structural(
             "permission_state",
             "pdf.structure",
-            Location::of(&location_for("permission_state")),
+            Location::FileStructure {
+                detail: StructureDetail::Permissions,
+                revision: None,
+            },
             "permissions are carried by the encryption dictionary".into(),
         ));
     }
 
-    for (id, object) in doc.objects.iter() {
+    for object in doc.objects.values() {
         let Ok(dict) = object.as_dict() else { continue };
-        if dict.has(b"ByteRange")
-            || dict.get(b"Type").ok().and_then(text_of).as_deref() == Some("Sig")
-        {
-            out.push(found(
+        if dict.has(b"ByteRange") || text_at(doc, dict, b"Type").as_deref() == Some("Sig") {
+            out.push(found_structural(
                 "digital_signature",
                 "pdf.structure",
-                Location::object(&location_for("digital_signature"), id.0),
+                Location::FileStructure {
+                    detail: StructureDetail::SignatureDictionary,
+                    revision: None,
+                },
                 "a signature dictionary is present".into(),
             ));
         }
@@ -757,12 +1104,40 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
     // it is a fact about the file.
     let sections = cross_reference_sections(source.bytes);
     if sections > 1 {
-        out.push(found(
+        // The rules table raises this to critical only when a previous revision
+        // holds values the current one removes - not for the presence of an
+        // update. Deciding that needs the earlier revision, and lopdf resolves
+        // the chain and hands back only the current state, so the earlier one is
+        // loaded from the bytes: the file up to its first %%EOF is itself a
+        // complete PDF.
+        let removed = values_the_update_removed(source);
+        // The count and not the names. Naming them put a list of the document's
+        // own keys at the end of the sentence, where the display cap cut it off
+        // - the evidence for the one severity this table raises ended mid-word,
+        // "an earlier revision still holds", with nothing after it. And the
+        // names are the document's, so a sentence carrying them cannot be shown
+        // under the policy that shows a value in full.
+        let message = if removed.is_empty() {
+            format!("{sections} cross-reference sections: this file was appended to")
+        } else {
+            format!(
+                "an earlier revision still holds {} value{} the current one removed, across \
+                 {sections} cross-reference sections",
+                removed.len(),
+                if removed.len() == 1 { "" } else { "s" }
+            )
+        };
+        let mut finding = found_structural(
             "incremental_update",
             "pdf.structure",
-            Location::of(&location_for("incremental_update")),
-            format!("{sections} cross-reference sections: this file was appended to"),
-        ));
+            Location::FileStructure {
+                detail: StructureDetail::IncrementalUpdate,
+                revision: Some(sections as u32),
+            },
+            message,
+        );
+        finding.hides_a_removal = !removed.is_empty();
+        out.push(finding);
     }
 
     Ok(out)
@@ -796,4 +1171,62 @@ fn cross_reference_sections(bytes: &[u8]) -> usize {
         }
     }
     sections
+}
+
+/// The /Info entries an earlier revision holds that the current one has dropped.
+///
+/// A reader trusting the newest cross-reference table never sees them, which is
+/// the whole reason §7.1 lists incremental updates: the person about to send the
+/// file cannot see what they are about to send.
+/// The current revision is the document already loaded, and only the earlier
+/// one is parsed here.
+///
+/// It used to load the whole file a second time to read the current /Info,
+/// which it was handed a parsed copy of - and with more than one cross-
+/// reference section that happened once per section. The earlier revision has
+/// to be parsed, because lopdf follows the chain and hands back only the
+/// current state, and it is parsed under the same decompression budget as
+/// anything else: strict is off here, so the refusals that bound a load are
+/// off with it.
+fn values_the_update_removed(source: &Source) -> Vec<String> {
+    let bytes = source.bytes;
+    let new = source.document;
+    let Some(first_eof) = find(bytes, b"%%EOF") else {
+        return Vec::new();
+    };
+    let earlier = &bytes[..first_eof + 5];
+    let options = lopdf::LoadOptions {
+        strict: false,
+        max_decompressed_size: Some(source.decompression_budget),
+        ..Default::default()
+    };
+    let Ok(old) = Document::load_mem_with_options(earlier, options) else {
+        return Vec::new();
+    };
+    let info_of = |doc: &Document| -> Vec<(String, String)> {
+        doc.trailer
+            .get(b"Info")
+            .ok()
+            .and_then(|r| doc.dereference(r).ok())
+            .and_then(|(_, o)| o.as_dict().ok().cloned())
+            .map(|d| {
+                d.iter()
+                    .filter_map(|(k, v)| {
+                        resolved_text(doc, v)
+                            .map(|value| (String::from_utf8_lossy(k).to_string(), value))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let current = info_of(new);
+    info_of(&old)
+        .into_iter()
+        .filter(|(key, value)| !current.iter().any(|(k, v)| k == key && v == value))
+        .map(|(key, _)| format!("/{key}"))
+        .collect()
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
