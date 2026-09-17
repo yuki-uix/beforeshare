@@ -136,6 +136,11 @@ jobs:
 
       - run: npm ci
 
+      # A JavaScript suite runs the core now - the results are regenerated
+      # before they are validated - so this job needs the toolchain too.
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install stable
+
       # A guard that cannot fail is worse than no guard: it reports coverage that
       # does not exist.
       #
@@ -1208,15 +1213,22 @@ jobs:
           # whole script went out unmasked. The check reads the fixture's own
           # declared values, and this proves it reads them: a result with one
           # put back must fail.
+          # The policy, not the file. Editing a committed result no longer
+          # proves anything: the suite regenerates before it validates, so the
+          # edit is overwritten by the core's own output. Making the core emit
+          # the value is the case that matters anyway - and the value here has
+          # a quote in it, which is the one the check could not see when it
+          # searched the serialised JSON instead of the parsed strings.
           node -e "
-            const fs=require('fs'), p='fixtures/pdf/results/form-fields.positive.json';
-            const r=JSON.parse(fs.readFileSync(p,'utf8'));
-            r.findings[0].location.fieldName='applicant_national_id';
-            fs.writeFileSync(p, JSON.stringify(r,null,2));
+            const fs=require('fs'), p='schemas/v1/evidence-policy.json';
+            const d=JSON.parse(fs.readFileSync(p,'utf8'));
+            d.categories.document_javascript='structural_label';
+            d.shownInFull.push('document_javascript');
+            fs.writeFileSync(p, JSON.stringify(d,null,2));
           "
-          expect_failure "a document's own value back in a result" \
+          expect_failure "a script shown in full by its own policy" \
             "carries none of its document's values verbatim" \
-            "fixtures/pdf/results/form-fields.positive.json" \
+            "schemas/v1/evidence-policy.json fixtures/pdf/results" \
             "test:results" || failed=1
 
           # The masking vectors name the resulting policy as well as the display
@@ -1290,14 +1302,12 @@ jobs:
       # that made the core emit an unmasked value passed as long as nobody
       # regenerated - the guard was reading last week's output. Regenerating
       # here and refusing a difference is what connects that suite to this code.
+      # The same script `npm test` runs, rather than a second copy of it here:
+      # the check lived in CI only, so a local run could be green on results
+      # nobody had regenerated.
       - name: The emitted results are the ones this core produces
-        run: |
-          set -euo pipefail
-          cargo run --example emit-results
-          if ! git diff --exit-code -- ../fixtures/pdf/results; then
-            echo "::error::the committed results differ from what this core emits - regenerate with: cargo run --example emit-results"
-            exit 1
-          fi
+        working-directory: .
+        run: bash tools/regenerate-results.sh
 
       # The same rule as the JavaScript guards: a test that cannot fail reports
       # coverage that does not exist. Each case breaks one thing the gate claims

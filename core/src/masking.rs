@@ -79,6 +79,22 @@ pub fn shown_in_full(category: &str) -> bool {
         .any(|c| c == category)
 }
 
+/// One decimal place, rounded the way `Number.prototype.toFixed` rounds.
+///
+/// Not `{:.1}`, which rounds a tie to the even digit: measured, 0.25 formats as
+/// 0.2 here and 0.3 in JavaScript, and -0.25 as -0.2 against -0.3. Two
+/// implementations of one masking rule that disagree on a coordinate are two
+/// different answers about where somebody was.
+fn one_decimal(value: f64) -> String {
+    let scaled = value * 10.0;
+    let rounded = if scaled >= 0.0 {
+        (scaled + 0.5).floor()
+    } else {
+        (scaled - 0.5).ceil()
+    };
+    format!("{:.1}", rounded / 10.0)
+}
+
 fn chars(s: &str) -> Vec<char> {
     s.chars().collect()
 }
@@ -198,7 +214,7 @@ pub fn mask(value: &str, policy: &str) -> Result<Masked, String> {
             if numbers.len() < 2 {
                 return Ok(degrade());
             }
-            format!("{:.1}, {:.1}", numbers[0], numbers[1])
+            format!("{}, {}", one_decimal(numbers[0]), one_decimal(numbers[1]))
         }
         other => return Err(format!("unknown mask policy: {other}")),
     };

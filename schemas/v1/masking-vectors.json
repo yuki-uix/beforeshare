@@ -50,6 +50,13 @@
       "displayValue": "****************************************************************",
       "resultPolicy": "fully_masked",
       "$why": "The cap runs before masking, so a policy sees sixty-four code points and no more. This one used to go back to the whole input for its numbers, which showed a coordinate the cap had already cut off. With nothing to parse inside the cap it degrades, and a degraded result is reported as fully_masked rather than as the policy that could not be applied."
+    },
+    {
+      "value": "51.25, -0.25",
+      "policy": "coordinate_coarsened",
+      "displayValue": "51.3, -0.3",
+      "resultPolicy": "coordinate_coarsened",
+      "$why": "A tie in both directions. Rust's {:.1} rounds a tie to the even digit and JavaScript's toFixed rounds it away from zero: measured, 51.25 formatted as 51.2 against 51.3, and -0.25 as -0.2 against -0.3. Nothing covered a tie, so the two implementations disagreed about where somebody was and both suites were green."
     }
   ],
   "$degradesComment": "Too short to mask without half-revealing. The result must say fully_masked: what happened, not what was attempted.",
@@ -91,8 +98,9 @@
       "policy": "text_keep_edges"
     },
     {
-      "value": "555-1234",
-      "policy": "digits_keep_last_4"
+      "value": "55-1234",
+      "policy": "digits_keep_last_4",
+      "$why": "Six digits, which is the shortest that does not degrade: four kept and two hidden. The seven-digit value here before could not tell a minimum of six from a minimum of seven."
     }
   ],
   "$minimumHiddenComment": "No policy but structural_label may leave fewer than two code points hidden. Every short value under every policy is checked, because the rule is about all of them and a table naming a few would leave the rest unstated.",
