@@ -1510,10 +1510,15 @@ jobs:
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,' \
             $'OFlags::WRONLY | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,'
 
+          # The loop, not the call in it. This mutation named the call's
+          # arguments and was moved by three separate signature changes - each
+          # time it matched nothing, which fails loudly, but a mutation that
+          # needs re-aiming whenever the code around it moves is a maintenance
+          # cost with no coverage to show for it.
           expect_red_in "src/pdf/detectors.rs" "actions stop at the top-level dictionary" \
             "every_must_detect_fixture_is_detected" \
-            $'for (_, value) in dict.iter() {\n                walk_actions(doc, value, number, depth + 1, out);\n            }' \
-            $'// the walk into nested dictionaries, removed'
+            $'for (_, value) in dict.iter() {' \
+            $'for (_, value) in dict.iter().take(0) {'
 
           expect_red_in "src/pdf/detectors.rs" "no incremental-update signal" \
             "every_must_detect_fixture_is_detected" \
