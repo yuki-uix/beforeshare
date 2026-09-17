@@ -775,10 +775,13 @@ for (const entry of committedCaps.actions) {
     `registered but not implemented, or absent: ${missing.join(', ')}`);
 }
 
-// --- nothing may be published as a working capability ------------------------
-// capabilities.md states that no format adapter exists. The declaration has to
-// agree: a consumer reading eight PDF detectors with no status would conclude
-// this build inspects PDFs.
+// --- nothing may be published as a capability it does not have ---------------
+// Both directions, and both have been wrong here. A detector with no status at
+// all was published as working, which is how a consumer would have concluded
+// this build inspected PDFs before it did; and the seven that do work stayed
+// declared not_implemented for two PRs after they shipped, which published a
+// build less capable than the one running. An implemented entry names its
+// adapter, so the status cannot be advanced by editing a string.
 for (const f of committedCaps.formats) {
   for (const d of f.detectors) {
     check(`${f.mediaType} detector ${d.id} declares its implementation state`,

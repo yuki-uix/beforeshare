@@ -327,8 +327,14 @@ jobs:
           node -e "
             const fs=require('fs'), p='schemas/v1/examples/capabilities.json';
             const c=JSON.parse(fs.readFileSync(p,'utf8'));
+            // The adapter, not the status. This used to set the status to
+            // implemented, and the seven PDF detectors are implemented now, so
+            // it changed nothing and the guard reported that it no longer
+            // checked anything - which is the guard working. What the schema
+            // forbids either way is an entry that says it exists without
+            // naming what implements it.
             const d=c.formats[0].detectors[0];
-            d.status='implemented'; delete d.waitingOn;
+            delete d.adapter;
             fs.writeFileSync(p, JSON.stringify(c,null,2));
           "
           expect_failure "a detector claiming to exist without an adapter" \
@@ -357,8 +363,11 @@ jobs:
           node -e "
             const fs=require('fs'), p='schemas/v1/interface-registry.json';
             const r=JSON.parse(fs.readFileSync(p,'utf8'));
-            r.interfaces.cli.status='implemented';
-            delete r.interfaces.cli.waitingOn;
+            // Same shape as the detector above: cli is implemented now, so
+            // the mutation that used to make it claim to be does nothing. An
+            // interface that claims to exist without naming an adapter is
+            // still the defect.
+            delete r.interfaces.cli.adapter;
             fs.writeFileSync(p, JSON.stringify(r,null,2));
           "
           expect_failure "an interface claiming to exist without an adapter" \
