@@ -182,3 +182,41 @@ fn a_field_name_in_a_location_is_masked_like_the_value_beside_it() {
         "the field name went out in full: {text}"
     );
 }
+
+/// A run that read nothing still produces a result somebody can read.
+///
+/// The version list was built from the detectors that completed, and a document
+/// nothing could parse completes none of them - so the field came out empty,
+/// which the schema refuses. The run with the least to say produced the one
+/// result that could not be parsed at all. No fixture fails to parse, so this
+/// was reached first by the command line.
+#[test]
+fn a_run_that_read_nothing_still_names_the_detectors_it_tried() {
+    use beforeshare_core::pdf;
+    use beforeshare_core::result::{assemble, InputFacts};
+
+    // Enough to be a PDF by its bytes and not a document by its structure.
+    let inspection = pdf::inspect(b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog\n");
+    let facts = InputFacts {
+        path: "/tmp/truncated.pdf".into(),
+        media_type: "application/pdf".into(),
+        sha256: "0".repeat(64),
+        size_bytes: 34,
+    };
+    let result = assemble(
+        &inspection,
+        &facts,
+        "01J0000000000000000000004",
+        "2026-01-01T00:00:00Z",
+        0,
+    )
+    .expect("a failed run is still a result");
+    assert_eq!(result["status"], "failed");
+    let versions = result["versions"]["detectors"]
+        .as_array()
+        .expect("a list of detector versions");
+    assert!(
+        !versions.is_empty(),
+        "a failed run named no detectors, which the result schema refuses"
+    );
+}

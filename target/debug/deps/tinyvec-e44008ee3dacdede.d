@@ -1,0 +1,11 @@
+/Users/yuki/Documents/agent-developer-all-u-need/beforeshare/.claude/worktrees/epic-tasking-docs-089a51/target/debug/deps/tinyvec-e44008ee3dacdede.d: /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/lib.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/array.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/array/const_generic_impl.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/arrayvec.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/arrayvec_drain.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/slicevec.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/tinyvec.rs
+
+/Users/yuki/Documents/agent-developer-all-u-need/beforeshare/.claude/worktrees/epic-tasking-docs-089a51/target/debug/deps/libtinyvec-e44008ee3dacdede.rmeta: /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/lib.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/array.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/array/const_generic_impl.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/arrayvec.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/arrayvec_drain.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/slicevec.rs /Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/tinyvec.rs
+
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/lib.rs:
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/array.rs:
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/array/const_generic_impl.rs:
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/arrayvec.rs:
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/arrayvec_drain.rs:
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/slicevec.rs:
+/Users/yuki/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tinyvec-1.13.3/src/tinyvec.rs:

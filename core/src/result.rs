@@ -6,7 +6,7 @@
 //! the detector's version from `detector-registry.json`, and the status from
 //! the decision table in `docs/contracts/status-and-exit-codes.md`. A value
 //! invented here is a value no document explains.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -368,10 +368,21 @@ pub fn assemble(
     // The same answer the findings path gives to the same absence. Skipping a
     // detector the registry does not know left coverage naming it and versions
     // silent about it, which is the field §14.1 asks for.
-    let detector_versions: Vec<Value> = inspection
+    // Every detector the coverage names, not only the ones that completed. A
+    // document nothing could read fails all of them, and building this from
+    // the completed set left the list empty - which the result schema refuses,
+    // so the one run that has the least to say produced a result that could not
+    // be read at all. Found by the command line: no fixture fails to parse, so
+    // nothing had ever validated a failed result.
+    let named: BTreeSet<&String> = inspection
         .coverage
         .completed
         .iter()
+        .chain(inspection.coverage.failed.keys())
+        .chain(inspection.coverage.skipped.keys())
+        .collect();
+    let detector_versions: Vec<Value> = named
+        .into_iter()
         .map(|name| {
             let version = registry()
                 .get(name)

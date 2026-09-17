@@ -112,11 +112,23 @@
         "version": "1.0.0"
       },
       {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
         "id": "pdf.metadata",
         "version": "1.0.0"
       },
       {
         "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
         "version": "1.0.0"
       }
     ],
