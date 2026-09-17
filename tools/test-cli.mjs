@@ -15,11 +15,39 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { run } from './cli-adapter.mjs';
 import { STATUS_EXIT_MATRIX } from './exit-codes.mjs';
+import { buildPdf, minimalDocument, streamObject } from '../fixtures/pdf/pdf-writer.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const schemaDir = join(root, 'schemas', 'v1');
 const filesDir = join(root, 'fixtures', 'pdf', 'files');
+
+/**
+ * A document that blocks and cannot be fully checked at once.
+ *
+ * An embedded file is a blocking finding; an image leaves the OCR gap open, and
+ * a gap makes the coverage incomplete. Built with the writer the fixtures use,
+ * because a hand-written one got its stream lengths wrong and strict loading
+ * refused it - which reported as "failed" and would have read as this pairing
+ * being impossible.
+ *
+ * Not added to the fixture set: §16.1's fixtures each carry one §7.1 item, and
+ * this carries two on purpose. It is about the exit code, not about a detector.
+ */
+function buildBlockingIncompletePdf() {
+  return buildPdf(minimalDocument({
+    catalogueExtra: ' /Names << /EmbeddedFiles << /Names [(payroll.csv) 7 0 R] >> >>',
+    contents: 'q 612 0 0 792 0 0 cm /Im1 Do Q',
+    resourcesExtra: ' /XObject << /Im1 6 0 R >>',
+    extraObjects: [
+      streamObject('\u0000\u00FF\u00FF\u0000', {
+        dictExtra: ' /Type /XObject /Subtype /Image /Width 2 /Height 2'
+          + ' /ColorSpace /DeviceGray /BitsPerComponent 8',
+      }),
+      '<< /Type /Filespec /F (payroll.csv) >>',
+    ],
+  }));
+}
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 if (isMain) {
@@ -134,6 +162,37 @@ if (isMain) {
       stderr.split('\n')[0]);
   }
 
+  // --- 2d. the one status that has two exit codes ----------------------------
+  //
+  // blocking_findings with complete coverage exits 0, and with incomplete
+  // coverage exits 4: an inspection that did not look everywhere is a partial
+  // inspection regardless of what it did find. No fixture is both at once, so
+  // the pair that the table calls out was a claim about a branch nothing
+  // reached. This document carries an embedded file, which blocks, and an
+  // image, which leaves the OCR gap open.
+  const both = join(scratch, 'blocking-and-incomplete.pdf');
+  writeFileSync(both, buildBlockingIncompletePdf());
+  {
+    const { stdout, code } = run(['inspect', both, '--json']);
+    const result = JSON.parse(stdout);
+    check('a blocking finding with a gap is still blocking',
+      result.status === 'blocking_findings', result.status);
+    check('a blocking run that did not look everywhere exits 4', code === 4,
+      `${result.status} exited ${code}`);
+    const complete = run(['inspect', join(filesDir, 'embedded-file.positive.pdf'), '--json']);
+    check('a blocking run that looked everywhere exits 0',
+      JSON.parse(complete.stdout).status === 'blocking_findings' && complete.code === 0,
+      String(complete.code));
+  }
+
+  // A path that leaves the directory the user named, spelled with `..` rather
+  // than with a link. §13.4 asks for both to be resolved before access.
+  {
+    const { stdout, code } = run(['inspect', join(scratch, '..', '..', 'etc', 'hosts')]);
+    check('a path climbing out of the named directory is refused', code === 2, String(code));
+    check('nothing is printed about a file that was not read', stdout === '');
+  }
+
   // --- 3. arguments ----------------------------------------------------------
   for (const [label, args] of [
     ['an unknown command', ['frobnicate']],
@@ -178,10 +237,21 @@ if (isMain) {
   {
     // §12.1: human-readable is the default. Not the same bytes as --json, and
     // not empty.
-    const human = run(['inspect', join(filesDir, 'form-fields.positive.pdf')]);
-    check('the default output is not JSON', human.stdout.trim().startsWith('/')
-      || !human.stdout.trim().startsWith('{'), human.stdout.slice(0, 40));
+    const subject = join(filesDir, 'form-fields.positive.pdf');
+    const human = run(['inspect', subject]);
+    check('the default output is not JSON', !human.stdout.trim().startsWith('{'),
+      human.stdout.slice(0, 40));
     check('the default output says something', human.stdout.trim().length > 0);
+
+    // The severity a person reads is the severity in the result. Two renderings
+    // of one finding that disagree about how bad it is would make the default
+    // output its own opinion.
+    const asJson = JSON.parse(run(['inspect', subject, '--json']).stdout);
+    const inJson = asJson.findings.map((f) => f.severity).sort();
+    const inHuman = [...human.stdout.matchAll(/^ {2}\[([a-z]+)\]/gm)].map((m) => m[1]).sort();
+    check('the severities shown match the severities in the result',
+      JSON.stringify(inHuman) === JSON.stringify(inJson),
+      `${inHuman.join(',')} vs ${inJson.join(',')}`);
   }
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  cli: ${fixtures.length} fixtures, ${failures} failure(s)`);
