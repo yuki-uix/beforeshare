@@ -29,7 +29,7 @@
       "group": "document_structure",
       "id": "finding-1",
       "location": {
-        "fieldName": "unsigned_note",
+        "fieldName": "u***e",
         "kind": "pdf_form_field"
       },
       "message": "form_field_name found in pdf_form_field",

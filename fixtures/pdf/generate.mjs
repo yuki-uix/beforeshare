@@ -24,9 +24,24 @@ const EVAL_VERSION = 'eval-v1';
  * coverage check compares against the requirement rather than against a name
  * someone chose here.
  */
+/**
+ * `mustNotLeak` is the document's own values, and no result may contain one
+ * verbatim.
+ *
+ * Every category's evidence has a masking policy, and the policy was applied to
+ * the evidence and to nothing else: a location carried a form field's name in
+ * full, and a whole JavaScript program went out under the one policy that shows
+ * a value unmasked. Each of those was a separate fix. This is the check that
+ * makes the next exit fail instead - it names the values rather than the fields,
+ * so a field nobody thought of is covered by the same list.
+ *
+ * The producer and the timestamps are deliberately absent: evidence-policy.json
+ * lists them as shown in full, with a reason each.
+ */
 export const FIXTURES = {
   'standard document metadata, including author, creator, producer, title, subject, keywords, and timestamps': {
     short: 'document-metadata',
+    mustNotLeak: ["Wendy Okonkwo", "Internal Drafting Tool 3.2", "Q3 layoff shortlist", "restructuring", "confidential, headcount"],
     must_detect: () => buildPdf([
       ...minimalDocument(),
       `<< /Author ${pdfString('Wendy Okonkwo')} /Creator ${pdfString('Internal Drafting Tool 3.2')}`
@@ -43,6 +58,7 @@ export const FIXTURES = {
 
   'annotations and comments': {
     short: 'annotations',
+    mustNotLeak: ["R. Alvarez", "Do not send this to the client yet"],
     must_detect: () => buildPdf(minimalDocument({
       pageExtra: ' /Annots [6 0 R]',
       extraObjects: [
@@ -59,6 +75,7 @@ export const FIXTURES = {
 
   'form field names and values': {
     short: 'form-fields',
+    mustNotLeak: ["applicant_national_id", "QQ-123456-C"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /AcroForm << /Fields [6 0 R] >>',
       extraObjects: [
@@ -85,6 +102,7 @@ export const FIXTURES = {
 
   'embedded files': {
     short: 'embedded-file',
+    mustNotLeak: ["payroll.csv"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /Names << /EmbeddedFiles << /Names [(payroll.csv) 6 0 R] >> >>',
       extraObjects: [
@@ -103,6 +121,7 @@ export const FIXTURES = {
 
   'document-level JavaScript and launch actions': {
     short: 'javascript-and-launch',
+    mustNotLeak: ["app.alert(\"phoning home\");", "/System/Applications/Calculator.app"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /Names << /JavaScript << /Names [(boot) 6 0 R] >> >> /OpenAction 7 0 R',
       extraObjects: [
@@ -122,6 +141,7 @@ export const FIXTURES = {
 
   'external and local-file references': {
     short: 'external-references',
+    mustNotLeak: ["https://intranet.example.invalid/hr/q3-shortlist", "/Users/wendy/Documents/severance-model.xlsx"],
     // Both halves of the item, because it names two categories. The positive
     // carried only the outward link, so `local_file_reference` had no sample at
     // all and its detection rate was a claim about nothing.
@@ -151,6 +171,7 @@ export const FIXTURES = {
 
   'text content not visually obvious in the rendered page': {
     short: 'invisible-text',
+    mustNotLeak: ["Internal note: the figure below is disputed."],
     must_detect: () => buildPdf(minimalDocument({
       contents: 'BT /F1 12 Tf 72 720 Td (Approved for release.) Tj ET\n'
         + 'BT /F1 12 Tf 3 Tr 72 700 Td (Internal note: the figure below is disputed.) Tj ET',
@@ -167,6 +188,7 @@ export const FIXTURES = {
 
   'text that remains extractable beneath an apparent visual cover or redaction': {
     short: 'text-under-cover',
+    mustNotLeak: ["Claimant: Wendy Okonkwo"],
     must_detect: () => buildPdf(minimalDocument({
       contents: 'BT /F1 12 Tf 72 720 Td (Claimant: Wendy Okonkwo) Tj ET\n'
         + '0 0 0 rg 70 715 200 18 re f',
@@ -182,6 +204,7 @@ export const FIXTURES = {
 
   'image-only pages through local OCR': {
     short: 'image-only-page',
+    mustNotLeak: [],
     must_detect: () => buildPdf(minimalDocument({
       contents: 'q 612 0 0 792 0 0 cm /Im1 Do Q',
       // Merged into the /Resources the page already has. A second /Resources
@@ -205,6 +228,7 @@ export const FIXTURES = {
 
   'encryption and permission state': {
     short: 'encryption-state',
+    mustNotLeak: [],
     must_detect: () => buildPdf(minimalDocument({
       extraObjects: [
         '<< /Filter /Standard /V 2 /R 3 /Length 128 /P -44'
@@ -221,6 +245,7 @@ export const FIXTURES = {
 
   'digital signature presence and the likelihood that modification will invalidate it': {
     short: 'digital-signature',
+    mustNotLeak: ["Signature1", "unsigned_note"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /AcroForm << /Fields [6 0 R] /SigFlags 3 >>',
       extraObjects: [
@@ -244,6 +269,7 @@ export const FIXTURES = {
 
   'parser warnings, malformed objects, incremental updates, and unsupported features': {
     short: 'incremental-update',
+    mustNotLeak: ["Wendy Okonkwo", "Superseded draft", "Public version"],
     must_detect: () => {
       // A second revision appended after %%EOF: the original /Info is still in
       // the file, and a reader that trusts the newest xref never sees it.

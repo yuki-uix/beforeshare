@@ -94,6 +94,25 @@ pub struct Detected {
     /// layer that presents a finding, and doing it here would mean the detector
     /// tests could not check what was actually read.
     pub value: String,
+    /// Who wrote this value.
+    ///
+    /// Two different things were being spelled the same way. "This document
+    /// declares an /Encrypt dictionary" is a sentence a detector wrote and has
+    /// nothing in it to hide; a form field's value is the document's, and
+    /// showing it in full is a decision. Only the first may carry the one
+    /// policy that shows a value unmasked, and the presentation layer refuses
+    /// the second under it - a review found a whole JavaScript program
+    /// serialised verbatim because the two were indistinguishable here.
+    pub provenance: Provenance,
+}
+
+/// Where a finding's value came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provenance {
+    /// Copied out of the document.
+    Document,
+    /// Written by the detector: a fixed fact about the file.
+    Detector,
 }
 
 /// Where in the document, in the shape `location.schema.json` requires.

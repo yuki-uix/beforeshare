@@ -22,9 +22,9 @@
         "version": "1.0.0"
       },
       "evidence": {
-        "displayValue": "(document-level JavaScript name tree)",
-        "maskPolicy": "structural_label",
-        "redacted": false
+        "displayValue": "*************************************",
+        "maskPolicy": "fully_masked",
+        "redacted": true
       },
       "group": "document_structure",
       "id": "finding-1",
@@ -48,9 +48,9 @@
         "version": "1.0.0"
       },
       "evidence": {
-        "displayValue": "app.alert(\"phoning home\");",
-        "maskPolicy": "structural_label",
-        "redacted": false
+        "displayValue": "**************************",
+        "maskPolicy": "fully_masked",
+        "redacted": true
       },
       "group": "document_structure",
       "id": "finding-2",

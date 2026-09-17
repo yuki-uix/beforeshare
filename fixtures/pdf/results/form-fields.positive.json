@@ -29,7 +29,7 @@
       "group": "document_structure",
       "id": "finding-1",
       "location": {
-        "fieldName": "applicant_national_id",
+        "fieldName": "a***d",
         "kind": "pdf_form_field"
       },
       "message": "form_field_name found in pdf_form_field",
@@ -54,7 +54,7 @@
       "group": "document_structure",
       "id": "finding-2",
       "location": {
-        "fieldName": "applicant_national_id",
+        "fieldName": "a***d",
         "kind": "pdf_form_field"
       },
       "message": "form_field_value found in pdf_form_field",

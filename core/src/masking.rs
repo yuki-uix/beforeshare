@@ -36,6 +36,8 @@ pub struct Masked {
 #[derive(Deserialize)]
 struct PolicyFile {
     categories: BTreeMap<String, serde_json::Value>,
+    #[serde(rename = "shownInFull", default)]
+    shown_in_full: Vec<String>,
 }
 
 fn policies() -> &'static BTreeMap<String, String> {
@@ -57,6 +59,24 @@ fn policies() -> &'static BTreeMap<String, String> {
 /// and the safe-looking fallback is the one that hides a decision.
 pub fn policy_for(category: &str) -> Option<&'static str> {
     policies().get(category).map(String::as_str)
+}
+
+/// Whether this category's own document-derived value is deliberately shown in
+/// full.
+///
+/// The table names these and gives a reason for each. Everything else under the
+/// unredacted policy is a value the detector wrote, and a document's value
+/// arriving under it is refused rather than shown.
+pub fn shown_in_full(category: &str) -> bool {
+    static CACHE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let file: PolicyFile =
+                serde_json::from_str(POLICY_TABLE).expect("evidence-policy.json");
+            file.shown_in_full
+        })
+        .iter()
+        .any(|c| c == category)
 }
 
 fn chars(s: &str) -> Vec<char> {
@@ -168,7 +188,13 @@ pub fn mask(value: &str, policy: &str) -> Result<Masked, String> {
             out
         }
         "coordinate_coarsened" => {
-            let numbers = numbers_in(value);
+            // The cap runs before masking, and every other branch works on the
+            // capped value. This one read the whole string, so a coordinate
+            // written past the sixty-fourth code point was still parsed and
+            // shown - the cap does not apply to what a policy goes and fetches
+            // for itself.
+            let bounded: String = kept.iter().collect();
+            let numbers = numbers_in(&bounded);
             if numbers.len() < 2 {
                 return Ok(degrade());
             }

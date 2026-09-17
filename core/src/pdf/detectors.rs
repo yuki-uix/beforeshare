@@ -7,7 +7,9 @@ use std::collections::BTreeSet;
 
 use lopdf::{Dictionary, Document, Object};
 
-use super::{Detected, FailureCode, Location, NotRun, SkipReason, StructureDetail, Trigger};
+use super::{
+    Detected, FailureCode, Location, NotRun, Provenance, SkipReason, StructureDetail, Trigger,
+};
 
 /// What a detector is given: the parsed document and the bytes behind it.
 pub(super) struct Source<'a> {
@@ -78,6 +80,7 @@ fn text_at(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<String> {
     dict.get(key).ok().and_then(|v| resolved_text(doc, v))
 }
 
+/// A finding whose value was copied out of the document.
 fn found(category: &str, detector: &str, location: Location, value: String) -> Detected {
     Detected {
         category: category.to_string(),
@@ -85,6 +88,16 @@ fn found(category: &str, detector: &str, location: Location, value: String) -> D
         location,
         value,
         hides_a_removal: false,
+        provenance: Provenance::Document,
+    }
+}
+
+/// A finding whose value the detector wrote: a fact about the file with no
+/// document content in it. This is the only kind the unredacted policy accepts.
+fn found_structural(category: &str, detector: &str, location: Location, value: String) -> Detected {
+    Detected {
+        provenance: Provenance::Detector,
+        ..found(category, detector, location, value)
     }
 }
 
@@ -571,7 +584,7 @@ fn walk_actions(
                     value,
                 ));
             } else if dict.has(b"JavaScript") {
-                out.push(found(
+                out.push(found_structural(
                     "document_javascript",
                     "pdf.actions",
                     Location::PdfAction {
@@ -935,7 +948,7 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let mut out = Vec::new();
 
     if doc.trailer.get(b"Encrypt").is_ok() {
-        out.push(found(
+        out.push(found_structural(
             "encryption_state",
             "pdf.structure",
             Location::FileStructure {
@@ -944,7 +957,7 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
             },
             "this document declares an /Encrypt dictionary".into(),
         ));
-        out.push(found(
+        out.push(found_structural(
             "permission_state",
             "pdf.structure",
             Location::FileStructure {
@@ -958,7 +971,7 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
     for object in doc.objects.values() {
         let Ok(dict) = object.as_dict() else { continue };
         if dict.has(b"ByteRange") || text_at(doc, dict, b"Type").as_deref() == Some("Sig") {
-            out.push(found(
+            out.push(found_structural(
                 "digital_signature",
                 "pdf.structure",
                 Location::FileStructure {
@@ -985,15 +998,23 @@ fn structure(source: &Source) -> Result<Vec<Detected>, NotRun> {
         // loaded from the bytes: the file up to its first %%EOF is itself a
         // complete PDF.
         let removed = values_the_update_removed(source.bytes);
+        // The count and not the names. Naming them put a list of the document's
+        // own keys at the end of the sentence, where the display cap cut it off
+        // - the evidence for the one severity this table raises ended mid-word,
+        // "an earlier revision still holds", with nothing after it. And the
+        // names are the document's, so a sentence carrying them cannot be shown
+        // under the policy that shows a value in full.
         let message = if removed.is_empty() {
             format!("{sections} cross-reference sections: this file was appended to")
         } else {
             format!(
-                "{sections} cross-reference sections, and an earlier revision still holds {}",
-                removed.join(", ")
+                "an earlier revision still holds {} value{} the current one removed, across \
+                 {sections} cross-reference sections",
+                removed.len(),
+                if removed.len() == 1 { "" } else { "s" }
             )
         };
-        let mut finding = found(
+        let mut finding = found_structural(
             "incremental_update",
             "pdf.structure",
             Location::FileStructure {

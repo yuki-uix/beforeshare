@@ -1252,6 +1252,20 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo test
 
+      # The committed results are a function of the core, and nothing checked
+      # that. The JavaScript suite validates the files in the tree, so a change
+      # that made the core emit an unmasked value passed as long as nobody
+      # regenerated - the guard was reading last week's output. Regenerating
+      # here and refusing a difference is what connects that suite to this code.
+      - name: The emitted results are the ones this core produces
+        run: |
+          set -euo pipefail
+          cargo run --example emit-results
+          if ! git diff --exit-code -- ../fixtures/pdf/results; then
+            echo "::error::the committed results differ from what this core emits - regenerate with: cargo run --example emit-results"
+            exit 1
+          fi
+
       # The same rule as the JavaScript guards: a test that cannot fail reports
       # coverage that does not exist. Each case breaks one thing the gate claims
       # and asserts the named test goes red - not merely that something did.

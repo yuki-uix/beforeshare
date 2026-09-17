@@ -981,13 +981,29 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
       personal.join(', '));
     check('the unredacted categories are the ones recorded here',
       JSON.stringify(unredacted.sort()) === JSON.stringify([
-        'digital_signature', 'document_creator', 'document_javascript', 'document_producer',
-        'document_timestamp', 'encryption_state', 'image_capture_timestamp',
-        'image_device_make', 'image_device_model', 'image_embedded_thumbnail',
-        'image_modification_timestamp', 'image_software', 'incremental_update',
-        'permission_state',
+        'digital_signature', 'document_producer', 'document_timestamp', 'encryption_state',
+        'image_capture_timestamp', 'image_device_make', 'image_device_model',
+        'image_modification_timestamp', 'incremental_update', 'permission_state',
       ]),
       unredacted.join(', '));
+
+    // Two different things were being spelled the same way. A value the
+    // detector wrote - "this document declares an /Encrypt dictionary" - has
+    // nothing in it to hide. A value copied out of the document does, and
+    // showing it in full is a decision somebody has to make on purpose. The
+    // core refuses the second under this policy unless the category is listed
+    // here, and this checks the list is what it claims to be: the categories
+    // named must carry the unredacted policy, and each must say why.
+    const shownInFull = policyTable.shownInFull ?? [];
+    const notUnredacted = shownInFull.filter((c) => chosen[c] !== 'structural_label');
+    check('every category shown in full carries the unredacted policy',
+      notUnredacted.length === 0, notUnredacted.join(', '));
+    const unexplained = shownInFull.filter((c) => !(c in policyTable.reasons));
+    check('every category shown in full says why', unexplained.length === 0,
+      unexplained.join(', '));
+    const shownPersonal = shownInFull.filter((c) => c.startsWith('pii_'));
+    check('no personal-information category is shown in full', shownPersonal.length === 0,
+      shownPersonal.join(', '));
 
     // A reason is not required for every row - most are obvious - but a reason
     // for a row that is gone is a rule nobody notices has stopped applying.

@@ -64,10 +64,18 @@ if (isMain) {
   // then agree with the prose in masking.md and disagree with the code.
   const VECTORS = JSON.parse(
     readFileSync(new URL('../schemas/v1/masking-vectors.json', import.meta.url), 'utf8'));
-  const documented = VECTORS.documented.map((c) => [c.value, c.policy, c.displayValue]);
-  for (const [input, policy, expected] of documented) {
-    const got = mask(input, policy).displayValue;
-    check(`documented: ${policy} on ${JSON.stringify(input)}`, got === expected, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
+  // Both halves of the answer. The vectors name the resulting policy as well as
+  // the display value, and this read only the display value: an implementation
+  // that masked correctly and then reported the wrong policy - which is exactly
+  // what a degradation is - passed.
+  const documented = VECTORS.documented.map(
+    (c) => [c.value, c.policy, c.displayValue, c.resultPolicy]);
+  for (const [input, policy, expected, expectedPolicy] of documented) {
+    const got = mask(input, policy);
+    check(`documented: ${policy} on ${JSON.stringify(input)}`,
+      got.displayValue === expected && got.maskPolicy === expectedPolicy,
+      `expected ${JSON.stringify({ displayValue: expected, maskPolicy: expectedPolicy })}, `
+      + `got ${JSON.stringify({ displayValue: got.displayValue, maskPolicy: got.maskPolicy })}`);
   }
 
   // --- 2. short values degrade rather than half-revealing ----------------------

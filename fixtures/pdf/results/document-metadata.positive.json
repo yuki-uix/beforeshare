@@ -47,9 +47,9 @@
         "version": "1.0.0"
       },
       "evidence": {
-        "displayValue": "Internal Drafting Tool 3.2",
-        "maskPolicy": "structural_label",
-        "redacted": false
+        "displayValue": "I***2",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
       },
       "group": "document_structure",
       "id": "finding-2",

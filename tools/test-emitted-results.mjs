@@ -37,7 +37,14 @@ if (isMain) {
 
     const manifest = JSON.parse(readFileSync(join(root, 'fixtures/pdf/manifest.json'), 'utf8'));
     const files = readdirSync(resultsDir).filter((f) => f.endsWith('.json')).sort();
-    check('every fixture produced a result', files.length === 24, `${files.length} results`);
+    // Named, not counted. A hardcoded 24 reported "24 != 25" when a fixture was
+    // added and could not say which one was missing - and the loop below only
+    // walks results, so a fixture with no result at all was invisible to
+    // everything except that number.
+    const expected = Object.keys(manifest.fixtures)
+      .map((f) => f.replace(/\.pdf$/, '.json')).sort();
+    const missing = expected.filter((f) => !files.includes(f));
+    check('every fixture produced a result', missing.length === 0, missing.join(', '));
 
     for (const file of files) {
       const result = JSON.parse(readFileSync(join(resultsDir, file), 'utf8'));
@@ -54,6 +61,17 @@ if (isMain) {
         check(`${file} has the status its fixture expects`,
           result.status === entry.expectedStatus,
           `expected ${entry.expectedStatus}, got ${result.status}`);
+
+        // The document's own values, nowhere in the result. Every category has
+        // a masking policy and the policy was applied to the evidence and to
+        // nothing else: a location carried a field name in full, and a whole
+        // script went out under the one policy that shows a value unmasked.
+        // Checking the values rather than the fields means the next exit fails
+        // here instead of in a review.
+        const text = readFileSync(join(resultsDir, file), 'utf8');
+        const leaked = (entry.mustNotLeak ?? []).filter((v) => text.includes(v));
+        check(`${file} carries none of its document's values verbatim`,
+          leaked.length === 0, leaked.map((v) => JSON.stringify(v)).join(', '));
       }
     }
   }

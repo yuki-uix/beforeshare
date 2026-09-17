@@ -4,42 +4,36 @@
   "$policiesComment": "The policy names are the ones masking.md defines. `structural_label` is the only unredacted one: it is for values that describe the document rather than disclose from it, and calling something structural is a claim that it carries nothing about a person.",
   "categories": {
     "$comment": "Grouped by what the value is, not by which detector produced it: two detectors that find a person's name owe that name the same treatment.",
-
     "document_author": "text_keep_edges",
-    "document_creator": "structural_label",
+    "document_creator": "text_keep_edges",
     "document_producer": "structural_label",
     "document_title": "text_keep_edges",
     "document_subject": "text_keep_edges",
     "document_keywords": "text_keep_edges",
     "document_timestamp": "structural_label",
-
     "annotation": "text_keep_edges",
     "form_field_name": "text_keep_edges",
     "form_field_value": "fully_masked",
     "embedded_file": "text_keep_edges",
     "hidden_text": "text_keep_edges",
     "text_under_redaction": "fully_masked",
-
-    "document_javascript": "structural_label",
+    "document_javascript": "fully_masked",
     "launch_action": "text_keep_edges",
     "external_reference": "token_keep_edges",
     "local_file_reference": "text_keep_edges",
-
     "encryption_state": "structural_label",
     "permission_state": "structural_label",
     "digital_signature": "structural_label",
     "incremental_update": "structural_label",
-
     "image_author": "text_keep_edges",
     "image_capture_timestamp": "structural_label",
     "image_modification_timestamp": "structural_label",
     "image_device_make": "structural_label",
     "image_device_model": "structural_label",
-    "image_software": "structural_label",
+    "image_software": "text_keep_edges",
     "image_gps_coordinates": "coordinate_coarsened",
     "image_metadata_comment": "text_keep_edges",
-    "image_embedded_thumbnail": "structural_label",
-
+    "image_embedded_thumbnail": "fully_masked",
     "pii_person_name": "text_keep_edges",
     "pii_email_address": "email_local_part",
     "pii_phone_number": "digits_keep_last_4",
@@ -59,6 +53,22 @@
     "external_reference": "A URL is a token: the host is the disclosure and the path may be one too, so the edges are enough to recognise it and not enough to visit it.",
     "local_file_reference": "A path names directories a person chose, which is text about them rather than an opaque token.",
     "pii_user_defined_term": "The user told us this term matters to them. We do not know what it is, so we do not show any of it.",
-    "document_javascript": "The finding is that script exists, not what it says: showing a fragment invites reading it as if it were reviewed."
-  }
+    "document_javascript": "The finding is that script exists, not what it says. It was structural_label until a review pointed at a result carrying a whole script verbatim: a /JS value is attacker-controlled content and can hold tokens, URLs or personal information, so the one policy that shows a value in full is the wrong one for it.",
+    "document_creator": "Free text a producing tool writes, and nothing bounds it. Unlike the producer, it is not the field that explains why the others exist, so there is no reason to show it in full.",
+    "image_embedded_thumbnail": "A thumbnail is content: category-defaults.json says it may hold what a crop or a cover-up removed, which is the whole reason the category exists.",
+    "image_software": "The same shape as document_creator: an arbitrary string from the file, with no bound on what a producer may put in it.",
+    "image_capture_timestamp": "A timestamp is structure, and a masked one cannot be judged: a person deciding whether to remove it needs to see whether it is the date they think it is.",
+    "image_modification_timestamp": "A timestamp is structure, and a masked one cannot be judged: a person deciding whether to remove it needs to see whether it is the date they think it is.",
+    "image_device_make": "The make and model are a property of the camera, not of a person, and a masked one cannot be judged: someone deciding whether to strip it needs to see which device it names.",
+    "image_device_model": "The make and model are a property of the camera, not of a person, and a masked one cannot be judged: someone deciding whether to strip it needs to see which device it names."
+  },
+  "$shownInFullComment": "Categories whose value comes out of the document and is still shown in full. structural_label otherwise means the detector wrote the value itself - a fixed fact about the file with no document content in it - and the core refuses a document-derived value under it. These are the deliberate exceptions, and each one needs an entry in reasons saying why showing it is the right call. Without this list the rule would have no way to be stated, and the exceptions would live as a habit of whoever chose the policy.",
+  "shownInFull": [
+    "document_producer",
+    "document_timestamp",
+    "image_capture_timestamp",
+    "image_modification_timestamp",
+    "image_device_make",
+    "image_device_model"
+  ]
 }

@@ -2,29 +2,110 @@
   "$comment": "The masking cases both implementations must answer identically. They lived inline in tools/test-masking.mjs, which made the JavaScript the only thing that had to satisfy them; a port could then agree with the prose in docs/contracts/masking.md and disagree with the code. Every entry names its expected displayValue and resulting policy, so a degradation is stated rather than inferred.",
   "schemaVersion": "1.0",
   "documented": [
-    { "value": "yuki@example.com", "policy": "email_local_part", "displayValue": "y***@example.com", "resultPolicy": "email_local_part" },
-    { "value": "+86 138 0013 8000", "policy": "digits_keep_last_4", "displayValue": "+** *** **** 8000", "resultPolicy": "digits_keep_last_4" },
-    { "value": "sk-live-9fA2b7Qz", "policy": "token_keep_edges", "displayValue": "sk***Qz", "resultPolicy": "token_keep_edges" },
-    { "value": "李建华明", "policy": "text_keep_edges", "displayValue": "李***明", "resultPolicy": "text_keep_edges" },
-    { "value": "31.2304, 121.4737", "policy": "coordinate_coarsened", "displayValue": "31.2, 121.5", "resultPolicy": "coordinate_coarsened" },
-    { "value": "李明", "policy": "fully_masked", "displayValue": "**", "resultPolicy": "fully_masked" },
-    { "value": "AES-256", "policy": "structural_label", "displayValue": "AES-256", "resultPolicy": "structural_label" }
+    {
+      "value": "yuki@example.com",
+      "policy": "email_local_part",
+      "displayValue": "y***@example.com",
+      "resultPolicy": "email_local_part"
+    },
+    {
+      "value": "+86 138 0013 8000",
+      "policy": "digits_keep_last_4",
+      "displayValue": "+** *** **** 8000",
+      "resultPolicy": "digits_keep_last_4"
+    },
+    {
+      "value": "sk-live-9fA2b7Qz",
+      "policy": "token_keep_edges",
+      "displayValue": "sk***Qz",
+      "resultPolicy": "token_keep_edges"
+    },
+    {
+      "value": "李建华明",
+      "policy": "text_keep_edges",
+      "displayValue": "李***明",
+      "resultPolicy": "text_keep_edges"
+    },
+    {
+      "value": "31.2304, 121.4737",
+      "policy": "coordinate_coarsened",
+      "displayValue": "31.2, 121.5",
+      "resultPolicy": "coordinate_coarsened"
+    },
+    {
+      "value": "李明",
+      "policy": "fully_masked",
+      "displayValue": "**",
+      "resultPolicy": "fully_masked"
+    },
+    {
+      "value": "AES-256",
+      "policy": "structural_label",
+      "displayValue": "AES-256",
+      "resultPolicy": "structural_label"
+    },
+    {
+      "value": "coordinates recorded by the camera, which are written after this note: 51.501, -0.1419",
+      "policy": "coordinate_coarsened",
+      "displayValue": "****************************************************************",
+      "resultPolicy": "fully_masked",
+      "$why": "The cap runs before masking, so a policy sees sixty-four code points and no more. This one used to go back to the whole input for its numbers, which showed a coordinate the cap had already cut off. With nothing to parse inside the cap it degrades, and a degraded result is reported as fully_masked rather than as the policy that could not be applied."
+    }
   ],
   "$degradesComment": "Too short to mask without half-revealing. The result must say fully_masked: what happened, not what was attempted.",
   "degrades": [
-    { "value": "李建华", "policy": "text_keep_edges", "why": "3 code points would leave only 1 hidden" },
-    { "value": "ab", "policy": "text_keep_edges", "why": "shorter than the policy minimum" },
-    { "value": "sk-live", "policy": "token_keep_edges", "why": "7 code points is below the token minimum of 8" },
-    { "value": "a@b.com", "policy": "email_local_part", "why": "a single-code-point local part reveals itself" },
-    { "value": "12345", "policy": "digits_keep_last_4", "why": "5 digits would leave only 1 hidden" }
+    {
+      "value": "李建华",
+      "policy": "text_keep_edges",
+      "why": "3 code points would leave only 1 hidden"
+    },
+    {
+      "value": "ab",
+      "policy": "text_keep_edges",
+      "why": "shorter than the policy minimum"
+    },
+    {
+      "value": "sk-live",
+      "policy": "token_keep_edges",
+      "why": "7 code points is below the token minimum of 8"
+    },
+    {
+      "value": "a@b.com",
+      "policy": "email_local_part",
+      "why": "a single-code-point local part reveals itself"
+    },
+    {
+      "value": "12345",
+      "policy": "digits_keep_last_4",
+      "why": "5 digits would leave only 1 hidden"
+    }
   ],
   "$boundariesComment": "One code point longer than the cases above: these must NOT degrade, or the minimum is really the minimum plus one.",
   "boundaries": [
-    { "value": "sk-live1", "policy": "token_keep_edges" },
-    { "value": "李建华明", "policy": "text_keep_edges" },
-    { "value": "555-1234", "policy": "digits_keep_last_4" }
+    {
+      "value": "sk-live1",
+      "policy": "token_keep_edges"
+    },
+    {
+      "value": "李建华明",
+      "policy": "text_keep_edges"
+    },
+    {
+      "value": "555-1234",
+      "policy": "digits_keep_last_4"
+    }
   ],
   "$minimumHiddenComment": "No policy but structural_label may leave fewer than two code points hidden. Every short value under every policy is checked, because the rule is about all of them and a table naming a few would leave the rest unstated.",
-  "shortValues": ["a", "ab", "abc", "李", "李明", "李建华", "a@b.c", "1", "12345"],
+  "shortValues": [
+    "a",
+    "ab",
+    "abc",
+    "李",
+    "李明",
+    "李建华",
+    "a@b.c",
+    "1",
+    "12345"
+  ],
   "displayCap": 64
 }

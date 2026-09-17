@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::masking;
-use crate::pdf::{Inspection, Location, SkipReason};
+use crate::pdf::{Inspection, Location, Provenance, SkipReason};
 
 const DEFAULTS: &str = include_str!("../../schemas/v1/category-defaults.json");
 const REGISTRY: &str = include_str!("../../schemas/v1/detector-registry.json");
@@ -149,6 +149,17 @@ pub struct InputFacts {
     pub size_bytes: u64,
 }
 
+/// A name carried by a location, masked under the policy of the category that
+/// names that data rather than of the finding that happens to carry it.
+///
+/// A field name is a field name whether the finding is about the name or about
+/// the value beside it, and one spelling of it should not depend on which.
+fn masked_label(value: &str, category: &str) -> Result<String, String> {
+    let policy = masking::policy_for(category)
+        .ok_or_else(|| format!("{category} has no evidence policy"))?;
+    Ok(masking::mask(value, policy)?.display_value)
+}
+
 /// Assemble the result.
 ///
 /// `run_id`, `started_at` and `duration_ms` are the caller's: a core that
@@ -169,6 +180,20 @@ pub fn assemble(
             .ok_or_else(|| format!("{category} has no row in category-defaults.json"))?;
         let policy = masking::policy_for(category)
             .ok_or_else(|| format!("{category} has no evidence policy"))?;
+        // The one policy that shows a value in full is for values a detector
+        // wrote. A document's own value under it is a disclosure, and it was
+        // one: a result carried a whole JavaScript program verbatim because
+        // nothing here could tell the two apart. The exceptions are listed in
+        // the table with a reason each, so the decision is made there and not
+        // by whoever picks a policy next.
+        if policy == "structural_label"
+            && detected.provenance == Provenance::Document
+            && !masking::shown_in_full(category)
+        {
+            return Err(format!(
+                "{category} would show a value copied out of the document under structural_label"
+            ));
+        }
         let masked = masking::mask(&detected.value, policy)?;
         let version = registry()
             .get(&detected.detector)
@@ -196,7 +221,12 @@ pub fn assemble(
                 }
                 v
             }
+            // A location names data too. The field name and the embedded
+            // file's name are the document's, and they went out unmasked while
+            // the evidence beside them was masked under the same category's
+            // policy: one exit through the gate, one around it.
             Location::PdfFormField { field_name, page } => {
+                let field_name = masked_label(field_name, "form_field_name")?;
                 let mut v = json!({ "kind": "pdf_form_field", "fieldName": field_name });
                 if let Some(p) = page {
                     v["page"] = json!(p);
@@ -206,7 +236,7 @@ pub fn assemble(
             Location::PdfEmbeddedFile { index, name } => {
                 let mut v = json!({ "kind": "pdf_embedded_file", "index": index });
                 if let Some(n) = name {
-                    v["name"] = json!(n);
+                    v["name"] = json!(masked_label(n, "embedded_file")?);
                 }
                 v
             }

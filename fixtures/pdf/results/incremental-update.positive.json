@@ -47,7 +47,7 @@
         "version": "1.0.0"
       },
       "evidence": {
-        "displayValue": "2 cross-reference sections, and an earlier revision still holds ",
+        "displayValue": "an earlier revision still holds 2 values the current one removed",
         "maskPolicy": "structural_label",
         "redacted": false,
         "truncated": true
