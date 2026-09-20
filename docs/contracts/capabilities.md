@@ -27,13 +27,15 @@ remediation is a real state and worth being able to say.
 
 ## Untested limits say so
 
-§13.1 requires the maximum tested size to be published. No format adapter exists yet, so nothing has
-been measured on any machine. The declaration therefore says:
+§13.1 requires the maximum tested size to be published. The seven PDF detectors are implemented,
+but limits have not been measured on a reference machine. The four budgets in
+`limit-rules.json` remain provisional; [#56](https://github.com/yuki-uix/beforeshare/issues/56)
+owns those measurements. The declaration uses `UNMEASURED` from the generator:
 
 ```json
 "testedLimits": {
   "status": "not_established",
-  "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+  "reason": "No limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
 }
 ```
 
