@@ -374,18 +374,24 @@ pub fn assemble(
     // so the one run that has the least to say produced a result that could not
     // be read at all. Found by the command line: no fixture fails to parse, so
     // nothing had ever validated a failed result.
-    let named: BTreeSet<&String> = inspection
+    let named: BTreeSet<String> = inspection
         .coverage
         .completed
         .iter()
         .chain(inspection.coverage.failed.keys())
         .chain(inspection.coverage.skipped.keys())
+        .cloned()
+        .chain(
+            skipped
+                .iter()
+                .filter_map(|entry| entry["detector"].as_str().map(str::to_owned)),
+        )
         .collect();
     let detector_versions: Vec<Value> = named
         .into_iter()
         .map(|name| {
             let version = registry()
-                .get(name)
+                .get(&name)
                 .ok_or_else(|| format!("{name} is not in the detector registry"))?
                 .version
                 .clone();

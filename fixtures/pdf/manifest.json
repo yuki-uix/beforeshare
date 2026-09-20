@@ -17,7 +17,9 @@
         "Internal Drafting Tool 3.2",
         "Q3 layoff shortlist",
         "restructuring",
-        "confidential, headcount"
+        "confidential, headcount",
+        "Acme Export Pipeline",
+        "D:20240612093000+01'00'"
       ],
       "evalVersion": "eval-v1",
       "bytes": 879
@@ -36,7 +38,9 @@
         "Internal Drafting Tool 3.2",
         "Q3 layoff shortlist",
         "restructuring",
-        "confidential, headcount"
+        "confidential, headcount",
+        "Acme Export Pipeline",
+        "D:20240612093000+01'00'"
       ],
       "evalVersion": "eval-v1",
       "bytes": 601
@@ -116,7 +120,11 @@
       "expectedRemediation": "remove_embedded_files",
       "expectedStatus": "blocking_findings",
       "mustNotLeak": [
-        "payroll.csv"
+        "payroll.csv",
+        "W. Okonkwo",
+        "R. Alvarez",
+        "91000",
+        "88000"
       ],
       "evalVersion": "eval-v1",
       "bytes": 872
@@ -131,7 +139,11 @@
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
       "mustNotLeak": [
-        "payroll.csv"
+        "payroll.csv",
+        "W. Okonkwo",
+        "R. Alvarez",
+        "91000",
+        "88000"
       ],
       "evalVersion": "eval-v1",
       "bytes": 645

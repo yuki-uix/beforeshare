@@ -86,13 +86,19 @@ pub fn shown_in_full(category: &str) -> bool {
 /// implementations of one masking rule that disagree on a coordinate are two
 /// different answers about where somebody was.
 fn one_decimal(value: f64) -> String {
-    let scaled = value * 10.0;
-    let rounded = if scaled >= 0.0 {
-        (scaled + 0.5).floor()
+    // Avoid a second binary rounding caused by multiplying by ten. Exact
+    // half-tenths can only have fractional parts .25 or .75 in binary64.
+    let absolute = value.abs();
+    let fraction = absolute.fract();
+    if fraction == 0.25 || fraction == 0.75 {
+        let sign = if value < 0.0 { "-" } else { "" };
+        let digit = if fraction == 0.25 { 3 } else { 8 };
+        format!("{sign}{:.0}.{digit}", absolute.trunc())
+    } else if value == 0.0 {
+        "0.0".into()
     } else {
-        (scaled - 0.5).ceil()
-    };
-    format!("{:.1}", rounded / 10.0)
+        format!("{value:.1}")
+    }
 }
 
 fn chars(s: &str) -> Vec<char> {

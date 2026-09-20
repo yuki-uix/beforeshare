@@ -15,7 +15,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo run -q --manifest-path core/Cargo.toml --example emit-results > /dev/null
 
-if ! git diff --exit-code -- fixtures/pdf/results; then
+if ! git diff --exit-code HEAD -- fixtures/pdf/results ||
+   [[ -n "$(git ls-files --others -- fixtures/pdf/results)" ]]; then
   echo "::error::the committed results differ from what this core emits - regenerate with: npm run results:regenerate" >&2
   exit 1
 fi
