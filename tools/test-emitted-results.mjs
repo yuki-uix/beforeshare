@@ -121,6 +121,35 @@ if (isMain) {
       check(`${file} claims no completed check was skipped`, ranAnyway.length === 0,
         ranAnyway.join(', '));
     }
+
+    // The published capability says which detectors this build has, and the
+    // results say which ones ran. They were free to disagree: the registry
+    // declared every PDF detector not_implemented, waiting on an issue that had
+    // already shipped them, so the declaration said canInspect false while the
+    // core was inspecting. A build that publishes what it cannot do is a
+    // problem; one that publishes less than it does is the same problem wearing
+    // the other face - §17.1 wants coverage traceable back to the declaration.
+    const registry = JSON.parse(
+      readFileSync(join(schemaDir, 'detector-registry.json'), 'utf8')).detectors;
+    // Completed and failed are the two that mean it executed. Skipped is not:
+    // the OCR gap is named in coverage precisely because no OCR exists, which
+    // is the honest report and not a claim to have one.
+    const ran = new Set();
+    const named = new Set();
+    for (const file of files) {
+      const result = JSON.parse(readFileSync(join(resultsDir, file), 'utf8'));
+      for (const name of result.coverage.completed) { ran.add(name); named.add(name); }
+      for (const entry of result.coverage.failed) { ran.add(entry.detector); named.add(entry.detector); }
+      for (const entry of result.coverage.skipped) named.add(entry.detector);
+    }
+    const undeclared = [...ran].filter((d) => registry[d]?.status !== 'implemented');
+    check('every detector that ran is declared implemented', undeclared.length === 0,
+      undeclared.join(', '));
+    const declared = Object.entries(registry)
+      .filter(([, d]) => d.status === 'implemented').map(([name]) => name);
+    const absent = declared.filter((d) => !named.has(d));
+    check('every detector declared implemented appears in a result', absent.length === 0,
+      absent.join(', '));
   }
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}  emitted results: ${failures} failure(s)`);

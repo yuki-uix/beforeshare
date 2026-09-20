@@ -10,7 +10,8 @@
     "test:status": "node tools/test-status.mjs",
     "test:contracts": "node tools/test-contracts.mjs",
     "test:committed-results": "node tools/test-committed-results.mjs",
-    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts && npm run test:path-gate && npm run test:identity && npm run test:output && npm run test:failure && npm run test:temp && npm run test:registry && npm run test:limits && npm run test:fixtures && npm run test:detection && npm run test:boundaries && npm run test:bakeoff && npm run test:results && npm run results:committed",
+    "pretest": "cargo build -q -p beforeshare-cli",
+    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts && npm run test:path-gate && npm run test:identity && npm run test:output && npm run test:failure && npm run test:temp && npm run test:registry && npm run test:limits && npm run test:fixtures && npm run test:detection && npm run test:boundaries && npm run test:bakeoff && npm run test:results && npm run results:committed && npm run test:cli",
     "test:path-gate": "node tools/test-path-gate.mjs",
     "test:identity": "node tools/test-file-identity.mjs",
     "test:output": "node tools/test-output-naming.mjs",
@@ -26,7 +27,8 @@
     "test:bakeoff": "node tools/test-parser-bakeoff.mjs",
     "test:results": "npm run results:regenerate --silent && node tools/test-emitted-results.mjs",
     "results:regenerate": "cargo run -q --manifest-path core/Cargo.toml --example emit-results",
-    "results:committed": "bash tools/regenerate-results.sh"
+    "results:committed": "bash tools/regenerate-results.sh",
+    "test:cli": "cargo build -q -p beforeshare-cli && node tools/test-cli.mjs"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

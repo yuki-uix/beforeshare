@@ -10,11 +10,12 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { computeStatus } from './status.mjs';
 import { canConsume, resultIsStale, currentDetectorVersions, currentParserVersions, changelogViolations, parseVersion, BREAKING_KINDS, ADDITIVE_KINDS } from './versioning.mjs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A suite that dies instead of failing reports nothing about the case it died
 // on. Anything reading this output for failures — the CI guard among them —
@@ -195,13 +196,19 @@ if (isMain) {
     console.log(`note  cross-interface equivalence has nothing to compare: 0 of ${expected.length} interfaces implemented`);
     console.log('note  this is recorded, not skipped — registering an interface starts the comparison immediately');
   } else {
+    // Resolved from the repository root, which is how the registry's entry
+    // reads: "tools/cli-adapter.mjs" is a path in this repository, not one
+    // relative to whichever file happens to be doing the importing.
     const adapters = await Promise.all(implemented.map(async ([name, entry]) => {
-      const mod = await import(new URL(entry.adapter, import.meta.url));
+      const mod = await import(new URL(`../${entry.adapter}`, import.meta.url).href);
       check(`interface ${name} exports produceResult`, typeof mod.produceResult === 'function');
       return [name, mod.produceResult];
     }));
-    const baseline = fixture();
-    const outputs = await Promise.all(adapters.map(async ([name, fn]) => [name, await fn(baseline.input.path)]));
+    // A real file, because an interface produces a result by reading one. The
+    // synthetic baseline above is a shape, and handing an adapter a path that
+    // does not exist would test how each of them fails.
+    const subject = fileURLToPath(new URL('../fixtures/pdf/files/form-fields.positive.pdf', import.meta.url));
+    const outputs = await Promise.all(adapters.map(async ([name, fn]) => [name, await fn(subject)]));
 
     // Each output is validated on its own before any comparison. Comparing two
     // serialisations shows they agree, not that either is a canonical result:
@@ -213,10 +220,18 @@ if (isMain) {
         validateInspection(out), JSON.stringify(validateInspection.errors));
     }
 
+    // Everything except what is per-run. §20.3 asks for equivalent canonical
+    // results, and a run identifier that two interfaces agreed on would mean
+    // they were the same run - common.schema.json says it is unique per run.
+    // The same goes for when it started and how long it took.
+    const comparable = (out) => {
+      const { runId, startedAt, durationMs, ...rest } = out;
+      return rest;
+    };
     const [firstName, firstOut] = outputs[0];
     for (const [name, out] of outputs.slice(1)) {
       check(`${name} produces the same canonical result as ${firstName}`,
-        JSON.stringify(out) === JSON.stringify(firstOut));
+        isDeepStrictEqual(comparable(out), comparable(firstOut)));
     }
   }
 

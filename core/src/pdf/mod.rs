@@ -261,6 +261,24 @@ pub struct Inspection {
     pub unreadable: Option<String>,
 }
 
+impl Inspection {
+    /// Nothing was read, and the result must not imply otherwise.
+    ///
+    /// An interface handed a file outside the supported set has no detector to
+    /// run and must still produce a result. Every field here says the same
+    /// thing - no findings, no coverage, no images - so the status is decided
+    /// by the media type rather than by a coverage that looks complete because
+    /// it is empty.
+    pub fn nothing_read() -> Self {
+        Self {
+            detected: Vec::new(),
+            coverage: Coverage::default(),
+            has_images: false,
+            unreadable: None,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct RulesFile {
     /// `$comment` lives alongside the items and is not one, so entries are

@@ -17,8 +17,8 @@
         "document_timestamp"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "pdf.annotations": {
       "mediaTypes": [
@@ -29,8 +29,8 @@
         "annotation"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "pdf.form_fields": {
       "mediaTypes": [
@@ -42,8 +42,8 @@
         "form_field_value"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "pdf.embedded_files": {
       "mediaTypes": [
@@ -54,8 +54,8 @@
         "embedded_file"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "pdf.actions": {
       "mediaTypes": [
@@ -69,8 +69,8 @@
         "local_file_reference"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "pdf.text_layer": {
       "mediaTypes": [
@@ -82,8 +82,8 @@
         "text_under_redaction"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "pdf.structure": {
       "mediaTypes": [
@@ -97,8 +97,8 @@
         "incremental_update"
       ],
       "certainty": "deterministic",
-      "status": "not_implemented",
-      "waitingOn": "#4"
+      "status": "implemented",
+      "adapter": "beforeshare-core::pdf (lopdf 0.45, ADR 0002)"
     },
     "image.exif": {
       "mediaTypes": [

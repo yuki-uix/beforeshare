@@ -27,13 +27,15 @@ remediation is a real state and worth being able to say.
 
 ## Untested limits say so
 
-§13.1 requires the maximum tested size to be published. No format adapter exists yet, so nothing has
-been measured on any machine. The declaration therefore says:
+§13.1 requires the maximum tested size to be published. The seven PDF detectors are implemented,
+but limits have not been measured on a reference machine. The four budgets in
+`limit-rules.json` remain provisional; [#56](https://github.com/yuki-uix/beforeshare/issues/56)
+owns those measurements. The declaration uses `UNMEASURED` from the generator:
 
 ```json
 "testedLimits": {
   "status": "not_established",
-  "reason": "No format adapter is implemented yet, so no file size or page count has been tested on any reference machine."
+  "reason": "No limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
 }
 ```
 
@@ -100,10 +102,15 @@ a check ran. The validator rejects every detector id in a committed example that
 registry, and requires every declared category to be emitted by at least one detector — a category
 nothing can produce is a taxonomy entry with no path to the user.
 
-## Nothing here is implemented
+## Seven detectors are implemented; nothing else is
 
-Every detector in the registry declares `status: "not_implemented"` with the issue it waits on, and
-so does every action. The taxonomy exists; the adapters do not.
+The seven PDF detectors declare `status: "implemented"` and name the adapter that implements them.
+Every other detector and every action still declares `not_implemented` with the issue it waits on.
+
+This file said "nothing here is implemented" for two PRs after the PDF detectors shipped, and so did
+the registry: the declaration published `canInspect: false` while the core was inspecting. Prose is
+not run, and neither was the registry - so the results suite now ties the two together in both
+directions, and a detector that completes a run without being declared fails the build.
 
 This was not the first version. The registry originally listed twelve detectors with no status, and
 `buildCapabilities` published them — so a consumer reading the declaration would have concluded this
@@ -123,17 +130,20 @@ the same "partial reads as complete" failure the statuses were added to prevent.
 
 ```json
 "operational": {
-  "canInspect": false,
+  "canInspect": true,
   "canRemediate": false,
-  "summary": "This build implements no detector and no remediation action. It can describe what it will do, not do it."
+  "summary": "Some capabilities are implemented; see each entry."
 }
 ```
+
+Derived is what makes that sentence safe to move: the booleans changed when the registry did, and
+nobody edited them.
 
 ## Not decided here
 
 | Question | Owner |
 |---|---|
-| Which detectors actually exist, and their adapters | E3 (#4), E4 (#5), E5 (#6) — a detector is declared here and built there, so the registry can only say what has been claimed |
+| Which detectors actually exist, and their adapters | E4 (#5), E5 (#6) — the PDF seven are in; the image and OCR detectors are declared here and built there, so the registry can only say what has been claimed |
 | Which remediation actions exist | E6 (#7) — the enum is closed here and the eight actions are implemented there |
 | Which independent verifiers exist | E7 (#8) — a verifier that shares a reader with the detector is not independent, and only the pipeline can tell |
 | Maximum tested sizes, on a named reference machine | #55 — the reference machine settles every §17.4 number at once, and an adapter has to exist first |
