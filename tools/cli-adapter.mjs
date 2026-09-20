@@ -7,7 +7,7 @@
  * an adapter that called the core directly would be checking the core against
  * itself and would pass while the command line printed something else.
  */
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,13 +30,12 @@ export function binary() {
 
 /** Run it, and hand back stdout, stderr and the exit code without judging them. */
 export function run(args, { cwd = root } = {}) {
-  try {
-    const stdout = execFileSync(binary(), args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    return { stdout, stderr: '', code: 0 };
-  } catch (e) {
-    if (e.status === undefined) throw e;
-    return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: e.status };
-  }
+  const result = spawnSync(binary(), args, {
+    cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`CLI terminated by ${result.signal}`);
+  return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', code: result.status };
 }
 
 /** The canonical result for one file, as the registry's contract requires. */

@@ -10,6 +10,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { computeStatus } from './status.mjs';
@@ -225,12 +226,12 @@ if (isMain) {
     // The same goes for when it started and how long it took.
     const comparable = (out) => {
       const { runId, startedAt, durationMs, ...rest } = out;
-      return JSON.stringify(rest);
+      return rest;
     };
     const [firstName, firstOut] = outputs[0];
     for (const [name, out] of outputs.slice(1)) {
       check(`${name} produces the same canonical result as ${firstName}`,
-        comparable(out) === comparable(firstOut));
+        isDeepStrictEqual(comparable(out), comparable(firstOut)));
     }
   }
 

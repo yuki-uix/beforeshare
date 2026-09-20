@@ -42,6 +42,7 @@ function checksThatPassed(scripts) {
     } catch (e) {
       out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
       failedSuites.push(script);
+      console.error(`Suite ${script} failed:\n${out}`);
     }
     for (const line of out.split('\n')) {
       const m = /^ok\s{2,}(.+?)\s*$/.exec(line);
