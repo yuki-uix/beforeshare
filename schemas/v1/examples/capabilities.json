@@ -204,7 +204,7 @@
       ],
       "testedLimits": {
         "status": "not_established",
-        "reason": "The PDF adapter reads files, and no limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
+        "reason": "No limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
       }
     },
     {
@@ -283,7 +283,7 @@
       ],
       "testedLimits": {
         "status": "not_established",
-        "reason": "The PDF adapter reads files, and no limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
+        "reason": "No limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
       }
     },
     {
@@ -363,7 +363,7 @@
       ],
       "testedLimits": {
         "status": "not_established",
-        "reason": "The PDF adapter reads files, and no limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
+        "reason": "No limit has been measured on a reference machine: limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. A plausible figure here would be an untested limit published as a measurement."
       }
     }
   ],

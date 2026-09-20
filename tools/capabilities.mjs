@@ -115,12 +115,12 @@ export const ACTION_FACTS = {
 };
 
 /**
- * No file has been measured yet: no parser exists. Publishing a plausible number
+ * No limit has been measured on a reference machine. Publishing a plausible number
  * here would be an untested limit presented as a measurement.
  */
 export const UNMEASURED = {
   status: 'not_established',
-  reason: 'The PDF adapter reads files, and no limit has been measured on a reference machine: '
+  reason: 'No limit has been measured on a reference machine: '
     + 'limit-rules.json marks all four budgets provisional and names #56 as owing the numbers. '
     + 'A plausible figure here would be an untested limit published as a measurement.',
 };

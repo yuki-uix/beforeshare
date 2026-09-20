@@ -79,7 +79,7 @@ pub fn human(result: &Value) -> String {
             .iter()
             .any(|f| f["evidence"]["redacted"].as_bool().unwrap_or(false))
         {
-            out.push_str("\nValues are masked. Run with --json for the full result.\n");
+            out.push_str("\nRun with --json for the complete structured result; sensitive values remain masked.\n");
         }
     }
     out

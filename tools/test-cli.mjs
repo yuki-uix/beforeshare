@@ -271,6 +271,12 @@ if (isMain) {
     // The declaration is published by this build, so it has to describe this
     // build: it said canInspect false while the detectors were running.
     check('capabilities says this build can inspect', declaration.operational.canInspect === true);
+    for (const format of declaration.formats) {
+      if (format.testedLimits.status === 'not_established') {
+        check(`${format.mediaType}: unmeasured limits use a format-neutral explanation`,
+          format.testedLimits.reason.startsWith('No limit has been measured on a reference machine: '));
+      }
+    }
     const registry = JSON.parse(readFileSync(join(schemaDir, 'detector-registry.json'), 'utf8'));
     const implemented = Object.entries(registry.detectors)
       .filter(([, d]) => d.status === 'implemented').map(([id]) => id).sort();
@@ -296,6 +302,8 @@ if (isMain) {
     check('the default output is not JSON', !human.stdout.trim().startsWith('{'),
       human.stdout.slice(0, 40));
     check('the default output says something', human.stdout.trim().length > 0);
+    check('the JSON notice explicitly preserves masking',
+      human.stdout.includes('--json for the complete structured result; sensitive values remain masked.'));
 
     // The severity a person reads is the severity in the result. Two renderings
     // of one finding that disagree about how bad it is would make the default
