@@ -7,6 +7,7 @@
  * stays green when the real implementation drifts.
  */
 import { mask, MAX_DISPLAY_CODE_POINTS, POLICIES } from './masking.mjs';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // A suite that dies instead of failing reports nothing about the case it died
@@ -58,28 +59,27 @@ if (isMain) {
   };
 
   // --- 1. every example printed in docs/contracts/masking.md must reproduce -----
-  const documented = [
-    ['yuki@example.com', 'email_local_part', 'y***@example.com'],
-    ['+86 138 0013 8000', 'digits_keep_last_4', '+** *** **** 8000'],
-    ['sk-live-9fA2b7Qz', 'token_keep_edges', 'sk***Qz'],
-    ['李建华明', 'text_keep_edges', '李***明'],
-    ['31.2304, 121.4737', 'coordinate_coarsened', '31.2, 121.5'],
-    ['李明', 'fully_masked', '**'],
-    ['AES-256', 'structural_label', 'AES-256'],
-  ];
-  for (const [input, policy, expected] of documented) {
-    const got = mask(input, policy).displayValue;
-    check(`documented: ${policy} on ${JSON.stringify(input)}`, got === expected, `expected ${JSON.stringify(expected)}, got ${JSON.stringify(got)}`);
+  // Read, not written here. The cases used to live in this file, which made
+  // this implementation the only one that had to satisfy them - a port could
+  // then agree with the prose in masking.md and disagree with the code.
+  const VECTORS = JSON.parse(
+    readFileSync(new URL('../schemas/v1/masking-vectors.json', import.meta.url), 'utf8'));
+  // Both halves of the answer. The vectors name the resulting policy as well as
+  // the display value, and this read only the display value: an implementation
+  // that masked correctly and then reported the wrong policy - which is exactly
+  // what a degradation is - passed.
+  const documented = VECTORS.documented.map(
+    (c) => [c.value, c.policy, c.displayValue, c.resultPolicy]);
+  for (const [input, policy, expected, expectedPolicy] of documented) {
+    const got = mask(input, policy);
+    check(`documented: ${policy} on ${JSON.stringify(input)}`,
+      got.displayValue === expected && got.maskPolicy === expectedPolicy,
+      `expected ${JSON.stringify({ displayValue: expected, maskPolicy: expectedPolicy })}, `
+      + `got ${JSON.stringify({ displayValue: got.displayValue, maskPolicy: got.maskPolicy })}`);
   }
 
   // --- 2. short values degrade rather than half-revealing ----------------------
-  const degrades = [
-    ['李建华', 'text_keep_edges', '3 code points would leave only 1 hidden'],
-    ['ab', 'text_keep_edges', 'shorter than the policy minimum'],
-    ['sk-live', 'token_keep_edges', '7 code points is below the token minimum of 8'],
-    ['a@b.com', 'email_local_part', 'single-code-point local part reveals itself'],
-    ['12345', 'digits_keep_last_4', '5 digits would leave only 1 hidden'],
-  ];
+  const degrades = VECTORS.degrades.map((c) => [c.value, c.policy, c.why]);
   for (const [input, policy, why] of degrades) {
     const r = mask(input, policy);
     check(`degrades to fully_masked: ${policy} on ${JSON.stringify(input)} (${why})`,
@@ -88,11 +88,7 @@ if (isMain) {
   }
 
   // The boundary on the other side: these are long enough and must NOT degrade.
-  const boundaries = [
-    ['sk-live1', 'token_keep_edges', 8],
-    ['李建华明', 'text_keep_edges', 4],
-    ['555-1234', 'digits_keep_last_4', 7],
-  ];
+  const boundaries = VECTORS.boundaries.map((c) => [c.value, c.policy, Array.from(c.value).length]);
   for (const [input, policy, size] of boundaries) {
     check(`does not degrade at the boundary: ${policy} on ${JSON.stringify(input)} (${size})`,
       mask(input, policy).maskPolicy === policy,
@@ -102,7 +98,7 @@ if (isMain) {
   // --- 3. no policy ever leaves fewer than 2 code points hidden ----------------
   for (const policy of POLICIES) {
     if (policy === 'structural_label') continue;
-    for (const input of ['a', 'ab', 'abc', '李', '李明', '李建华', 'a@b.c', '1', '12345']) {
+    for (const input of VECTORS.shortValues) {
       const r = mask(input, policy);
       const shown = cp(r.displayValue).filter((c) => c !== '*' && c !== undefined).length;
       const hidden = cp(input).length - cp(r.displayValue).filter((c) => c !== '*').length;
@@ -116,6 +112,8 @@ if (isMain) {
   const long = '张'.repeat(500);
   const r = mask(long, 'text_keep_edges');
   check('overlong CJK value is marked truncated', r.truncated === true);
+  check('the display cap the vectors state is the one this module uses',
+    VECTORS.displayCap === MAX_DISPLAY_CODE_POINTS, `${VECTORS.displayCap} vs ${MAX_DISPLAY_CODE_POINTS}`);
   check('overlong value respects the display cap',
     cp(r.displayValue).length <= MAX_DISPLAY_CODE_POINTS,
     `length ${cp(r.displayValue).length}`);

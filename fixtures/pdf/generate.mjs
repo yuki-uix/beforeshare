@@ -24,9 +24,23 @@ const EVAL_VERSION = 'eval-v1';
  * coverage check compares against the requirement rather than against a name
  * someone chose here.
  */
+/**
+ * `mustNotLeak` is the document's own values, and no result may contain one
+ * verbatim.
+ *
+ * Every category's evidence has a masking policy, and the policy was applied to
+ * the evidence and to nothing else: a location carried a form field's name in
+ * full, and a whole JavaScript program went out under the one policy that shows
+ * a value unmasked. Each of those was a separate fix. This is the check that
+ * makes the next exit fail instead - it names the values rather than the fields,
+ * so a field nobody thought of is covered by the same list.
+ *
+ * Producer and timestamp values are also document-controlled disclosures.
+ */
 export const FIXTURES = {
   'standard document metadata, including author, creator, producer, title, subject, keywords, and timestamps': {
     short: 'document-metadata',
+    mustNotLeak: ["Wendy Okonkwo", "Internal Drafting Tool 3.2", "Q3 layoff shortlist", "restructuring", "confidential, headcount", "Acme Export Pipeline", "D:20240612093000+01'00'"],
     must_detect: () => buildPdf([
       ...minimalDocument(),
       `<< /Author ${pdfString('Wendy Okonkwo')} /Creator ${pdfString('Internal Drafting Tool 3.2')}`
@@ -43,6 +57,7 @@ export const FIXTURES = {
 
   'annotations and comments': {
     short: 'annotations',
+    mustNotLeak: ["R. Alvarez", "Do not send this to the client yet"],
     must_detect: () => buildPdf(minimalDocument({
       pageExtra: ' /Annots [6 0 R]',
       extraObjects: [
@@ -59,6 +74,7 @@ export const FIXTURES = {
 
   'form field names and values': {
     short: 'form-fields',
+    mustNotLeak: ["applicant_national_id", "QQ-123456-C"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /AcroForm << /Fields [6 0 R] >>',
       extraObjects: [
@@ -85,6 +101,7 @@ export const FIXTURES = {
 
   'embedded files': {
     short: 'embedded-file',
+    mustNotLeak: ["payroll.csv", "W. Okonkwo", "R. Alvarez", "91000", "88000"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /Names << /EmbeddedFiles << /Names [(payroll.csv) 6 0 R] >> >>',
       extraObjects: [
@@ -103,6 +120,7 @@ export const FIXTURES = {
 
   'document-level JavaScript and launch actions': {
     short: 'javascript-and-launch',
+    mustNotLeak: ["app.alert(\"phoning home\");", "/System/Applications/Calculator.app"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /Names << /JavaScript << /Names [(boot) 6 0 R] >> >> /OpenAction 7 0 R',
       extraObjects: [
@@ -122,6 +140,7 @@ export const FIXTURES = {
 
   'external and local-file references': {
     short: 'external-references',
+    mustNotLeak: ["https://intranet.example.invalid/hr/q3-shortlist", "/Users/wendy/Documents/severance-model.xlsx"],
     // Both halves of the item, because it names two categories. The positive
     // carried only the outward link, so `local_file_reference` had no sample at
     // all and its detection rate was a claim about nothing.
@@ -140,6 +159,9 @@ export const FIXTURES = {
         '<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] /A << /S /GoTo /D [3 0 R /Fit] >> >>',
       ],
     })),
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'both documents carry a link annotation - that is what makes them a pair - and §7.1 counts an annotation whether or not it points outward',
     annotationInstructions: 'The positive carries two links: one outward to an internal host, one a /GoToR naming a path on the author\'s own disk. The control points at its own page. An internal host name is disclosive even when unreachable, and so is a local path.',
     expectedCoverage: 'completed',
     expectedRemediation: null,
@@ -148,6 +170,7 @@ export const FIXTURES = {
 
   'text content not visually obvious in the rendered page': {
     short: 'invisible-text',
+    mustNotLeak: ["Internal note: the figure below is disputed."],
     must_detect: () => buildPdf(minimalDocument({
       contents: 'BT /F1 12 Tf 72 720 Td (Approved for release.) Tj ET\n'
         + 'BT /F1 12 Tf 3 Tr 72 700 Td (Internal note: the figure below is disputed.) Tj ET',
@@ -164,6 +187,7 @@ export const FIXTURES = {
 
   'text that remains extractable beneath an apparent visual cover or redaction': {
     short: 'text-under-cover',
+    mustNotLeak: ["Claimant: Wendy Okonkwo"],
     must_detect: () => buildPdf(minimalDocument({
       contents: 'BT /F1 12 Tf 72 720 Td (Claimant: Wendy Okonkwo) Tj ET\n'
         + '0 0 0 rg 70 715 200 18 re f',
@@ -179,6 +203,7 @@ export const FIXTURES = {
 
   'image-only pages through local OCR': {
     short: 'image-only-page',
+    mustNotLeak: [],
     must_detect: () => buildPdf(minimalDocument({
       contents: 'q 612 0 0 792 0 0 cm /Im1 Do Q',
       // Merged into the /Resources the page already has. A second /Resources
@@ -202,6 +227,7 @@ export const FIXTURES = {
 
   'encryption and permission state': {
     short: 'encryption-state',
+    mustNotLeak: [],
     must_detect: () => buildPdf(minimalDocument({
       extraObjects: [
         '<< /Filter /Standard /V 2 /R 3 /Length 128 /P -44'
@@ -218,6 +244,7 @@ export const FIXTURES = {
 
   'digital signature presence and the likelihood that modification will invalidate it': {
     short: 'digital-signature',
+    mustNotLeak: ["Signature1", "unsigned_note"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /AcroForm << /Fields [6 0 R] /SigFlags 3 >>',
       extraObjects: [
@@ -230,6 +257,9 @@ export const FIXTURES = {
       catalogueExtra: ' /AcroForm << /Fields [6 0 R] /SigFlags 0 >>',
       extraObjects: [`<< /FT /Tx /T ${pdfString('unsigned_note')} >>`],
     })),
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'the control carries an unsigned form field, and a field name is a disclosure of its own under §7.1 - it is clean of a signature, not of everything',
     annotationInstructions: 'The positive carries a signature field with a value. The finding is not the signature - it is that remediation would invalidate it, which §9.2 lists as a side effect the user must be shown before approving.',
     expectedCoverage: 'completed',
     expectedRemediation: null,
@@ -238,6 +268,7 @@ export const FIXTURES = {
 
   'parser warnings, malformed objects, incremental updates, and unsupported features': {
     short: 'incremental-update',
+    mustNotLeak: ["Wendy Okonkwo", "Superseded draft", "Public version"],
     must_detect: () => {
       // A second revision appended after %%EOF: the original /Info is still in
       // the file, and a reader that trusts the newest xref never sees it.
@@ -259,6 +290,9 @@ export const FIXTURES = {
       ...minimalDocument(),
       `<< /Title ${pdfString('Public version')} >>`,
     ], { trailerExtra: ' /Info 6 0 R' }),
+    controlExpectedStatus: 'review_required',
+    controlIsNotSilentBecause:
+      'the control carries the public /Info title, which is document metadata and a finding under §7.1; it is clean of a hidden revision, not of metadata',
     annotationInstructions: 'The positive is a two-revision file whose first revision still contains an author the second removed. The control is a single revision with only the public title. A detector that reads the current xref and stops will report the control\'s contents for both.',
     expectedCoverage: 'completed',
     expectedRemediation: 'flatten_to_high_assurance_copy',

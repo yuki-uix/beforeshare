@@ -12,6 +12,15 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "remove_pdf_metadata_field",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "Wendy Okonkwo",
+        "Internal Drafting Tool 3.2",
+        "Q3 layoff shortlist",
+        "restructuring",
+        "confidential, headcount",
+        "Acme Export Pipeline",
+        "D:20240612093000+01'00'"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 879
     },
@@ -24,6 +33,15 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [
+        "Wendy Okonkwo",
+        "Internal Drafting Tool 3.2",
+        "Q3 layoff shortlist",
+        "restructuring",
+        "confidential, headcount",
+        "Acme Export Pipeline",
+        "D:20240612093000+01'00'"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 601
     },
@@ -36,6 +54,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "remove_annotations",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "R. Alvarez",
+        "Do not send this to the client yet"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 773
     },
@@ -48,6 +70,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [
+        "R. Alvarez",
+        "Do not send this to the client yet"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 612
     },
@@ -60,6 +86,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "clear_form_values",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "applicant_national_id",
+        "QQ-123456-C"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 726
     },
@@ -73,6 +103,10 @@
       "expectedRemediation": "none",
       "expectedStatus": "review_required",
       "controlIsNotSilentBecause": "the field name discloses what the form collects, and both documents carry it; only the value is blocking",
+      "mustNotLeak": [
+        "applicant_national_id",
+        "QQ-123456-C"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 709
     },
@@ -85,6 +119,13 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "remove_embedded_files",
       "expectedStatus": "blocking_findings",
+      "mustNotLeak": [
+        "payroll.csv",
+        "W. Okonkwo",
+        "R. Alvarez",
+        "91000",
+        "88000"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 872
     },
@@ -97,6 +138,13 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [
+        "payroll.csv",
+        "W. Okonkwo",
+        "R. Alvarez",
+        "91000",
+        "88000"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 645
     },
@@ -109,6 +157,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "disable_javascript_and_launch_actions",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "app.alert(\"phoning home\");",
+        "/System/Applications/Calculator.app"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 856
     },
@@ -121,6 +173,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [
+        "app.alert(\"phoning home\");",
+        "/System/Applications/Calculator.app"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 685
     },
@@ -133,6 +189,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "https://intranet.example.invalid/hr/q3-shortlist",
+        "/Users/wendy/Documents/severance-model.xlsx"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 960
     },
@@ -144,7 +204,12 @@
       "annotationInstructions": "The positive carries two links: one outward to an internal host, one a /GoToR naming a path on the author's own disk. The control points at its own page. An internal host name is disclosive even when unreachable, and so is a local path.",
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
-      "expectedStatus": "no_findings",
+      "expectedStatus": "review_required",
+      "controlIsNotSilentBecause": "both documents carry a link annotation - that is what makes them a pair - and §7.1 counts an annotation whether or not it points outward",
+      "mustNotLeak": [
+        "https://intranet.example.invalid/hr/q3-shortlist",
+        "/Users/wendy/Documents/severance-model.xlsx"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 743
     },
@@ -157,6 +222,9 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "Internal note: the figure below is disputed."
+      ],
       "evalVersion": "eval-v1",
       "bytes": 684
     },
@@ -169,6 +237,9 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [
+        "Internal note: the figure below is disputed."
+      ],
       "evalVersion": "eval-v1",
       "bytes": 684
     },
@@ -181,6 +252,9 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "apply_visual_redaction",
       "expectedStatus": "blocking_findings",
+      "mustNotLeak": [
+        "Claimant: Wendy Okonkwo"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 632
     },
@@ -193,6 +267,9 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [
+        "Claimant: Wendy Okonkwo"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 577
     },
@@ -205,6 +282,7 @@
       "expectedCoverage": "skipped",
       "expectedRemediation": "none",
       "expectedStatus": "partial",
+      "mustNotLeak": [],
       "evalVersion": "eval-v1",
       "bytes": 773
     },
@@ -217,6 +295,7 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [],
       "evalVersion": "eval-v1",
       "bytes": 612
     },
@@ -229,6 +308,7 @@
       "expectedCoverage": "skipped",
       "expectedRemediation": "none",
       "expectedStatus": "partial",
+      "mustNotLeak": [],
       "evalVersion": "eval-v1",
       "bytes": 860
     },
@@ -241,6 +321,7 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "no_findings",
+      "mustNotLeak": [],
       "evalVersion": "eval-v1",
       "bytes": 617
     },
@@ -253,6 +334,10 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
       "expectedStatus": "review_required",
+      "mustNotLeak": [
+        "Signature1",
+        "unsigned_note"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 869
     },
@@ -264,7 +349,12 @@
       "annotationInstructions": "The positive carries a signature field with a value. The finding is not the signature - it is that remediation would invalidate it, which §9.2 lists as a side effect the user must be shown before approving.",
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
-      "expectedStatus": "no_findings",
+      "expectedStatus": "review_required",
+      "controlIsNotSilentBecause": "the control carries an unsigned form field, and a field name is a disclosure of its own under §7.1 - it is clean of a signature, not of everything",
+      "mustNotLeak": [
+        "Signature1",
+        "unsigned_note"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 713
     },
@@ -277,6 +367,11 @@
       "expectedCoverage": "completed",
       "expectedRemediation": "flatten_to_high_assurance_copy",
       "expectedStatus": "blocking_findings",
+      "mustNotLeak": [
+        "Wendy Okonkwo",
+        "Superseded draft",
+        "Public version"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 878
     },
@@ -288,7 +383,13 @@
       "annotationInstructions": "The positive is a two-revision file whose first revision still contains an author the second removed. The control is a single revision with only the public title. A detector that reads the current xref and stops will report the control's contents for both.",
       "expectedCoverage": "completed",
       "expectedRemediation": "none",
-      "expectedStatus": "no_findings",
+      "expectedStatus": "review_required",
+      "controlIsNotSilentBecause": "the control carries the public /Info title, which is document metadata and a finding under §7.1; it is clean of a hidden revision, not of metadata",
+      "mustNotLeak": [
+        "Wendy Okonkwo",
+        "Superseded draft",
+        "Public version"
+      ],
       "evalVersion": "eval-v1",
       "bytes": 678
     }

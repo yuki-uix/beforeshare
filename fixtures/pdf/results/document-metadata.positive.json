@@ -1,0 +1,243 @@
+{
+  "coverage": {
+    "completed": [
+      "pdf.actions",
+      "pdf.annotations",
+      "pdf.embedded_files",
+      "pdf.form_fields",
+      "pdf.metadata",
+      "pdf.structure",
+      "pdf.text_layer"
+    ],
+    "failed": [],
+    "skipped": []
+  },
+  "durationMs": 0,
+  "findings": [
+    {
+      "category": "document_author",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "W***o",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-1",
+      "location": {
+        "field": "Author",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_author found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "medium"
+    },
+    {
+      "category": "document_creator",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "I***2",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-2",
+      "location": {
+        "field": "Creator",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_creator found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "document_producer",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "********************",
+        "maskPolicy": "fully_masked",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-3",
+      "location": {
+        "field": "Producer",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_producer found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "document_title",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "Q***t",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-4",
+      "location": {
+        "field": "Title",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_title found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "document_subject",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "r***g",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-5",
+      "location": {
+        "field": "Subject",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_subject found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "document_keywords",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "c***t",
+        "maskPolicy": "text_keep_edges",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-6",
+      "location": {
+        "field": "Keywords",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_keywords found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    },
+    {
+      "category": "document_timestamp",
+      "certainty": "deterministic",
+      "detector": {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      "evidence": {
+        "displayValue": "***********************",
+        "maskPolicy": "fully_masked",
+        "redacted": true
+      },
+      "group": "document_structure",
+      "id": "finding-7",
+      "location": {
+        "field": "CreationDate",
+        "kind": "pdf_metadata"
+      },
+      "message": "document_timestamp found in pdf_metadata",
+      "remediation": {
+        "supported": false,
+        "unsupportedReason": "not_implemented"
+      },
+      "severity": "low"
+    }
+  ],
+  "input": {
+    "mediaType": "application/pdf",
+    "path": "/fixtures/pdf/files/document-metadata.positive.pdf",
+    "sha256": "5e9ff248874a6c38eb140bae4c781529308b3dc6c47da98365131727d90ab6fd",
+    "sizeBytes": 879
+  },
+  "limitations": [],
+  "runId": "01J00000000000000000000006",
+  "schemaVersion": "1.0",
+  "startedAt": "2026-01-01T00:00:00Z",
+  "status": "review_required",
+  "versions": {
+    "core": "0.1.0",
+    "detectors": [
+      {
+        "id": "pdf.actions",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.annotations",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.embedded_files",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.form_fields",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.metadata",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.structure",
+        "version": "1.0.0"
+      },
+      {
+        "id": "pdf.text_layer",
+        "version": "1.0.0"
+      }
+    ],
+    "parsers": [
+      {
+        "id": "pdf.parser",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}

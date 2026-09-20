@@ -154,11 +154,12 @@
         "unsupported_compression_or_color_profile",
         "media_type_mismatch",
         "oversized_metadata_value_truncated",
+        "ocr_not_available",
         "image_resolution_below_ocr_threshold",
         "language_not_covered_by_ocr",
         "signature_present_remediation_restricted"
       ],
-      "description": "A limitation narrows what a clean result is allowed to mean. Every limitation must name the detectors it affects, so that `no_findings` can never be produced while a limitation silently suppressed a check."
+      "description": "A limitation narrows what a clean result is allowed to mean. Every limitation must name the detectors it affects, so that `no_findings` can never be produced while a limitation silently suppressed a check. `ocr_not_available` is this build having no OCR at all, which the two codes beside it do not say: they are answers from an OCR that ran and found the picture too small or the language unsupported."
     },
     "limitationImpact": {
       "type": "string",
