@@ -44,6 +44,10 @@ fn main() {
 }
 
 fn run(args: &[String]) -> i32 {
+    if args.len() == 1 && args[0] == "--help" {
+        eprint!("{USAGE}");
+        return 0;
+    }
     let json = args.iter().any(|a| a == "--json");
     let positional: Vec<&str> = args
         .iter()
@@ -74,7 +78,7 @@ fn run(args: &[String]) -> i32 {
         },
         Some("capabilities") if positional.len() == 1 => capabilities(json),
         Some("version") if positional.len() == 1 => version(json),
-        Some("help") | Some("--help") | None => {
+        Some("help") | None => {
             // Not a failure, and not on stdout in JSON mode either: stdout in
             // JSON mode carries the result and nothing else.
             eprint!("{USAGE}");
@@ -133,7 +137,14 @@ fn inspect(raw: &str, json: bool) -> i32 {
     };
     let bytes = match path_gate::read_file(&resolved) {
         Ok(bytes) => bytes,
-        Err(e) => return refuse(&format!("{raw}: {e}")),
+        Err(_) => {
+            eprintln!("beforeshare: could not read the selected file");
+            return exit::code_for(&Outcome {
+                processing_failure: true,
+                ..Default::default()
+            })
+            .0;
+        }
     };
 
     // Sniffed, not taken from the name. An extension is a claim by whoever
@@ -174,15 +185,6 @@ fn inspect(raw: &str, json: bool) -> i32 {
             .0;
         }
     };
-
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&value).expect("serialisable")
-        );
-    } else {
-        print!("{}", render::human(&value));
-    }
 
     let status = value["status"].as_str().unwrap_or("failed");
     let outcome = Outcome {
@@ -227,6 +229,14 @@ fn inspect(raw: &str, json: bool) -> i32 {
             ..Default::default()
         })
         .0;
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("serialisable")
+        );
+    } else {
+        print!("{}", render::human(&value));
     }
     code
 }

@@ -5,7 +5,7 @@ name: contracts
 # only on a contributor's machine would make them documentation, not enforcement.
 on:
   pull_request:
-    branches: [main]
+    # Stacked PRs need the same checks before their base reaches main.
   push:
     branches: [main]
 

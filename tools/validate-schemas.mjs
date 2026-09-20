@@ -8,6 +8,7 @@
  * pinning, and the run fails if a case that must be rejected is accepted.
  */
 import { spawnSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -1522,8 +1523,11 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
   // §12.2 lists these eight numbers. A renumbering would be a contract change
   // and has to be made deliberately rather than by editing one row.
   check('the numbers are the ones §12.2 names',
-    JSON.stringify(Object.values(exits.codes).slice().sort((a, b) => a - b))
-      === JSON.stringify([0, 2, 3, 4, 5, 6, 7, 8]),
+    isDeepStrictEqual(exits.codes, {
+      ok: 0, invalid_arguments: 2, unsupported_input: 3, partial_inspection: 4,
+      processing_failure: 5, verification_failure: 6, unsafe_output_path: 7,
+      approval_required: 8,
+    }),
     Object.values(exits.codes).join(', '));
 
   const severityLeaks = Object.entries(exits.statusExitMatrix)
@@ -1531,6 +1535,10 @@ function checkRuleTable({ file, table, module: moduleFile, constructorName, expo
       && !codes.includes('ok'));
   check('severity does not reach the exit code', severityLeaks.length === 0,
     severityLeaks.map(([s]) => s).join(', '));
+  check('review_required permits exactly ok',
+    isDeepStrictEqual(exits.statusExitMatrix.review_required, ['ok']));
+  check('blocking_findings permits exactly ok and partial_inspection',
+    isDeepStrictEqual([...exits.statusExitMatrix.blocking_findings].sort(), ['ok', 'partial_inspection']));
 }
 
 // --- what a run may consume, and what an overrun is called --------------------

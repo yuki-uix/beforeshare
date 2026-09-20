@@ -223,15 +223,31 @@ if (isMain) {
     }
   }
 
-  // A path that leaves the directory the user named, spelled with `..` rather
-  // than with a link. §13.4 asks for both to be resolved before access.
+  // Pass literal .. to the CLI rather than normalising it inside this test.
+  // This resolves back to an explicitly selected file; it is not an escape
+  // from an independently authorised root. Fixed-root escape tests live in core.
   {
-    const { stdout, code } = run(['inspect', join(scratch, '..', '..', 'etc', 'hosts')]);
-    check('a path climbing out of the named directory is refused', code === 2, String(code));
-    check('nothing is printed about a file that was not read', stdout === '');
+    const path = `${scratch}/../${scratch.split('/').pop()}/notes.txt`;
+    const { stdout, code } = run(['inspect', path, '--json']);
+    check('a literal parent component resolving to the selected file is handled', code === 3, String(code));
+    check('the selected text file remains unsupported', JSON.parse(stdout).status === 'unsupported');
   }
 
   // --- 3. arguments ----------------------------------------------------------
+  {
+    const { stdout, stderr, code } = run(['--help']);
+    check('top-level --help exits successfully', code === 0);
+    check('help explains inspect without producing a JSON result',
+      stdout === '' && stderr.includes('inspect <path>'));
+  }
+  {
+    // Opening a directory succeeds on supported POSIX hosts; reading its bytes
+    // fails. This exercises the post-gate I/O branch, even when tests run as root.
+    const { stdout, stderr, code } = run(['inspect', scratch, '--json']);
+    check('a read failure is processing failure, not invalid arguments', code === 5);
+    check('a read failure emits no success result or sensitive path',
+      stdout === '' && stderr.includes('could not read') && !stderr.includes(scratch));
+  }
   for (const [label, args] of [
     ['an unknown command', ['frobnicate']],
     ['an unknown option', ['inspect', 'x.pdf', '--recursive']],
