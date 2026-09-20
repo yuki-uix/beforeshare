@@ -72,9 +72,9 @@
         "version": "1.0.0"
       },
       "evidence": {
-        "displayValue": "Acme Export Pipeline",
-        "maskPolicy": "structural_label",
-        "redacted": false
+        "displayValue": "********************",
+        "maskPolicy": "fully_masked",
+        "redacted": true
       },
       "group": "document_structure",
       "id": "finding-3",
@@ -172,9 +172,9 @@
         "version": "1.0.0"
       },
       "evidence": {
-        "displayValue": "D:20240612093000+01'00'",
-        "maskPolicy": "structural_label",
-        "redacted": false
+        "displayValue": "***********************",
+        "maskPolicy": "fully_masked",
+        "redacted": true
       },
       "group": "document_structure",
       "id": "finding-7",

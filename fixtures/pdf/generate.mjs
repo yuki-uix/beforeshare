@@ -35,13 +35,12 @@ const EVAL_VERSION = 'eval-v1';
  * makes the next exit fail instead - it names the values rather than the fields,
  * so a field nobody thought of is covered by the same list.
  *
- * The producer and the timestamps are deliberately absent: evidence-policy.json
- * lists them as shown in full, with a reason each.
+ * Producer and timestamp values are also document-controlled disclosures.
  */
 export const FIXTURES = {
   'standard document metadata, including author, creator, producer, title, subject, keywords, and timestamps': {
     short: 'document-metadata',
-    mustNotLeak: ["Wendy Okonkwo", "Internal Drafting Tool 3.2", "Q3 layoff shortlist", "restructuring", "confidential, headcount"],
+    mustNotLeak: ["Wendy Okonkwo", "Internal Drafting Tool 3.2", "Q3 layoff shortlist", "restructuring", "confidential, headcount", "Acme Export Pipeline", "D:20240612093000+01'00'"],
     must_detect: () => buildPdf([
       ...minimalDocument(),
       `<< /Author ${pdfString('Wendy Okonkwo')} /Creator ${pdfString('Internal Drafting Tool 3.2')}`
@@ -102,7 +101,7 @@ export const FIXTURES = {
 
   'embedded files': {
     short: 'embedded-file',
-    mustNotLeak: ["payroll.csv"],
+    mustNotLeak: ["payroll.csv", "W. Okonkwo", "R. Alvarez", "91000", "88000"],
     must_detect: () => buildPdf(minimalDocument({
       catalogueExtra: ' /Names << /EmbeddedFiles << /Names [(payroll.csv) 6 0 R] >> >>',
       extraObjects: [

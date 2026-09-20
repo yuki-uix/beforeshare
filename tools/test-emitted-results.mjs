@@ -59,6 +59,14 @@ if (isMain) {
 
     for (const file of files) {
       const result = JSON.parse(readFileSync(join(resultsDir, file), 'utf8'));
+      const covered = [
+        ...result.coverage.completed,
+        ...result.coverage.skipped.map((entry) => entry.detector),
+        ...result.coverage.failed.map((entry) => entry.detector),
+      ].sort();
+      const versioned = result.versions.detectors.map((entry) => entry.id).sort();
+      check(`${file} versions every covered detector including synthetic skips`,
+        JSON.stringify([...new Set(covered)]) === JSON.stringify(versioned));
       check(`${file} validates against inspection-result.schema.json`,
         validate(result),
         (validate.errors ?? []).map((e) => `${e.instancePath} ${e.message}`).join('; '));

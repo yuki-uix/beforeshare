@@ -107,18 +107,17 @@ fn a_documents_own_value_is_not_shown_under_the_unredacted_policy() {
         has_images: false,
     };
 
-    // document_producer is one of the listed exceptions, so it is allowed.
-    assert!(
-        assemble(
-            &inspection(detected(Provenance::Document)),
-            &facts,
-            "01J0000000000000000000001",
-            "2026-01-01T00:00:00Z",
-            0
-        )
-        .is_ok(),
-        "a category the table lists as shown in full was refused"
-    );
+    // Producer is document-controlled and must be masked too.
+    let masked = assemble(
+        &inspection(detected(Provenance::Document)),
+        &facts,
+        "01J0000000000000000000001",
+        "2026-01-01T00:00:00Z",
+        0,
+    )
+    .expect("masked producer");
+    assert_eq!(masked["findings"][0]["evidence"]["redacted"], true);
+    assert!(!masked.to_string().contains("something the document said"));
 
     // The same value under a category that is not listed is refused.
     let mut unlisted = detected(Provenance::Document);

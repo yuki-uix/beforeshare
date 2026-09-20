@@ -985,9 +985,7 @@ for (const [name, spec] of Object.entries(MIRRORS)) {
       personal.join(', '));
     check('the unredacted categories are the ones recorded here',
       JSON.stringify(unredacted.sort()) === JSON.stringify([
-        'digital_signature', 'document_producer', 'document_timestamp', 'encryption_state',
-        'image_capture_timestamp', 'image_device_make', 'image_device_model',
-        'image_modification_timestamp', 'incremental_update', 'permission_state',
+        'digital_signature', 'encryption_state', 'incremental_update', 'permission_state',
       ]),
       unredacted.join(', '));
 
