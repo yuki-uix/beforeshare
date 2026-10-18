@@ -129,7 +129,7 @@
   },
   "limitations": [],
   "runId": "01J00000000000000000000012",
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "startedAt": "2026-01-01T00:00:00Z",
   "status": "review_required",
   "versions": {
@@ -153,7 +153,7 @@
       },
       {
         "id": "pdf.metadata",
-        "version": "1.0.0"
+        "version": "1.1.0"
       },
       {
         "id": "pdf.structure",
@@ -161,7 +161,7 @@
       },
       {
         "id": "pdf.text_layer",
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     ],
     "parsers": [

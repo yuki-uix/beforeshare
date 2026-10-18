@@ -767,7 +767,7 @@ fn a_covering_rectangle_is_judged_by_order_and_by_where_it_lands() {
     );
     assert_eq!(hits, 0);
     let (code, message) = failed.expect("rotated content must be refused rather than answered");
-    assert_eq!(code.as_str(), "malformed_input");
+    assert_eq!(code.as_str(), "unsupported_feature");
     assert!(
         message.contains("rotates or skews"),
         "the reason does not say what happened: {message}"

@@ -6,7 +6,7 @@
       "mediaTypes": [
         "application/pdf"
       ],
-      "version": "1.0.0",
+      "version": "1.1.0",
       "emits": [
         "document_author",
         "document_creator",
@@ -76,7 +76,7 @@
       "mediaTypes": [
         "application/pdf"
       ],
-      "version": "1.0.0",
+      "version": "1.1.0",
       "emits": [
         "hidden_text",
         "text_under_redaction"

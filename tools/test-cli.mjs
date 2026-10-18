@@ -7,7 +7,11 @@
  * and with the result - #24 left exactly that here, because it needs a real
  * process to be true or false about.
  */
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, symlinkSync, openSync, ftruncateSync, closeSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { canConsume } from './versioning.mjs';
+import { boundaryFixtures, boundaryManifest } from '../fixtures/pdf/generate-boundaries.mjs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -65,6 +69,18 @@ if (isMain) {
   const validateResult = ajv.getSchema('inspection-result.schema.json');
   const validateCapabilities = ajv.getSchema('capabilities.schema.json');
   const manifest = JSON.parse(readFileSync(join(root, 'fixtures/pdf/manifest.json'), 'utf8'));
+  const changelog = JSON.parse(readFileSync(join(schemaDir, 'CHANGELOG.json'), 'utf8'));
+  const currentSchemaVersion = changelog.releases[0].version;
+  const versionInfo = JSON.parse(run(['version', '--json']).stdout);
+  const capabilityInfo = JSON.parse(run(['capabilities', '--json']).stdout);
+  check('changelog format version agrees with its current release', changelog.schemaVersion === currentSchemaVersion);
+  check('CLI version and capabilities share the current contract', versionInfo.schemaVersion === currentSchemaVersion && capabilityInfo.schemaVersion === currentSchemaVersion);
+  check('a 1.0 consumer refuses the actual current CLI contract', !canConsume(versionInfo.schemaVersion, '1.0').ok);
+  for (const name of ['no-findings.json', 'review-required.json', 'partial.json']) {
+    const old = JSON.parse(readFileSync(join(schemaDir, 'examples', name), 'utf8'));
+    check(`${name}: the current consumer still accepts the historical 1.0 result`, old.schemaVersion === '1.0' && canConsume(old.schemaVersion, currentSchemaVersion).ok && validateResult(old));
+  }
+
 
   // --- 1. every fixture, through the process ---------------------------------
   //
@@ -79,6 +95,7 @@ if (isMain) {
 
     let result = null;
     try { result = JSON.parse(stdout); } catch { /* reported below */ }
+    check(`${name}: result declares the same contract as version/capabilities`, result?.schemaVersion === currentSchemaVersion);
     check(`${name}: stdout is JSON and nothing else`, result !== null,
       `exit ${code}, stdout starts ${JSON.stringify(stdout.slice(0, 80))}`);
     if (result === null) continue;
@@ -102,6 +119,40 @@ if (isMain) {
       leaked.length === 0, leaked.join(', '));
   }
 
+  // Boundary data is regenerated in memory, so neither committed PDFs nor
+  // labels can silently drift. Run every case through the public process.
+  const boundaryDir = join(root, 'fixtures/pdf/boundaries');
+  check('the boundary corpus has at least sixteen cases', boundaryFixtures().length >= 16);
+  check('boundary labels match their generator',
+    JSON.stringify(JSON.parse(readFileSync(join(boundaryDir, 'manifest.json')))) === JSON.stringify(boundaryManifest()));
+  for (const fixture of boundaryFixtures()) {
+    const path = join(boundaryDir, fixture.name);
+    check(`${fixture.name}: bytes match the deterministic generator`, readFileSync(path).equals(fixture.bytes));
+    const { stdout, stderr, code } = run(['inspect', path, '--json']);
+    let value = null;
+    try { value = JSON.parse(stdout); } catch { /* report and keep checking */ }
+    check(`${fixture.name}: stdout is JSON and nothing else`, value !== null,
+      `exit ${code}, stderr ${JSON.stringify(stderr.slice(0, 160))}`);
+    // A mutated exit-code path can correctly refuse an inconsistent result.
+    // Keep running so the decision-table guard below reports the intended
+    // failure instead of aborting here on empty stdout.
+    if (value === null) continue;
+    check(`${fixture.name}: canonical result validates`, validateResult(value), JSON.stringify(validateResult.errors));
+    check(`${fixture.name}: result version is current and rejected by a 1.0 consumer`, value.schemaVersion === currentSchemaVersion && !canConsume(value.schemaVersion, '1.0').ok);
+    check(`${fixture.name}: status matches the boundary label`, value.status === fixture.expectedStatus, value.status);
+    check(`${fixture.name}: exit agrees with coverage`, STATUS_EXIT_MATRIX[value.status].includes(code));
+    const failed = value.coverage.failed.map(({ detector, errorCode }) => ({ detector, errorCode }));
+    check(`${fixture.name}: failed checks are exact`, JSON.stringify(failed) === JSON.stringify(fixture.expectedFailed));
+    for (const category of fixture.expectedCategories) {
+      check(`${fixture.name}: expected finding ${category} is present`, value.findings.some((f) => f.category === category));
+    }
+    for (const { detector } of fixture.expectedFailed) {
+      check(`${fixture.name}: unsupported check is not completed`, !value.coverage.completed.includes(detector));
+      check(`${fixture.name}: gap is explained`, value.limitations.some((l) => l.affectedDetectors.includes(detector)));
+    }
+    check(`${fixture.name}: document values stay out of diagnostics`, !JSON.stringify(value).includes('SYNTHETIC-XMP-42') && !JSON.stringify(value).includes('SYNTHETIC-HIDDEN-42'));
+  }
+
   // Both halves of the one status that has two codes. Without this the pair is
   // a claim about a branch nothing reached.
   check('a complete run and an incomplete one produced different codes',
@@ -109,6 +160,66 @@ if (isMain) {
 
   // --- 2. what is outside the supported set ----------------------------------
   const scratch = mkdtempSync(join(tmpdir(), 'beforeshare-cli-'));
+  // Metadata rejects a sparse oversized file before reading or hashing it.
+  const budgets = JSON.parse(readFileSync(join(schemaDir, 'limit-rules.json'))).budgets;
+  const oversized = join(scratch, 'oversized.pdf');
+  const fd = openSync(oversized, 'w');
+  try { ftruncateSync(fd, budgets.inputBytes.default + 1); } finally { closeSync(fd); }
+  const sizeStarted = performance.now();
+  const refused = run(['inspect', oversized, '--json']);
+  check('oversized sparse input exits 4 with a named refusal', refused.code === 4 && refused.stderr.includes('input_too_large'));
+  check('oversized input does not fabricate a hash or result', refused.stdout === '');
+  check('oversized input is rejected promptly', performance.now() - sizeStarted < 5000);
+  rmSync(oversized);
+
+  const exact = join(filesDir, 'invisible-text.control.pdf');
+  const exactSize = readFileSync(exact).length;
+  const allowed = run(['inspect', exact, '--json', '--max-input-bytes', String(exactSize)]);
+  check('a file exactly at the input limit is inspected', allowed.code === 0 && JSON.parse(allowed.stdout).status === 'no_findings');
+  const over = run(['inspect', exact, '--json', '--max-input-bytes', String(exactSize - 1)]);
+  check('one byte over the input limit is refused', over.code === 4 && over.stdout === '' && over.stderr.includes('input_too_large'));
+  for (const [option, bad] of [
+    ['--max-input-bytes', '0'], ['--max-input-bytes', '-1'], ['--max-input-bytes', 'NaN'],
+    ['--max-input-bytes', String(budgets.inputBytes.default + 1)],
+    ['--timeout-ms', '0'], ['--timeout-ms', '1.5'], ['--timeout-ms', String(budgets.wallClockMs.default + 1)],
+  ]) {
+    const invalid = run(['inspect', exact, '--json', option, bad]);
+    check(`${option} rejects ${bad}`, invalid.code === 2 && invalid.stdout === '');
+  }
+  for (const args of [
+    ['inspect', exact, '--timeout-ms'],
+    ['inspect', exact, '--timeout-ms', '1', '--timeout-ms', '2'],
+    ['version', '--max-input-bytes', '1'],
+  ]) check(`invalid limit arguments are refused: ${args.join(' ')}`, run(args).code === 2);
+
+  // A large valid content stream makes real parsing exceed a deliberately
+  // reduced deadline. No mock clock or environment-variable delay hook.
+  const slow = join(scratch, 'slow.pdf');
+  const slowBytes = buildPdf(minimalDocument({ contents: 'q Q\n'.repeat(1_000_000) }));
+  writeFileSync(slow, slowBytes);
+  const timeoutStarted = performance.now();
+  const timedOut = run(['inspect', slow, '--json', '--timeout-ms', '10']);
+  check('a real inspection times out with exit 5', timedOut.code === 5 && timedOut.stderr.includes('timeout'));
+  check('a timed-out worker publishes no partial JSON', timedOut.stdout === '');
+  check('timeout returns without waiting for parsing to finish', performance.now() - timeoutStarted < 5000);
+  check('timeout preserves the original bytes', createHash('sha256').update(readFileSync(slow)).digest('hex') === createHash('sha256').update(slowBytes).digest('hex'));
+  const privateWorker = run(['--inspection-worker', 'inspect', slow, '--json', '--timeout-ms', '10']);
+  check('the private worker cannot bypass its own deadline', privateWorker.code !== 0 && privateWorker.stdout === '');
+  rmSync(slow);
+  check('a normal inspection completes under a reduced deadline', run(['inspect', exact, '--timeout-ms', '5000']).code === 0);
+
+  // A compact input can expand into far more JSON than input bytes. Exercise
+  // the real parent's combined-output budget, not just the pipe reader helper.
+  const noisy = join(scratch, 'many-annotations.pdf');
+  writeFileSync(noisy, buildPdf(minimalDocument({
+    pageExtra: ` /Annots [${'6 0 R '.repeat(32_000)}]`,
+    extraObjects: ['<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (Synthetic annotation) >>'],
+  })));
+  const outputRefusal = run(['inspect', noisy, '--json']);
+  check('expanded worker output is refused with exit 5', outputRefusal.code === 5 && outputRefusal.stderr.includes('resource_limit_exceeded'));
+  check('output refusal publishes no truncated JSON', outputRefusal.stdout === '');
+  rmSync(noisy);
+
   const notPdf = join(scratch, 'notes.txt');
   writeFileSync(notPdf, 'this is not a PDF, whatever the name says');
   {

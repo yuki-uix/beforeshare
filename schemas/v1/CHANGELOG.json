@@ -1,7 +1,18 @@
 {
   "$comment": "Machine-readable changelog for the canonical schemas (§13.3 requires one alongside the machine-readable schema). Each change is classified, and tools/versioning.mjs decides from these classifications whether a version bump was legal — so a breaking change recorded under an unchanged MAJOR fails the build rather than shipping.",
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "releases": [
+    {
+      "version": "1.1",
+      "date": "2026-10-18",
+      "changes": [
+        {
+          "type": "additive",
+          "target": "enums.schema.json",
+          "description": "Add unsupported_feature for valid PDF structures the checker cannot inspect, and pdf_check_incomplete to explain failed PDF checks without claiming completed coverage."
+        }
+      ]
+    },
     {
       "version": "1.0",
       "date": "2026-09-14",

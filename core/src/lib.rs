@@ -15,11 +15,25 @@
 
 #![forbid(unsafe_code)]
 
-/// This build's version, so an interface reports the core it is actually
-/// running rather than its own.
+/// Canonical result contract, including explicit unsupported PDF boundaries.
+pub fn schema_version() -> &'static str {
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION.get_or_init(|| {
+        let changelog: serde_json::Value =
+            serde_json::from_str(include_str!("../../schemas/v1/CHANGELOG.json"))
+                .expect("schema changelog");
+        changelog["releases"][0]["version"]
+            .as_str()
+            .expect("current schema version")
+            .to_owned()
+    })
+}
+
+/// This build's version, so an interface reports the core it is actually running.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod identity;
+pub mod limits;
 pub mod masking;
 pub mod path_gate;
 pub mod pdf;

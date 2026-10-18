@@ -28,7 +28,8 @@
     "test:results": "npm run results:regenerate --silent && node tools/test-emitted-results.mjs",
     "results:regenerate": "cargo run -q --manifest-path core/Cargo.toml --example emit-results",
     "results:committed": "bash tools/regenerate-results.sh",
-    "test:cli": "cargo build -q -p beforeshare-cli && node tools/test-cli.mjs"
+    "test:cli": "cargo build -q -p beforeshare-cli && node tools/test-cli.mjs",
+    "fixtures:boundaries": "node fixtures/pdf/generate-boundaries.mjs"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

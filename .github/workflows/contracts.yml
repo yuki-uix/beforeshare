@@ -1410,8 +1410,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
 
       # The committed results are a function of the core, and nothing checked
       # that. The JavaScript suite validates the files in the tree, so a change
@@ -1596,10 +1596,10 @@ jobs:
             $'(Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),' \
             $'(Ok(_), Err(ref e)) if e.kind() == std::io::ErrorKind::NotFound => Ok(rules().identity.case_insensitive_default),'
 
-          expect_red "no rewind before a second read" \
-            "the_same_authorisation_reads_the_same_bytes_twice" \
-            $'file.rewind()?;' \
-            $''
+          expect_red "reads share a seek cursor" \
+            "reads_do_not_change_the_shared_handle_cursor" \
+            $'let count = self.file.read_at(buffer, self.offset)?;' \
+            $'let count = std::io::Read::read(&mut self.file, buffer)?;'
 
           expect_red "a write that follows the name" \
             "a_write_does_not_follow_a_link_that_appeared_at_the_final_component" \

@@ -183,7 +183,7 @@ export function buildCapabilities({ core = '0.1.0', app, testedLimits = {} } = {
   const anyAction = Object.values(ACTION_FACTS).some((f) => f.status === 'implemented');
 
   const out = {
-    schemaVersion: '1.0',
+    schemaVersion: read('CHANGELOG.json').releases[0].version,
     operational: {
       canInspect: anyDetector,
       canRemediate: anyAction,
@@ -202,6 +202,11 @@ export function buildCapabilities({ core = '0.1.0', app, testedLimits = {} } = {
       verifiable: f.verifiable,
     })),
     limitations: [
+      {
+        code: 'pdf_check_incomplete',
+        message: 'PDF metadata inspection reads /Info only. XMP packets, invoked Form XObjects, and rotated or skewed text/content produce explicit failed coverage; they are not reported as checked.',
+        mediaTypes: ['application/pdf'],
+      },
       {
         code: 'signature_present_remediation_restricted',
         message: 'Any change to a signed PDF invalidates its signature. BeforeShare reports the signature but does not re-sign.',

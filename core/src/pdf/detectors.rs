@@ -108,6 +108,29 @@ fn found_structural(category: &str, detector: &str, location: Location, value: S
 /// mapping's `locationNote` says so; this is that sentence in code.
 fn metadata(source: &Source) -> Result<Vec<Detected>, NotRun> {
     let doc = source.document;
+    // /Info is not the only metadata surface. Until an XML reader is wired in,
+    // a referenced XMP packet is an explicit gap, never a completed empty check.
+    // Metadata can belong to the catalogue, a page, or an XObject stream.
+    for object in doc.objects.values() {
+        let dict = match object {
+            Object::Dictionary(dict) => dict,
+            Object::Stream(stream) => &stream.dict,
+            _ => continue,
+        };
+        if let Ok(metadata) = dict.get(b"Metadata") {
+            match doc.dereference(metadata) {
+                Ok((_, Object::Null)) => {},
+                Ok(_) => return Err(NotRun::Failed {
+                    code: FailureCode::UnsupportedFeature,
+                    message: "XMP metadata is present; this build reads /Info only and cannot inspect the XML packet".into(),
+                }),
+                Err(_) => return Err(NotRun::Failed {
+                    code: FailureCode::MalformedInput,
+                    message: "the /Metadata reference does not resolve".into(),
+                }),
+            }
+        }
+    }
     const FIELDS: [(&str, &str); 7] = [
         ("Author", "document_author"),
         ("Creator", "document_creator"),
@@ -783,6 +806,41 @@ fn walk_actions(
     }
 }
 
+// Resolve the nearest inherited Resources dictionary, without assuming it is
+// direct or merging it with a parent's dictionary. Bound cycles and depth.
+fn xobject_subtype(doc: &Document, page: lopdf::ObjectId, name: &[u8]) -> Result<Vec<u8>, NotRun> {
+    let resolve = || -> lopdf::Result<Vec<u8>> {
+        let mut current = page;
+        let mut seen = BTreeSet::new();
+        for _ in 0..super::graph_depth() {
+            if !seen.insert(current) {
+                return Err(lopdf::Error::ReferenceCycle(current));
+            }
+            let page = doc.get_dictionary(current)?;
+            if let Ok(resources) = page.get(b"Resources") {
+                let resources = doc.dereference(resources)?.1.as_dict()?;
+                let objects = doc.dereference(resources.get(b"XObject")?)?.1.as_dict()?;
+                let object = doc.dereference(objects.get(name)?)?.1.as_stream()?;
+                return Ok(doc
+                    .dereference(object.dict.get(b"Subtype")?)?
+                    .1
+                    .as_name()?
+                    .to_vec());
+            }
+            current = page.get(b"Parent")?.as_reference()?;
+        }
+        Err(lopdf::Error::RecursionLimit)
+    };
+    resolve().map_err(|error| NotRun::Failed {
+        code: if matches!(error, lopdf::Error::RecursionLimit) {
+            FailureCode::ResourceLimitExceeded
+        } else {
+            FailureCode::ParserError
+        },
+        message: "an invoked XObject or its inherited resources could not be resolved within the traversal budget".into(),
+    })
+}
+
 /// §7.1 — text that is not visually obvious, and text under an apparent
 /// redaction.
 ///
@@ -914,6 +972,25 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
             };
 
             match op.operator.as_str() {
+                "Do" => {
+                    let name = op
+                        .operands
+                        .first()
+                        .and_then(|v| v.as_name().ok())
+                        .ok_or_else(|| NotRun::Failed {
+                            code: FailureCode::MalformedInput,
+                            message: format!(
+                                "page {page_number} has an invalid XObject invocation"
+                            ),
+                        })?;
+                    let subtype = xobject_subtype(doc, *page_id, name)?;
+                    if subtype != b"Image" {
+                        return Err(NotRun::Failed {
+                            code: FailureCode::UnsupportedFeature,
+                            message: format!("page {page_number} invokes a Form or other non-image XObject; nested text is not inspected by this build"),
+                        });
+                    }
+                }
                 "q" => stack.push(here),
                 "Q" => {
                     if stack.len() > 1 {
@@ -926,7 +1003,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                             numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5],
                         );
                         if b != 0.0 || c != 0.0 {
-                            return Err(NotRun::Failed { code: FailureCode::MalformedInput, message: format!(
+                            return Err(NotRun::Failed { code: FailureCode::UnsupportedFeature, message: format!(
                                 "page {page_number} rotates or skews its content, and this detector \
                                  reasons about translation and scale only - reporting nothing here \
                                  would be a silent miss"
@@ -970,7 +1047,7 @@ fn text_layer(source: &Source) -> Result<Vec<Detected>, NotRun> {
                     if numbers.len() == 6 {
                         if numbers[1] != 0.0 || numbers[2] != 0.0 {
                             return Err(NotRun::Failed {
-                                code: FailureCode::MalformedInput,
+                                code: FailureCode::UnsupportedFeature,
                                 message: format!(
                                 "page {page_number} rotates or skews its text, and this detector \
                                  reasons about translation and scale only"

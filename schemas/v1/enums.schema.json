@@ -142,7 +142,8 @@
         "malformed_input",
         "resource_limit_exceeded",
         "timeout",
-        "internal_error"
+        "internal_error",
+        "unsupported_feature"
       ]
     },
     "limitationCode": {
@@ -155,6 +156,7 @@
         "media_type_mismatch",
         "oversized_metadata_value_truncated",
         "ocr_not_available",
+        "pdf_check_incomplete",
         "image_resolution_below_ocr_threshold",
         "language_not_covered_by_ocr",
         "signature_present_remediation_restricted"
