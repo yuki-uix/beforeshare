@@ -1410,8 +1410,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
 
       # The committed results are a function of the core, and nothing checked
       # that. The JavaScript suite validates the files in the tree, so a change
