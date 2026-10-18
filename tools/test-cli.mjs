@@ -128,8 +128,15 @@ if (isMain) {
   for (const fixture of boundaryFixtures()) {
     const path = join(boundaryDir, fixture.name);
     check(`${fixture.name}: bytes match the deterministic generator`, readFileSync(path).equals(fixture.bytes));
-    const { stdout, code } = run(['inspect', path, '--json']);
-    const value = JSON.parse(stdout);
+    const { stdout, stderr, code } = run(['inspect', path, '--json']);
+    let value = null;
+    try { value = JSON.parse(stdout); } catch { /* report and keep checking */ }
+    check(`${fixture.name}: stdout is JSON and nothing else`, value !== null,
+      `exit ${code}, stderr ${JSON.stringify(stderr.slice(0, 160))}`);
+    // A mutated exit-code path can correctly refuse an inconsistent result.
+    // Keep running so the decision-table guard below reports the intended
+    // failure instead of aborting here on empty stdout.
+    if (value === null) continue;
     check(`${fixture.name}: canonical result validates`, validateResult(value), JSON.stringify(validateResult.errors));
     check(`${fixture.name}: result version is current and rejected by a 1.0 consumer`, value.schemaVersion === currentSchemaVersion && !canConsume(value.schemaVersion, '1.0').ok);
     check(`${fixture.name}: status matches the boundary label`, value.status === fixture.expectedStatus, value.status);
