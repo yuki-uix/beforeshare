@@ -8,7 +8,14 @@ The initial product scope is macOS with PDF, JPEG, and PNG support. The same ins
 
 ## Status
 
-BeforeShare is currently in the requirements and validation stage. No production implementation exists yet, and the repository must not be interpreted as claiming that files can already be made safe.
+BeforeShare has an experimental Rust PDF inspector and a read-only CLI (`inspect`, `capabilities`, `version`). Image inspection, OCR, remediation, independent verification, desktop, and MCP are not implemented. This is not a production release and does not claim that files can be made safe.
+
+CLI inspection enforces the canonical input-size and process-deadline budgets (currently 256 MiB and 30 seconds). `--max-input-bytes` and `--timeout-ms` may lower these limits. Oversized intake exits 4; timeout exits 5 after stopping and reaping the worker. Worker output is also capped at 16 MiB combined; exceeding it exits 5. These refusals diagnose the failure on stderr and leave stdout empty, including in JSON mode, because no complete inspection result exists. See [runtime limits and PDF boundaries](docs/contracts/runtime-inspection-limits.md).
+
+```sh
+cargo run -p beforeshare-cli -- inspect document.pdf --json
+cargo run -p beforeshare-cli -- inspect document.pdf --timeout-ms 5000
+```
 
 ## Product specification
 

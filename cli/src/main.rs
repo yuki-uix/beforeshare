@@ -6,6 +6,7 @@
 //! and the result from `beforeshare_core::result::assemble`, so this file is
 //! argument parsing, two renderings, and the order of the steps.
 //!
+//! Inspection runs in a killable worker under the canonical wall-clock budget.
 //! What it deliberately does not do: prompt, write a file, keep a run, or say
 //! anything about a file it did not read. `sanitize` and `verify` are #72.
 //!
@@ -17,11 +18,12 @@
 mod clock;
 mod exit;
 mod render;
+mod supervisor;
 
 use std::path::Path;
 use std::time::SystemTime;
 
-use beforeshare_core::{identity, path_gate, pdf, result};
+use beforeshare_core::{identity, limits, path_gate, pdf, result};
 
 use exit::Outcome;
 
@@ -34,45 +36,85 @@ beforeshare - see what a file discloses before you share it
   beforeshare capabilities [--json]     what this build can and cannot check
   beforeshare version [--json]          the version of the core and its rules
 
+inspect limits (may only lower the built-in budgets):
+  --max-input-bytes <n>   default 268435456 (256 MiB)
+  --timeout-ms <n>        default 30000; includes file intake and parsing
+
 Everything runs on this machine. Nothing is uploaded, and no file is modified.
 ";
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let code = run(&args);
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Private subprocess entry point. It runs the same validation and bounded
+    // intake, while the public entry point owns the deadline and the process.
+    let worker = args.first().is_some_and(|arg| arg == "--inspection-worker");
+    if worker {
+        args.remove(0);
+    }
+    let code = run(&args, worker);
     std::process::exit(code);
 }
 
-fn run(args: &[String]) -> i32 {
+fn run(args: &[String], worker: bool) -> i32 {
     if args.len() == 1 && args[0] == "--help" {
         eprint!("{USAGE}");
         return 0;
     }
     let json = args.iter().any(|a| a == "--json");
-    let positional: Vec<&str> = args
-        .iter()
-        .map(String::as_str)
-        .filter(|a| !a.starts_with("--"))
-        .collect();
-    let unknown: Vec<&String> = args
-        .iter()
-        .filter(|a| a.starts_with("--") && a.as_str() != "--json")
-        .collect();
-
-    if !unknown.is_empty() {
-        return refuse(&format!(
-            "unknown option: {}",
-            unknown
-                .iter()
-                .map(|a| a.as_str())
-                .collect::<Vec<&str>>()
-                .join(", ")
-        ));
+    let mut positional = Vec::new();
+    let mut input_limit = None;
+    let mut timeout_ms = None;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        match arg {
+            "--json" => {}
+            "--max-input-bytes" | "--timeout-ms" => {
+                let (slot, ceiling) = if arg == "--max-input-bytes" {
+                    (&mut input_limit, limits::defaults().input_bytes)
+                } else {
+                    (&mut timeout_ms, limits::defaults().wall_clock_ms)
+                };
+                index += 1;
+                let value = args.get(index).and_then(|v| v.parse::<u64>().ok());
+                match value {
+                    Some(value) if value > 0 && value <= ceiling && slot.is_none() => {
+                        *slot = Some(value)
+                    }
+                    _ => {
+                        return refuse(&format!(
+                            "{arg} requires one integer in 1..={ceiling} and may appear only once"
+                        ))
+                    }
+                }
+            }
+            option if option.starts_with("--") => {
+                return refuse(&format!("unknown option: {option}"))
+            }
+            _ => positional.push(arg),
+        }
+        index += 1;
+    }
+    if (input_limit.is_some() || timeout_ms.is_some()) && positional.first() != Some(&"inspect") {
+        return refuse("resource limits apply only to inspect");
     }
 
     match positional.first().copied() {
         Some("inspect") => match positional.get(1) {
-            Some(path) if positional.len() == 2 => inspect(path, json),
+            Some(path) if positional.len() == 2 => {
+                if worker {
+                    supervisor::start_worker_deadline(std::time::Duration::from_millis(
+                        timeout_ms.unwrap_or(limits::defaults().wall_clock_ms),
+                    ));
+                    inspect(
+                        path,
+                        json,
+                        input_limit.unwrap_or(limits::defaults().input_bytes),
+                    )
+                } else {
+                    supervised(args, timeout_ms.unwrap_or(limits::defaults().wall_clock_ms))
+                }
+            }
             Some(_) => refuse("inspect takes one path; it does not recurse into directories"),
             None => refuse("inspect needs a path"),
         },
@@ -99,7 +141,56 @@ fn refuse(message: &str) -> i32 {
     .0
 }
 
-fn inspect(raw: &str, json: bool) -> i32 {
+fn supervised(args: &[String], timeout_ms: u64) -> i32 {
+    use std::io::Write;
+    let result = std::env::current_exe().and_then(|exe| {
+        supervisor::execute(
+            std::process::Command::new(exe)
+                .arg("--inspection-worker")
+                .args(args),
+            std::time::Duration::from_millis(timeout_ms),
+            limits::defaults().worker_output_bytes,
+        )
+    });
+    match result {
+        Ok(supervisor::Completion::Finished {
+            status,
+            stdout,
+            stderr,
+        }) => {
+            if status.code() == Some(supervisor::WATCHDOG_EXIT) {
+                eprintln!("beforeshare: timeout: inspection worker exceeded its deadline; no result is available");
+                return 5;
+            }
+            if let Some(code) = status.code() {
+                // Nothing reaches stdout until a complete worker has exited.
+                if std::io::stdout().write_all(&stdout).is_err()
+                    || std::io::stderr().write_all(&stderr).is_err()
+                {
+                    return 5;
+                }
+                code
+            } else {
+                eprintln!("beforeshare: inspection worker terminated; no result is available");
+                5
+            }
+        }
+        Ok(supervisor::Completion::OutputLimitExceeded) => {
+            eprintln!("beforeshare: resource_limit_exceeded: worker output exceeded its budget; worker stopped and no result is available");
+            5
+        }
+        Ok(supervisor::Completion::TimedOut) => {
+            eprintln!("beforeshare: timeout: inspection exceeded {timeout_ms} ms; worker stopped and no result is available");
+            5
+        }
+        Err(_) => {
+            eprintln!("beforeshare: inspection worker failed; no result is available");
+            5
+        }
+    }
+}
+
+fn inspect(raw: &str, json: bool, input_limit: u64) -> i32 {
     let started = SystemTime::now();
     let clock = std::time::Instant::now();
 
@@ -135,9 +226,17 @@ fn inspect(raw: &str, json: bool) -> i32 {
         Ok(resolved) => resolved,
         Err(rejected) => return refuse(&format!("{raw}: {}", rejected.reason())),
     };
-    let bytes = match path_gate::read_file(&resolved) {
+    let bytes = match path_gate::read_file_limited(&resolved, input_limit) {
         Ok(bytes) => bytes,
-        Err(_) => {
+        Err(path_gate::LimitedReadError::TooLarge) => {
+            eprintln!("beforeshare: input_too_large: input exceeds {input_limit} bytes; no inspection was performed");
+            return exit::code_for(&Outcome {
+                coverage_incomplete: true,
+                ..Default::default()
+            })
+            .0;
+        }
+        Err(path_gate::LimitedReadError::Io(_)) => {
             eprintln!("beforeshare: could not read the selected file");
             return exit::code_for(&Outcome {
                 processing_failure: true,
@@ -261,7 +360,7 @@ fn version(json: bool) -> i32 {
     if json {
         println!(
             "{}",
-            serde_json::json!({ "cli": core, "core": beforeshare_core::VERSION, "schemaVersion": "1.0" })
+            serde_json::json!({ "cli": core, "core": beforeshare_core::VERSION, "schemaVersion": beforeshare_core::schema_version() })
         );
     } else {
         println!("beforeshare {core} (core {})", beforeshare_core::VERSION);

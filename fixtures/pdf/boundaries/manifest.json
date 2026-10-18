@@ -1,0 +1,153 @@
+{
+  "evalVersion": "pdf-boundaries-v1",
+  "generatedBy": "fixtures/pdf/generate-boundaries.mjs",
+  "provenance": "Deterministic synthetic PDF syntax; all values are invented.",
+  "annotationInstructions": "unsupported_feature means a valid structure was not inspected; it must never be completed. Controls distinguish images, supported transforms, and drawing order.",
+  "fixtures": {
+    "visible-control.pdf": {
+      "expectedStatus": "no_findings",
+      "expectedFailed": [],
+      "expectedCategories": [],
+      "sha256": "76b58590e52f2e0f3b253a21823ee273ad65f8b93dfc156d1a5834e0540c83a6"
+    },
+    "xmp-catalog.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.metadata",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "9d3e3a948f0f8752ed757de5c7c3351e5a9eb402b25e9a290fc1b63747a8ce11"
+    },
+    "xmp-page.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.metadata",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "56c96974c76e3e61215ca95bec743d4fd2745a3ac7b99fa7beed3f1af212ef87"
+    },
+    "null-metadata-control.pdf": {
+      "expectedStatus": "no_findings",
+      "expectedFailed": [],
+      "expectedCategories": [],
+      "sha256": "d3abdf813e08cd9b40348314eac0b0dd52fdc8554a628da64e07ea9358d2ca46"
+    },
+    "form-text-direct.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.text_layer",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "a8715c4001fb5e87a89c6d22c87676581ec425690369da7c8675d5f776faab6d"
+    },
+    "form-text-indirect-resources.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.text_layer",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "9722769fe46db2ede5e8d26548ecf703a79e44c4c9ad4a57179881d6dd0c18ab"
+    },
+    "form-text-inherited-resources.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.text_layer",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "508815f0f4aade171307a6f8a2b2cbc0e93b6f5f0be0b75ab56aba180601ed79"
+    },
+    "missing-xobject.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.text_layer",
+          "errorCode": "parser_error"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "f9984eb8ca2e414e4c2e115421578b4722dc928616b6a2744fd6b978be28daa2"
+    },
+    "xmp-image-xobject.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.metadata",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "0b6755bf41e15ae7be704c127864116661f0b20346977e543dfbb9ed90d9019a"
+    },
+    "image-xobject-control.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [],
+      "expectedCategories": [],
+      "sha256": "e125fd1c84ae5c79ec5feb1dd9d865c23dd57d305cdc2ffa15728b8ea1b8192d"
+    },
+    "rotated-content.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.text_layer",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "21fcef3f5e9403432f79f5d0dba7e8610b3eacdb842d9aa2a07def5c6a8784f6"
+    },
+    "skewed-text.pdf": {
+      "expectedStatus": "partial",
+      "expectedFailed": [
+        {
+          "detector": "pdf.text_layer",
+          "errorCode": "unsupported_feature"
+        }
+      ],
+      "expectedCategories": [],
+      "sha256": "130f6699fad9c0e6e60866e9790984035f69e3145aa298f9ea497d43868f3195"
+    },
+    "translated-control.pdf": {
+      "expectedStatus": "no_findings",
+      "expectedFailed": [],
+      "expectedCategories": [],
+      "sha256": "76caea30f9bf441e77e6948e375a6f23ee8b06e0ef2508f639f6bdd31fda1e96"
+    },
+    "background-control.pdf": {
+      "expectedStatus": "no_findings",
+      "expectedFailed": [],
+      "expectedCategories": [],
+      "sha256": "a3c0da715e3b41ac97823357bb6e0ca4e16153c84f53cb238d52082d48a3022b"
+    },
+    "cover-after-text.pdf": {
+      "expectedStatus": "blocking_findings",
+      "expectedFailed": [],
+      "expectedCategories": [
+        "text_under_redaction"
+      ],
+      "sha256": "ec2c540403eae2cd7d088c14debe6685d851a0349a36e2a1ac912221788dec75"
+    },
+    "hidden-text-control.pdf": {
+      "expectedStatus": "review_required",
+      "expectedFailed": [],
+      "expectedCategories": [
+        "hidden_text"
+      ],
+      "sha256": "513b70a5e054c6a3cae6220fa8a5d9fc086ea3a43222200f2b786cd64201f8b1"
+    }
+  }
+}

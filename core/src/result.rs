@@ -160,6 +160,28 @@ fn masked_label(value: &str, category: &str) -> Result<String, String> {
     Ok(masking::mask(value, policy)?.display_value)
 }
 
+fn diagnostic_message(message: &str) -> String {
+    static LIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let limit = *LIMIT.get_or_init(|| {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../schemas/v1/inspection-result.schema.json"
+        ))
+        .expect("inspection schema");
+        [
+            &schema["properties"]["coverage"]["properties"]["failed"]["items"]["properties"]
+                ["message"],
+            &schema["properties"]["coverage"]["properties"]["skipped"]["items"]["properties"]
+                ["message"],
+            &schema["properties"]["limitations"]["items"]["properties"]["message"],
+        ]
+        .iter()
+        .map(|entry| entry["maxLength"].as_u64().expect("diagnostic maxLength") as usize)
+        .min()
+        .expect("diagnostic fields")
+    });
+    message.chars().take(limit).collect()
+}
+
 /// Assemble the result.
 ///
 /// `run_id`, `started_at` and `duration_ms` are the caller's: a core that
@@ -315,7 +337,7 @@ pub fn assemble(
         .skipped
         .iter()
         .map(|(detector, (reason, message))| {
-            json!({ "detector": detector, "reason": reason.as_str(), "message": message })
+            json!({ "detector": detector, "reason": reason.as_str(), "message": diagnostic_message(message) })
         })
         .collect();
     // §7.1's twelfth item is image-only pages through local OCR, and OCR is
@@ -333,7 +355,7 @@ pub fn assemble(
         .failed
         .iter()
         .map(|(detector, (code, message))| {
-            json!({ "detector": detector, "errorCode": code.as_str(), "message": message })
+            json!({ "detector": detector, "errorCode": code.as_str(), "message": diagnostic_message(message) })
         })
         .collect();
 
@@ -406,7 +428,7 @@ pub fn assemble(
         .collect();
 
     Ok(json!({
-        "schemaVersion": "1.0",
+        "schemaVersion": crate::schema_version(),
         "runId": run_id,
         "input": {
             "path": input.path,
@@ -506,6 +528,14 @@ pub fn decide_status(
 /// What the result must admit it did not do.
 fn limitations_for(inspection: &Inspection) -> Vec<Value> {
     let mut out = Vec::new();
+    for (detector, (code, message)) in &inspection.coverage.failed {
+        out.push(json!({
+            "code": "pdf_check_incomplete",
+            "impact": "coverage_incomplete",
+            "affectedDetectors": [detector],
+            "message": diagnostic_message(&format!("{}: {}", code.as_str(), message)),
+        }));
+    }
     if inspection
         .coverage
         .skipped

@@ -73,6 +73,7 @@ pub enum FailureCode {
     /// because it is not.
     ResourceLimitExceeded,
     InternalError,
+    UnsupportedFeature,
 }
 
 impl FailureCode {
@@ -82,6 +83,7 @@ impl FailureCode {
         Self::MalformedInput,
         Self::ResourceLimitExceeded,
         Self::InternalError,
+        Self::UnsupportedFeature,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -90,6 +92,7 @@ impl FailureCode {
             Self::MalformedInput => "malformed_input",
             Self::ResourceLimitExceeded => "resource_limit_exceeded",
             Self::InternalError => "internal_error",
+            Self::UnsupportedFeature => "unsupported_feature",
         }
     }
 }

@@ -219,3 +219,45 @@ fn a_run_that_read_nothing_still_names_the_detectors_it_tried() {
         "a failed run named no detectors, which the result schema refuses"
     );
 }
+
+#[test]
+fn failure_diagnostics_fit_the_schema_after_prefixing() {
+    use beforeshare_core::{
+        pdf::{Coverage, FailureCode, Inspection},
+        result::{assemble, InputFacts},
+    };
+    let mut coverage = Coverage::default();
+    coverage.completed.insert("pdf.structure".into());
+    coverage.failed.insert(
+        "pdf.metadata".into(),
+        (FailureCode::UnsupportedFeature, "界".repeat(500)),
+    );
+    let inspection = Inspection {
+        detected: vec![],
+        coverage,
+        unreadable: None,
+        has_images: false,
+    };
+    let facts = InputFacts {
+        path: "/fixtures/input.pdf".into(),
+        media_type: "application/pdf".into(),
+        sha256: "0".repeat(64),
+        size_bytes: 0,
+    };
+    let value = assemble(
+        &inspection,
+        &facts,
+        "01J00000000000000000000000",
+        "2026-10-18T00:00:00Z",
+        0,
+    )
+    .unwrap();
+    assert!(
+        value["limitations"][0]["message"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count()
+            <= 500
+    );
+}

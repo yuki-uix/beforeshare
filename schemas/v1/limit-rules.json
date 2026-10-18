@@ -59,6 +59,12 @@
       "unit": "milliseconds",
       "basis": "provisional",
       "owner": "#56 - §17.4's p95 target is 5s for a 20-page text PDF, and a ceiling six times that is a placeholder until the reference machine says otherwise"
+    },
+    "workerOutputBytes": {
+      "default": 16777216,
+      "unit": "combined stdout and stderr bytes retained by the CLI supervisor",
+      "basis": "decided",
+      "note": "A worker may produce far more result bytes than input bytes. Retain at most 16 MiB combined; stop the worker and report resource_limit_exceeded rather than exhausting the supervising process. This is an output budget, not an evaluated input-size limit."
     }
   },
   "measurement": {

@@ -648,27 +648,117 @@ fn decide_folding(
 /// that skips the gate. The JavaScript equivalent checked a `WeakSet` at run
 /// time; this one cannot be called wrongly.
 pub fn read_file(resolved: &ResolvedPath) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
     if resolved.mode != Mode::Read {
         return Err(std::io::Error::other("this path was resolved for writing"));
     }
-    match &resolved.handle {
-        Some(fd) => {
-            use std::io::{Read, Seek};
-            // try_clone duplicates the descriptor, and a duplicate shares the
-            // file offset. Without this rewind a second read of the same
-            // authorisation returned Ok(vec![]) - empty bytes that look like an
-            // empty file rather than like a mistake.
-            let mut file = std::fs::File::from(fd.try_clone()?);
-            file.rewind()?;
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)?;
-            Ok(bytes)
+    let fd = resolved.handle.as_ref().ok_or_else(|| std::io::Error::other(
+        "this read authorisation carries no handle; reopening by name would reintroduce the window it closes"))?;
+    let file = std::fs::File::from(fd.try_clone()?);
+    let mut bytes = Vec::new();
+    PositionedReader { file, offset: 0 }.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+// A duplicated descriptor shares its seek position. pread keeps each read's
+// position private while still using the pinned, authorised file description.
+struct PositionedReader {
+    file: std::fs::File,
+    offset: u64,
+}
+
+impl std::io::Read for PositionedReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        use std::os::unix::fs::FileExt;
+        let count = self.file.read_at(buffer, self.offset)?;
+        self.offset += count as u64;
+        Ok(count)
+    }
+}
+
+/// A size refusal is distinct from an I/O failure: no detector ran.
+#[derive(Debug)]
+pub enum LimitedReadError {
+    TooLarge,
+    Io(std::io::Error),
+}
+
+/// Read the authorised handle without ever accepting more than `limit` bytes.
+/// Metadata refuses large (including sparse) files before allocating; the extra
+/// byte catches a file growing after that check. Never reopen the pathname.
+pub fn read_file_limited(resolved: &ResolvedPath, limit: u64) -> Result<Vec<u8>, LimitedReadError> {
+    let read = || -> std::io::Result<Option<Vec<u8>>> {
+        if resolved.mode != Mode::Read {
+            return Err(std::io::Error::other("this path was resolved for writing"));
         }
-        // No fallback to the name: a read authorisation always carries its
-        // handle, and reopening by name is exactly the window the handle closes.
-        None => Err(std::io::Error::other(
-            "this read authorisation carries no handle; reopening by name would reintroduce the window it closes",
-        )),
+        let fd = resolved
+            .handle
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("this read authorisation carries no handle"))?;
+        let file = std::fs::File::from(fd.try_clone()?);
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::other("inspection requires a regular file"));
+        }
+        if metadata.len() > limit {
+            return Ok(None);
+        }
+        read_bounded(PositionedReader { file, offset: 0 }, limit)
+    };
+    match read().map_err(LimitedReadError::Io)? {
+        Some(bytes) => Ok(bytes),
+        None => Err(LimitedReadError::TooLarge),
+    }
+}
+
+fn read_bounded(reader: impl std::io::Read, limit: u64) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    let ceiling = limit
+        .checked_add(1)
+        .ok_or_else(|| std::io::Error::other("the read limit cannot be incremented"))?;
+    let mut bytes = Vec::new();
+    reader.take(ceiling).read_to_end(&mut bytes)?;
+    Ok((bytes.len() as u64 <= limit).then_some(bytes))
+}
+
+#[cfg(test)]
+mod limited_read_tests {
+    use super::*;
+
+    #[test]
+    fn reads_do_not_change_the_shared_handle_cursor() {
+        use std::io::{Seek, SeekFrom};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("input.pdf");
+        std::fs::write(&path, b"original").unwrap();
+        let gate = Gate::new(&[dir.path()]).unwrap();
+        let resolved = gate.for_read(path.to_str().unwrap()).unwrap();
+        let mut shared =
+            std::fs::File::from(resolved.handle.as_ref().unwrap().try_clone().unwrap());
+        shared.seek(SeekFrom::Start(3)).unwrap();
+        assert_eq!(read_file_limited(&resolved, 8).unwrap(), b"original");
+        assert_eq!(
+            shared.stream_position().unwrap(),
+            3,
+            "limited read changed a shared cursor"
+        );
+        assert_eq!(read_file(&resolved).unwrap(), b"original");
+        assert_eq!(
+            shared.stream_position().unwrap(),
+            3,
+            "unlimited read changed a shared cursor"
+        );
+    }
+
+    #[test]
+    fn exact_limit_is_accepted_and_growth_is_bounded_by_one_extra_byte() {
+        assert_eq!(
+            read_bounded(&b"1234"[..], 4).unwrap(),
+            Some(b"1234".to_vec())
+        );
+        let mut reader = &b"123456789"[..];
+        assert!(read_bounded(&mut reader, 4).unwrap().is_none());
+        assert_eq!(reader, b"6789");
     }
 }
 
