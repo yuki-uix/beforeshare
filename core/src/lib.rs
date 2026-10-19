@@ -37,6 +37,8 @@ pub mod limits;
 pub mod masking;
 pub mod path_gate;
 pub mod pdf;
+pub mod pdf_metadata;
 pub mod result;
 pub mod safe_output;
 pub mod stage_binding;
+pub mod verification;

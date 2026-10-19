@@ -7,6 +7,11 @@ Examples: `verification-verified.json`, `verification-unable.json`.
 schema is built around the two ways that goes wrong: a verifier that only asks the code that wrote
 the file, and a result that presents "we could not check" as "it is fine".
 
+The Rust [PDF Info adapter](pdf-metadata-removal.md) now has typed outcomes and an
+actual published-file readback. Its reader shares lopdf with the writer, so absent
+fields remain `unable_to_verify`; it does not satisfy the independent pipeline
+required below or enable a product action.
+
 ## The five outcomes, and where the lines are
 
 | Outcome | Meaning | Successful? |

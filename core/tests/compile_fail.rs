@@ -37,6 +37,23 @@ fn safe_output_requires_owned_prepared_bytes_and_opaque_receipts() {
     ]);
 }
 
+#[test]
+fn metadata_approval_is_opaque_immutable_consumed_and_outcomes_are_exhaustive() {
+    assert_rejected(&[
+        ("tests/compile-fail/forge-metadata-approval.rs", "E0451"),
+        (
+            "tests/compile-fail/mutate-approved-metadata-fields.rs",
+            "E0594",
+        ),
+        ("tests/compile-fail/reuse-metadata-approval.rs", "E0382"),
+        ("tests/compile-fail/publish-unapproved-metadata.rs", "E0599"),
+        (
+            "tests/compile-fail/partial-verification-outcome.rs",
+            "E0004",
+        ),
+    ]);
+}
+
 fn assert_rejected(cases: &[(&str, &str)]) {
     for &(file, expected) in cases {
         // rustc directly: cargo has no per-file build, and an example would be

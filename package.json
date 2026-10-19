@@ -11,7 +11,7 @@
     "test:contracts": "node tools/test-contracts.mjs",
     "test:committed-results": "node tools/test-committed-results.mjs",
     "pretest": "cargo build -q -p beforeshare-cli",
-    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts && npm run test:path-gate && npm run test:identity && npm run test:output && npm run test:failure && npm run test:temp && npm run test:registry && npm run test:limits && npm run test:fixtures && npm run test:detection && npm run test:rust-output && npm run test:boundaries && npm run test:bakeoff && npm run test:results && npm run results:committed && npm run test:cli",
+    "test": "npm run validate && npm run test:masking && npm run test:status && npm run test:contracts && npm run test:path-gate && npm run test:identity && npm run test:output && npm run test:failure && npm run test:temp && npm run test:registry && npm run test:limits && npm run test:fixtures && npm run test:detection && npm run test:rust-output && npm run test:metadata && npm run test:boundaries && npm run test:bakeoff && npm run test:results && npm run results:committed && npm run test:cli",
     "test:path-gate": "node tools/test-path-gate.mjs",
     "test:identity": "node tools/test-file-identity.mjs",
     "test:output": "node tools/test-output-naming.mjs",
@@ -30,7 +30,8 @@
     "results:committed": "bash tools/regenerate-results.sh",
     "test:cli": "cargo build -q -p beforeshare-cli && node tools/test-cli.mjs",
     "fixtures:boundaries": "node fixtures/pdf/generate-boundaries.mjs",
-    "test:rust-output": "node tools/test-rust-output.mjs"
+    "test:rust-output": "node tools/test-rust-output.mjs",
+    "test:metadata": "node tools/test-metadata-removal.mjs"
   },
   "devDependencies": {
     "ajv": "^8.17.1",
