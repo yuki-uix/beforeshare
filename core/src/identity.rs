@@ -5,10 +5,9 @@
 //! result for the same bytes. A hash computed in each of them is three
 //! implementations of one fact.
 //!
-//! The JavaScript reference implementation in `tools/file-identity.mjs` holds
-//! the ordering property - bytes are unreachable except through a record that
-//! has already hashed them - and that structure is #62's to port. This is the
-//! primitive underneath it.
+//! `stage_binding` owns the immutable intake snapshot and hashes it before
+//! exposing bytes to adapters. `tools/file-identity.mjs` remains the JavaScript
+//! reference implementation of the same identity rules.
 
 use sha2::{Digest, Sha256};
 

@@ -23,7 +23,7 @@ mod supervisor;
 use std::path::Path;
 use std::time::SystemTime;
 
-use beforeshare_core::{identity, limits, path_gate, pdf, result};
+use beforeshare_core::{limits, path_gate, pdf, result, stage_binding};
 
 use exit::Outcome;
 
@@ -222,13 +222,15 @@ fn inspect(raw: &str, json: bool, input_limit: u64) -> i32 {
         Ok(gate) => gate,
         Err(rejected) => return refuse(&format!("{}: {}", root.display(), rejected.reason())),
     };
-    let resolved = match gate.for_read(&absolute.to_string_lossy()) {
-        Ok(resolved) => resolved,
-        Err(rejected) => return refuse(&format!("{raw}: {}", rejected.reason())),
-    };
-    let bytes = match path_gate::read_file_limited(&resolved, input_limit) {
-        Ok(bytes) => bytes,
-        Err(path_gate::LimitedReadError::TooLarge) => {
+    let run_id = clock::run_id(started, clock::entropy());
+    let mut registry =
+        stage_binding::Registry::new(std::num::NonZeroUsize::new(1).expect("one run"));
+    let record = match registry.intake(&gate, &absolute.to_string_lossy(), &run_id, input_limit) {
+        Ok(record) => record,
+        Err(stage_binding::Error::Path(rejected)) => {
+            return refuse(&format!("{raw}: {}", rejected.reason()))
+        }
+        Err(stage_binding::Error::Read(path_gate::LimitedReadError::TooLarge)) => {
             eprintln!("beforeshare: input_too_large: input exceeds {input_limit} bytes; no inspection was performed");
             return exit::code_for(&Outcome {
                 coverage_incomplete: true,
@@ -236,7 +238,7 @@ fn inspect(raw: &str, json: bool, input_limit: u64) -> i32 {
             })
             .0;
         }
-        Err(path_gate::LimitedReadError::Io(_)) => {
+        Err(_) => {
             eprintln!("beforeshare: could not read the selected file");
             return exit::code_for(&Outcome {
                 processing_failure: true,
@@ -245,25 +247,34 @@ fn inspect(raw: &str, json: bool, input_limit: u64) -> i32 {
             .0;
         }
     };
+    let bytes = record.bytes();
 
     // Sniffed, not taken from the name. An extension is a claim by whoever
     // named the file, and §12.2 separates "outside what I check" from "I tried
     // and failed" - answering the first from a file's name would put a PDF with
     // the wrong suffix in the second.
-    let media_type = media_type_of(&bytes);
+    let media_type = media_type_of(bytes);
     let inspection = if media_type == "application/pdf" {
-        pdf::inspect(&bytes)
+        pdf::inspect(bytes)
     } else {
         pdf::Inspection::nothing_read()
     };
 
+    if let Err(error) = registry.confirm(&gate, &record) {
+        eprintln!("beforeshare: input changed or could not be rechecked: {error}; inspect again");
+        return exit::code_for(&Outcome {
+            processing_failure: true,
+            ..Default::default()
+        })
+        .0;
+    }
+
     let facts = result::InputFacts {
-        path: resolved.path().display().to_string(),
+        path: record.path().display().to_string(),
         media_type: media_type.to_string(),
-        sha256: identity::sha256_hex(&bytes),
-        size_bytes: bytes.len() as u64,
+        sha256: record.sha256().to_owned(),
+        size_bytes: record.size_bytes(),
     };
-    let run_id = clock::run_id(started, clock::entropy());
     let assembled = result::assemble(
         &inspection,
         &facts,
