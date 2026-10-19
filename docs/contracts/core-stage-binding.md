@@ -78,8 +78,8 @@ first refusal while a descendant still holds the pipes; cleanup cannot be waived
 
 | Question | Owner |
 |---|---|
-| Safe output creation, parent-directory race closure and atomic publication | #62 — remaining Rust runtime work |
-| Fsync and crash recovery before reporting a published file | #53 and #37 — those issues own durability and recovery |
+| Format adapters consuming stage-bound bytes through the new [safe writer](safe-output.md) | #62 — the publication primitive exists; repair adapters remain |
+| Durable registry and recovery after orphaned writes | #53 and #37 — [safe output](safe-output.md) now syncs published files and directories |
 | Actual metadata removal and independent verification before enabling an action | #62 — this module only binds identity |
 | Durable run identifiers and user-approval adapters | #37 and #62 — durable registry and runtime adapter work |
 | Whether to keep JavaScript as an independent implementation after the full port | #62 — the full port owns the reference implementation decision |

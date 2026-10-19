@@ -17,13 +17,16 @@ case where the process stopped running.
 What the code here adds is the rest of the obligation — naming the failure instead of swallowing it,
 and not leaving debris that accumulates.
 
-**This is a claim about process death, not about power loss.** `link` makes the directory entry
-appear in one step; it says nothing about when the bytes or the entry reach the disk. Nothing here
-syncs the temporary file before publishing or the directory afterwards, so a machine that loses
-power can come back with a destination entry whose contents are short — which is exactly the
-appearance §17.5 counts. Getting from here to a power-loss guarantee needs a durability contract on
-the filesystem interface (`fsync` on the file before the link, `fsync` on the directory after), and
-this build does not have one. Recorded below rather than implied by a word in a sentence.
+**The JavaScript reference below guarantees process-death atomicity only.** It does
+not sync the temporary file or directory. The Rust
+[safe-output module](safe-output.md) now adds file sync before link, directory sync
+after link, and macOS device-flush barriers. It reports success only after those
+barriers succeed, extending the Rust writer's contract to power-loss durability
+when the filesystem and device honour them. A post-link sync error reports that a
+complete file was published with uncertain durability rather than claiming either
+success or no output. Local sync cost is recorded with `basis: measured` in the
+linked document. Physical power-cut testing and registry durability remain #53
+follow-ups; the JavaScript model has not acquired those guarantees.
 
 ## Crashes happen where they happen; cancels are noticed where the run asks
 
@@ -103,4 +106,4 @@ A run that was never cancelled reports `null`. A run that was asked and never st
 | What a run record must persist to resume after a crash rather than restart | #40 — it needs the concurrency story to say what a resumed run may touch |
 | Measuring cancellation latency on the reference Mac, against §17.4's other numbers | #39 — it owns the measured budgets |
 | Whether a publish whose `unlink` fails should retry, leaving a second hard link to the same bytes meanwhile | #38 — what the temporary name may hold is its call |
-| Durability across power loss: syncing the temporary file before the link and the directory after, and what that costs | #39 — it owns the measured budgets, and a sync on every publish is one of them |
+| Registry durability and physical power-loss experiments beyond the new [Rust publication barriers](safe-output.md) | #53 — published file/directory sync and local measured cost are implemented; registry and storage validation remain |

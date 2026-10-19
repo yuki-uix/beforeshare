@@ -29,7 +29,9 @@
       "coveredBy": [
         "test:path-gate:a symlink leaving the root is refused",
         "test:path-gate:a symlinked directory component leaving the root is refused",
-        "test:output:a link planted at the temporary name is refused"
+        "test:output:a link planted at the temporary name is refused",
+        "test:rust-output:Rust fixed_directory_handle_defeats_parent_and_temporary_directory_swaps",
+        "test:rust-output:Rust temporary_directory_swap_cannot_redirect_published_bytes_or_delete_replacements"
       ]
     },
     "cancellation during write": {
@@ -37,28 +39,32 @@
         "test:failure:after_reserve: the run stops and says it was cancelled",
         "test:failure:after_write: a cancel between the write and the publish is honoured",
         "test:failure:during_publish: a cancel between candidates is honoured by name",
-        "test:failure:a cancelled attempt releases the name it reserved too"
+        "test:failure:a cancelled attempt releases the name it reserved too",
+        "test:rust-output:Rust cancellation_during_a_chunked_write_does_not_publish_partial_bytes"
       ]
     },
     "disk-full behavior": {
       "coveredBy": [
         "test:failure:ENOSPC is reported as disk_full",
         "test:failure:EDQUOT is reported as disk_full",
-        "test:failure:a refusal at the publish is reported, not stepped over"
+        "test:failure:a refusal at the publish is reported, not stepped over",
+        "test:rust-output:Rust sync_order_and_failures_distinguish_unpublished_from_durability_unknown"
       ]
     },
     "application crash during remediation": {
       "coveredBy": [
         "test:failure:during_write: the crash really did leave the partial bytes behind",
         "test:failure:after_publish: the destination holds the whole result",
-        "test:temp:a crash leaves an orphan that the sweep reclaims"
+        "test:temp:a crash leaves an orphan that the sweep reclaims",
+        "test:rust-output:Rust process_death_leaves_only_absent_or_complete_destinations_and_marked_debris"
       ]
     },
     "permissions failure": {
       "coveredBy": [
         "test:failure:EACCES is reported as permission_denied",
         "test:failure:EPERM is reported as permission_denied",
-        "test:failure:EROFS is reported as permission_denied"
+        "test:failure:EROFS is reported as permission_denied",
+        "test:rust-output:Rust write_errors_keep_their_primary_diagnosis_and_cleanup_is_best_effort"
       ]
     },
     "temporary-file cleanup": {
@@ -66,7 +72,8 @@
         "test:temp:the temporary file does not outlive the publish",
         "test:failure:a failed attempt releases the name it reserved",
         "test:temp:a temporary file whose owner may be alive is never reclaimed",
-        "test:temp:a path without the marker is not deleted, whoever owns it"
+        "test:temp:a path without the marker is not deleted, whoever owns it",
+        "test:rust-output:Rust independent_copy_is_complete_private_and_bound_to_its_run"
       ]
     },
     "concurrent requests for the same input and output": {
@@ -74,7 +81,8 @@
         "test:registry:both processes issued their run",
         "test:registry:the registry holds both records, not one overwritten by the other",
         "test:registry:the loser does not land on the name it wanted",
-        "test:registry:a second run can be issued while the first waits for a person"
+        "test:registry:a second run can be issued while the first waits for a person",
+        "test:rust-output:Rust concurrent_publications_get_different_names_and_keep_complete_bytes"
       ]
     },
     "stale run identifier or changed input hash": {
@@ -82,7 +90,9 @@
         "test:identity:an approval does not survive a change to the input",
         "test:identity:an approval from a run this process did not issue is refused",
         "test:identity:a run identifier already in use is refused",
-        "test:identity:a released identifier is still refused"
+        "test:identity:a released identifier is still refused",
+        "test:rust-output:Rust stale_released_and_foreign_prepared_outputs_cannot_be_published",
+        "test:rust-output:Rust input_changed_while_writing_is_not_published"
       ]
     },
     "extracted content containing prompt injection": {

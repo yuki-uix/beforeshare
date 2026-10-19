@@ -4,6 +4,10 @@
 after a successful export. §11.1 asks for collision-safe filenames. This records how those hold, and
 what they do not cover.
 
+The Rust runtime implementation and its descriptor-relative publication and durability
+contract are now documented in [safe output](safe-output.md). The sections below
+describe the JavaScript reference; its path-based limitations remain.
+
 ## The question is not "may we write here"
 
 It is "which name did we manage to reserve".

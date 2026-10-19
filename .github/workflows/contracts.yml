@@ -1438,13 +1438,14 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=72
+          EXPECTED_RUST_CASES=83
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
           cp src/masking.rs /tmp/masking.clean
           cp src/result.rs /tmp/result.clean
           cp src/stage_binding.rs /tmp/stage_binding.clean
+          cp src/safe_output.rs /tmp/safe_output.clean
 
           # Two source files carry rules now, so the file is a parameter. The
           # snapshot restored afterwards is the one for that file, because
@@ -1459,6 +1460,7 @@ jobs:
               src/masking.rs) echo /tmp/masking.clean ;;
               src/result.rs) echo /tmp/result.clean ;;
               src/stage_binding.rs) echo /tmp/stage_binding.clean ;;
+              src/safe_output.rs) echo /tmp/safe_output.clean ;;
               *) echo "" ;;
             esac
           }
@@ -1886,6 +1888,61 @@ jobs:
             $'Self::current_bytes(gate, &permit.input, Rejection::InputChangedSinceInspection)?;' \
             $'let _ = gate;'
 
+          expect_red_in "src/safe_output.rs" "file sync cannot be skipped" \
+            "sync_order_and_failures_distinguish_unpublished_from_durability_unknown" \
+            $'ops.sync_file(&temp.file)\n        .map_err(|e| classify(e, Phase::FileSync))?;' \
+            $'let _ = &temp.file;'
+
+          expect_red_in "src/safe_output.rs" "directory sync cannot be skipped" \
+            "sync_order_and_failures_distinguish_unpublished_from_durability_unknown" \
+            $'Phase::DirectorySync => ops.sync_directory(&parent),' \
+            $'Phase::DirectorySync => Ok(()),'
+
+          expect_red_in "src/safe_output.rs" "directory sync reaches the kernel" \
+            "real_sync_calls_reject_a_socket" \
+            $'fs::fsync(&directory.fd).map_err(Into::into)' \
+            $'{ let _ = directory; Ok(()) }'
+
+          expect_red_in "src/safe_output.rs" "publish does not replace a raced occupant" \
+            "publishing_race_never_replaces_the_new_occupant" \
+            $'fs::linkat(\n            &temp.directory,\n            "output.part",\n            &parent.fd,\n            candidate,\n            AtFlags::empty(),\n        )' \
+            $'fs::renameat(&temp.directory, "output.part", &parent.fd, candidate)'
+
+          expect_red_in "src/safe_output.rs" "temporary bytes are created owner only" \
+            "independent_copy_is_complete_private_and_bound_to_its_run" \
+            $'Mode::from_raw_mode(0o600)' \
+            $'Mode::from_raw_mode(0o644)'
+
+          expect_red_in "src/safe_output.rs" "input changed during write invalidates publication" \
+            "input_changed_while_writing_is_not_published" \
+            $'let mut sync_time = clock.elapsed();\n    binding(registry, gate, &prepared)?;' \
+            $'let mut sync_time = clock.elapsed();'
+
+          expect_red_in "src/safe_output.rs" "failed writes release their temporary namespace" \
+            "input_changed_while_writing_is_not_published" \
+            $'if !self.cleaned {\n            self.cleanup();\n        }' \
+            $'if !self.cleaned { self.cleaned = true; }'
+
+          expect_red_in "src/path_gate.rs" "directory components never follow links" \
+            "directory_walk_refuses_links_at_every_component" \
+            $'OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC' \
+            $'OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC'
+
+          expect_red_in "src/safe_output.rs" "Apple full sync is not silently downgraded" \
+            "real_sync_calls_reject_a_socket" \
+            $'fs::fcntl_fullfsync(file).map_err(Into::into)' \
+            $'{ let _ = file; Ok(()) }'
+
+          expect_red_in "src/safe_output.rs" "parent renaming cannot yield a misleading success path" \
+            "fixed_directory_handle_defeats_parent_and_temporary_directory_swaps" \
+            $'if !directory_still_named(gate, &parent) {\n            return Err(error("unresolvable", Phase::Publish));\n        }' \
+            $'if false { return Err(error("unresolvable", Phase::Publish)); }'
+
+          expect_red_in "src/safe_output.rs" "post link replacements remain failures" \
+            "post_link_replacement_is_reported_and_never_rolled_back" \
+            $'if !directory_still_named(gate, &parent) || !same_output {' \
+            $'if !directory_still_named(gate, &parent) { let _ = same_output;'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
@@ -1894,6 +1951,7 @@ jobs:
           cp /tmp/masking.clean src/masking.rs
           cp /tmp/result.clean src/result.rs
           cp /tmp/stage_binding.clean src/stage_binding.rs
+          cp /tmp/safe_output.clean src/safe_output.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else

@@ -28,6 +28,15 @@ fn stage_binding_tokens_cannot_be_forged_mutated_or_reused() {
     ]);
 }
 
+#[test]
+fn safe_output_requires_owned_prepared_bytes_and_opaque_receipts() {
+    assert_rejected(&[
+        ("tests/compile-fail/forge-published-output.rs", "E0451"),
+        ("tests/compile-fail/publish-unprepared-bytes.rs", "E0308"),
+        ("tests/compile-fail/reuse-prepared-output.rs", "E0382"),
+    ]);
+}
+
 fn assert_rejected(cases: &[(&str, &str)]) {
     for &(file, expected) in cases {
         // rustc directly: cargo has no per-file build, and an example would be

@@ -14,6 +14,8 @@ CLI inspection enforces the canonical input-size and process-deadline budgets (c
 
 The Rust core now binds immutable input snapshots, approvals and prepared output bytes to one session and run. CLI inspection rechecks the original pathname and hash before returning a result; a changed input exits 5 with empty stdout. See [Rust stage binding](docs/contracts/core-stage-binding.md) for the ownership guarantees and remaining output/verification work.
 
+The core also has an [independent-copy writer](docs/contracts/safe-output.md) for stage-bound prepared bytes: exclusive private temporary files, collision-safe atomic publication, and file/directory durability barriers. It is covered by real crash and failure tests; remediation and verification commands remain future work.
+
 ```sh
 cargo run -p beforeshare-cli -- inspect document.pdf --json
 cargo run -p beforeshare-cli -- inspect document.pdf --timeout-ms 5000

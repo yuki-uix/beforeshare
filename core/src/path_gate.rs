@@ -266,6 +266,7 @@ fn nfc(input: &str) -> String {
 pub struct Gate {
     roots: Vec<PathBuf>,
     case_rule: CaseRule,
+    root_handles: Vec<OwnedFd>,
 }
 
 impl Gate {
@@ -305,10 +306,32 @@ impl Gate {
             resolved.push(real);
         }
         let case_rule = probe_case_rule(&resolved)?;
+        let root_handles = resolved
+            .iter()
+            .map(|path| open_directory_walk(path).map_err(|error| open_refusal(path, error)))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             roots: resolved,
             case_rule,
+            root_handles,
         })
+    }
+
+    /// Pin an existing output directory beneath a root captured at gate creation.
+    /// Only normal relative components enter openat; no component may be a link.
+    pub(crate) fn output_directory(&self, raw: &str) -> Result<OutputDirectory, Rejected> {
+        let path = self.resolve(raw)?;
+        for (root, handle) in self.roots.iter().zip(&self.root_handles) {
+            if let Ok(relative) = path.strip_prefix(root) {
+                let fd = walk_from(
+                    handle.try_clone().map_err(|e| open_refusal(&path, e))?,
+                    relative,
+                )
+                .map_err(|e| open_refusal(&path, e))?;
+                return Ok(OutputDirectory { fd, path });
+            }
+        }
+        Err(Rejected::OutsideAuthorisedRoots(path.display().to_string()))
     }
 
     /// Resolve for reading, taking a handle while the checked path is the path.
@@ -431,6 +454,36 @@ impl Gate {
             key == root_key || key.starts_with(&format!("{root_key}/"))
         })
     }
+}
+
+pub(crate) struct OutputDirectory {
+    pub(crate) fd: OwnedFd,
+    pub(crate) path: PathBuf,
+}
+
+fn directory_flags() -> rustix::fs::OFlags {
+    use rustix::fs::OFlags;
+    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+fn walk_from(mut fd: OwnedFd, relative: &Path) -> std::io::Result<OwnedFd> {
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(std::io::Error::other(
+                "directory walk requires normal components",
+            ));
+        };
+        fd = rustix::fs::openat(&fd, name, directory_flags(), rustix::fs::Mode::empty())?;
+    }
+    Ok(fd)
+}
+
+fn open_directory_walk(path: &Path) -> std::io::Result<OwnedFd> {
+    let relative = path
+        .strip_prefix("/")
+        .map_err(|_| std::io::Error::other("absolute directory required"))?;
+    let root = rustix::fs::open("/", directory_flags(), rustix::fs::Mode::empty())?;
+    walk_from(root, relative)
 }
 
 /// Collapse `.` and `..` lexically, refusing an escape above the root.
@@ -820,6 +873,17 @@ mod tests {
     /// link except in the race this flag exists to lose safely. Dropping the
     /// flag therefore changed nothing in any vector. Tested here instead, on the
     /// function itself.
+    #[test]
+    fn directory_walk_refuses_links_at_every_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(outside.path().join("nested")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("alias")).unwrap();
+        let held = open_directory_walk(&dir.path().canonicalize().unwrap()).unwrap();
+        assert!(walk_from(held.try_clone().unwrap(), Path::new("alias")).is_err());
+        assert!(walk_from(held, Path::new("alias/nested")).is_err());
+    }
+
     #[test]
     fn the_open_refuses_a_link_at_the_final_component() {
         let dir = tempfile::TempDir::new().expect("a temporary directory");

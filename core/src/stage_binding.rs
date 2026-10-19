@@ -159,6 +159,9 @@ pub struct ProducedBytes {
     sha256: String,
 }
 impl ProducedBytes {
+    pub(crate) fn input_path(&self) -> &Path {
+        &self.input.path
+    }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -414,6 +417,20 @@ impl Registry {
         if sha256_hex(output_bytes) != expected {
             return Err(Error::Rejected(Rejection::OutputNotFromThisRun));
         }
+        Ok(())
+    }
+
+    pub(crate) fn confirm_for_publish(
+        &self,
+        gate: &Gate,
+        produced: &ProducedBytes,
+    ) -> Result<(), Error> {
+        self.require(&produced.input, Phase::Produced)?;
+        Self::current_bytes(
+            gate,
+            &produced.input,
+            Rejection::InputChangedSinceInspection,
+        )?;
         Ok(())
     }
 

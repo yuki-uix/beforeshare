@@ -166,7 +166,7 @@ declare, and a reason the table declares that no vector can reach, each fail.
 
 | Question | Owner |
 |---|---|
-| A parent component swapped between check and open: `O_NOFOLLOW` covers the final component only, and closing the rest needs a component-by-component `openat` walk | #62 — a later slice of the same port, once the gate has a directory-handle type to walk with |
+| Parent-component swaps in the legacy `read_file` / `write_file` APIs; the new [safe writer](safe-output.md) already uses pinned root/directory handles and a component-by-component `openat` walk | #62 — a later slice of the same port, once the gate has a directory-handle type to walk with |
 | Whether the JavaScript reference implementation is retired once the core owns these rules, or kept as a second opinion | #3 — E2 owns what the reference implementations are for |
 | A root whose name carries no ASCII letter (`/Users/u/文档`, already expanded — `Gate::new` takes absolute paths and does not expand `~`) cannot be probed for its case rule and is now refused | #62 — the name experiment is a stand-in; the real answer is asking the volume (`getattrlist` / `ATTR_VOL_CAPABILITIES`), which needs FFI this crate forbids today |
 | How long a process should hold a handle, and whether one is kept across stages | #38 — a lifetime policy, not a closing mechanism; it belongs with temporary-file lifetime |
