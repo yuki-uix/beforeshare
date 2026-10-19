@@ -92,7 +92,8 @@
         "test:identity:a run identifier already in use is refused",
         "test:identity:a released identifier is still refused",
         "test:rust-output:Rust stale_released_and_foreign_prepared_outputs_cannot_be_published",
-        "test:rust-output:Rust input_changed_while_writing_is_not_published"
+        "test:rust-output:Rust input_changed_while_writing_is_not_published",
+        "test:metadata:Rust planning_and_approval_do_not_survive_input_changes_or_cross_registry_tokens"
       ]
     },
     "extracted content containing prompt injection": {

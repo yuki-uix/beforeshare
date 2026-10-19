@@ -8,13 +8,15 @@ The initial product scope is macOS with PDF, JPEG, and PNG support. The same ins
 
 ## Status
 
-BeforeShare has an experimental Rust PDF inspector and a read-only CLI (`inspect`, `capabilities`, `version`). Image inspection, OCR, remediation, independent verification, desktop, and MCP are not implemented. This is not a production release and does not claim that files can be made safe.
+BeforeShare has an experimental Rust PDF inspector and a read-only CLI (`inspect`, `capabilities`, `version`). Image inspection, OCR, independent verification, CLI remediation commands, desktop, and MCP are not implemented. This is not a production release and does not claim that files can be made safe.
 
 CLI inspection enforces the canonical input-size and process-deadline budgets (currently 256 MiB and 30 seconds). `--max-input-bytes` and `--timeout-ms` may lower these limits. Oversized intake exits 4; timeout exits 5 after stopping and reaping the worker. Worker output is also capped at 16 MiB combined; exceeding it exits 5. These refusals diagnose the failure on stderr and leave stdout empty, including in JSON mode, because no complete inspection result exists. See [runtime limits and PDF boundaries](docs/contracts/runtime-inspection-limits.md).
 
 The Rust core now binds immutable input snapshots, approvals and prepared output bytes to one session and run. CLI inspection rechecks the original pathname and hash before returning a result; a changed input exits 5 with empty stdout. See [Rust stage binding](docs/contracts/core-stage-binding.md) for the ownership guarantees and remaining output/verification work.
 
 The core also has an [independent-copy writer](docs/contracts/safe-output.md) for stage-bound prepared bytes: exclusive private temporary files, collision-safe atomic publication, and file/directory durability barriers. It is covered by real crash and failure tests; remediation and verification commands remain future work.
+
+The core has a restricted [PDF Info removal adapter](docs/contracts/pdf-metadata-removal.md) with field-bound approvals and per-file rewrite warnings. Its shared-parser readback explicitly returns `unable_to_verify`; the independent reader/preservation pipeline and product mutation commands are still pending.
 
 ```sh
 cargo run -p beforeshare-cli -- inspect document.pdf --json

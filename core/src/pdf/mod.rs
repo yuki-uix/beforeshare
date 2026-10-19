@@ -479,7 +479,7 @@ pub fn inspect(bytes: &[u8]) -> Inspection {
 /// The ratio is marked `provisional` there and #56 owes the measured number;
 /// reading it rather than writing one here means the measurement lands in one
 /// place when it arrives.
-fn decompression_budget(input_bytes: usize) -> usize {
+pub(crate) fn decompression_budget(input_bytes: usize) -> usize {
     static RATIO: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
     let ratio = *RATIO.get_or_init(|| {
         let limits: serde_json::Value = serde_json::from_str(LIMITS).expect("limit-rules.json");

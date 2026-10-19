@@ -1438,7 +1438,7 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=83
+          EXPECTED_RUST_CASES=94
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
@@ -1446,6 +1446,8 @@ jobs:
           cp src/result.rs /tmp/result.clean
           cp src/stage_binding.rs /tmp/stage_binding.clean
           cp src/safe_output.rs /tmp/safe_output.clean
+          cp src/verification.rs /tmp/verification.clean
+          cp src/pdf_metadata.rs /tmp/pdf_metadata.clean
 
           # Two source files carry rules now, so the file is a parameter. The
           # snapshot restored afterwards is the one for that file, because
@@ -1461,6 +1463,8 @@ jobs:
               src/result.rs) echo /tmp/result.clean ;;
               src/stage_binding.rs) echo /tmp/stage_binding.clean ;;
               src/safe_output.rs) echo /tmp/safe_output.clean ;;
+              src/verification.rs) echo /tmp/verification.clean ;;
+              src/pdf_metadata.rs) echo /tmp/pdf_metadata.clean ;;
               *) echo "" ;;
             esac
           }
@@ -1943,6 +1947,61 @@ jobs:
             $'if !directory_still_named(gate, &parent) || !same_output {' \
             $'if !directory_still_named(gate, &parent) { let _ = same_output;'
 
+          expect_red_in "src/pdf_metadata.rs" "only approved fields are actually removed" \
+            "every_selected_field_is_removed_without_changing_other_fields_or_page_content" \
+            $'dict.remove(field.as_str().as_bytes());' \
+            $'let _ = field;'
+
+          expect_red_in "src/pdf_metadata.rs" "removed indirect values are not serialized as orphan objects" \
+            "clearing_all_fields_removes_the_info_dictionary_and_orphaned_value_objects" \
+            $'prune(&mut document)?;' \
+            $'let _ = &document;'
+
+          expect_red_in "src/pdf_metadata.rs" "Info aliases cannot authorize nonmetadata edits" \
+            "malformed_ambiguous_signed_encrypted_and_xmp_inputs_fail_before_approval" \
+            $'if refs.iter().filter(|&&id| id == info).count() != 1 {' \
+            $'if false {'
+
+          expect_red_in "src/pdf_metadata.rs" "signature fields are refused before approval" \
+            "malformed_ambiguous_signed_encrypted_and_xmp_inputs_fail_before_approval" \
+            $'if matches!(resolved_object(doc,value)?,Object::Name(name) if name==b"Sig") {' \
+            $'if false {'
+
+          expect_red_in "src/pdf_metadata.rs" "signature byte ranges and permission dictionaries are refused" \
+            "malformed_ambiguous_signed_encrypted_and_xmp_inputs_fail_before_approval" \
+            $'if dict.has(b"ByteRange") || dict.has(b"Perms") {' \
+            $'if false {'
+
+          expect_red_in "src/pdf_metadata.rs" "XMP is not silently left out of the removal plan" \
+            "malformed_ambiguous_signed_encrypted_and_xmp_inputs_fail_before_approval" \
+            $'if !matches!(resolved_object(doc, value)?, Object::Null) {' \
+            $'if false {'
+
+          expect_red_in "src/pdf_metadata.rs" "serialized output respects the approved size budget" \
+            "output_limit_and_cancellation_never_publish_or_modify_the_original" \
+            $'if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {' \
+            $'if false {'
+
+          expect_red_in "src/pdf_metadata.rs" "readback rejects output from another run" \
+            "output_identity_is_checked_before_any_readback_claim" \
+            $'registry\n            .check_verify_allowed(\n                self.output.prepared(),\n                self.output.prepared().input_sha256(),\n                &bytes,\n            )\n            .map_err(Error::Identity)?;' \
+            $'let _ = registry;'
+
+          expect_red_in "src/pdf_metadata.rs" "orphan removal has an explicit per-file side effect" \
+            "clearing_all_fields_removes_the_info_dictionary_and_orphaned_value_objects" \
+            $'let discards_unreferenced_objects = document.objects.keys().any(|id| !retained.contains(id));' \
+            $'let discards_unreferenced_objects = false; let _ = retained;'
+
+          expect_red_in "src/verification.rs" "shared parser readback cannot be called verified" \
+            "a_shared_reader_may_disprove_removal_but_never_prove_it" \
+            $'outcome: Outcome::UnableToVerify,' \
+            $'outcome: Outcome::VerifiedRemoved,'
+
+          expect_red_in "src/verification.rs" "unable and failed outcomes are never successful" \
+            "outcomes_match_the_canonical_contract_and_only_two_can_succeed" \
+            $'Self::StillPresent | Self::UnableToVerify | Self::Failed => false,' \
+            $'Self::StillPresent | Self::UnableToVerify | Self::Failed => true,'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
@@ -1952,6 +2011,8 @@ jobs:
           cp /tmp/result.clean src/result.rs
           cp /tmp/stage_binding.clean src/stage_binding.rs
           cp /tmp/safe_output.clean src/safe_output.rs
+          cp /tmp/verification.clean src/verification.rs
+          cp /tmp/pdf_metadata.clean src/pdf_metadata.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else
