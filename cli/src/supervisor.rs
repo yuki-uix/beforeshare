@@ -91,6 +91,15 @@ pub fn execute(
     timeout: Duration,
     output_limit: u64,
 ) -> io::Result<Completion> {
+    execute_with_group_kill(command, timeout, output_limit, Worker::kill_group)
+}
+
+fn execute_with_group_kill(
+    command: &mut Command,
+    timeout: Duration,
+    output_limit: u64,
+    mut kill_group: impl FnMut(&Worker) -> io::Result<()>,
+) -> io::Result<Completion> {
     let limit = usize::try_from(output_limit)
         .ok()
         .filter(|limit| *limit > 0 && *limit < usize::MAX)
@@ -141,7 +150,7 @@ pub fn execute(
             )?
             .is_some_and(|status| status.exited() || status.killed() || status.dumped())
         {
-            if let Err(error) = worker.kill_group() {
+            if let Err(error) = kill_group(&worker) {
                 // Darwin can refuse a group containing only an exited leader.
                 // Accept that only after observing EOF on both pipes: a live
                 // descendant holding either pipe must still be stopped.
@@ -156,11 +165,13 @@ pub fn execute(
                 if total > limit {
                     return Ok(Completion::OutputLimitExceeded);
                 }
-                if !out_eof || !err_eof {
-                    return Err(error);
-                }
+                // Exit observation and pipe closure need not become visible
+                // together on Darwin. Keep retrying under the original deadline;
+                // do not accept an unkillable descendant as a completed worker.
+                exited = out_eof && err_eof;
+            } else {
+                exited = true;
             }
-            exited = true;
         }
         if exited && out_eof && err_eof {
             let status = worker.child.wait()?;
@@ -290,6 +301,50 @@ mod tests {
         };
         assert!(status.success());
         assert_eq!(stdout, b"done");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn permission_denied_after_exit_retries_group_cleanup_within_the_deadline() {
+        let mut attempts = 0;
+        let started = Instant::now();
+        let result = execute_with_group_kill(
+            Command::new("/bin/sh").args(["-c", "sleep 2 & printf done"]),
+            Duration::from_secs(1),
+            100,
+            |worker| {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(io::Error::from(io::ErrorKind::PermissionDenied))
+                } else {
+                    worker.kill_group()
+                }
+            },
+        )
+        .unwrap();
+        assert!(
+            attempts >= 2,
+            "cleanup was waived while descendants held pipes"
+        );
+        let Completion::Finished { status, stdout, .. } = result else {
+            panic!("transient group refusal prevented completion")
+        };
+        assert!(status.success());
+        assert_eq!(stdout, b"done");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn persistent_group_refusal_does_not_extend_the_deadline() {
+        let started = Instant::now();
+        let result = execute_with_group_kill(
+            Command::new("/bin/sh").args(["-c", "sleep 2 & printf done"]),
+            Duration::from_millis(100),
+            100,
+            |_| Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+        )
+        .unwrap();
+        assert!(matches!(result, Completion::TimedOut));
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 

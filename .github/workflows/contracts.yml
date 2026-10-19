@@ -1285,8 +1285,8 @@ jobs:
           node -e "
             const fs=require('fs'), p='cli/src/main.rs';
             let s=fs.readFileSync(p,'utf8');
-            s=s.replace('let media_type = media_type_of(&bytes);',
-                        'let media_type = if raw.ends_with(\".pdf\") { \"application/pdf\" } else { media_type_of(&bytes) };');
+            s=s.replace('let media_type = media_type_of(bytes);',
+                        'let media_type = if raw.ends_with(\".pdf\") { \"application/pdf\" } else { media_type_of(bytes) };');
             fs.writeFileSync(p, s);
           "
           expect_failure "a format taken from the file name" \
@@ -1438,12 +1438,13 @@ jobs:
           set -uo pipefail
           failed=0
           cases_run=0
-          EXPECTED_RUST_CASES=65
+          EXPECTED_RUST_CASES=72
           cp src/path_gate.rs /tmp/path_gate.clean
           cp src/pdf/detectors.rs /tmp/detectors.clean
           cp src/pdf/mod.rs /tmp/pdf_mod.clean
           cp src/masking.rs /tmp/masking.clean
           cp src/result.rs /tmp/result.clean
+          cp src/stage_binding.rs /tmp/stage_binding.clean
 
           # Two source files carry rules now, so the file is a parameter. The
           # snapshot restored afterwards is the one for that file, because
@@ -1457,6 +1458,7 @@ jobs:
               src/pdf/mod.rs) echo /tmp/pdf_mod.clean ;;
               src/masking.rs) echo /tmp/masking.clean ;;
               src/result.rs) echo /tmp/result.clean ;;
+              src/stage_binding.rs) echo /tmp/stage_binding.clean ;;
               *) echo "" ;;
             esac
           }
@@ -1849,6 +1851,41 @@ jobs:
             $'Object::Reference(_) => doc.dereference(object).ok().and_then(|(_, o)| text_of(o)),' \
             $'Object::Reference(_) => None,'
 
+          expect_red_in "src/stage_binding.rs" "a retired identity can be issued again" \
+            "released_ids_remain_spent_and_tokens_are_invalidated" \
+            $'self.used.contains(run_id)' \
+            $'self.active.contains_key(run_id)'
+
+          expect_red_in "src/stage_binding.rs" "a foreign registry can accept matching IDs" \
+            "foreign_registry_with_matching_id_and_bytes_cannot_accept_tokens" \
+            $'.filter(|active| Arc::ptr_eq(&active.input, input))' \
+            $'.filter(|_active| true)'
+
+          expect_red_in "src/stage_binding.rs" "an approval can be consumed twice" \
+            "stage_permits_are_single_use_and_output_identity_is_checked" \
+            $'if self.active_for(input)?.phase != phase {' \
+            $'if { let _ = (self.active_for(input)?, phase); false } {'
+
+          expect_red_in "src/stage_binding.rs" "a stale approval ignores changed bytes" \
+            "stale_approval_is_refused_before_transform_and_before_output" \
+            $'if sha256_hex(&bytes) != input.sha256 {' \
+            $'if false {'
+
+          expect_red_in "src/stage_binding.rs" "verification accepts another output" \
+            "stage_permits_are_single_use_and_output_identity_is_checked" \
+            $'if sha256_hex(output_bytes) != expected {' \
+            $'if { let _ = (output_bytes, expected); false } {'
+
+          expect_red_in "src/stage_binding.rs" "inspection skips its final identity check" \
+            "inspection_rechecks_edits_replacements_and_growth" \
+            $'Self::current_bytes(\n            gate,\n            &record.input,\n            Rejection::InputReplacedDuringInspection,\n        )?;' \
+            $'let _ = gate;'
+
+          expect_red_in "src/stage_binding.rs" "output preparation ignores input replacement" \
+            "stale_approval_is_refused_before_transform_and_before_output" \
+            $'Self::current_bytes(gate, &permit.input, Rejection::InputChangedSinceInspection)?;' \
+            $'let _ = gate;'
+
           # The control. Without it a suite that failed unconditionally would
           # satisfy every case above.
           cp /tmp/path_gate.clean src/path_gate.rs
@@ -1856,6 +1893,7 @@ jobs:
           cp /tmp/pdf_mod.clean src/pdf/mod.rs
           cp /tmp/masking.clean src/masking.rs
           cp /tmp/result.clean src/result.rs
+          cp /tmp/stage_binding.clean src/stage_binding.rs
           if cargo test --no-fail-fast > /dev/null 2>&1; then
             echo "ok  control: unmutated tree is green"
           else

@@ -4,6 +4,12 @@ Rules: [`schemas/v1/identity-rules.json`](../../schemas/v1/identity-rules.json).
 Reference implementation: [`tools/file-identity.mjs`](../../tools/file-identity.mjs).
 Run `npm run test:identity`.
 
+The Rust runtime now implements session-local identity binding in
+[`core/src/stage_binding.rs`](../../core/src/stage_binding.rs). Its ownership,
+CLI integration and remaining #62 boundaries are documented in
+[Rust stage binding](core-stage-binding.md). The sections below describe the
+JavaScript reference implementation.
+
 §14.1 requires file hashes to bind inspection, remediation and verification, and a changed input to
 invalidate an earlier approval. §17.3 puts a number on it: **zero** stale approvals accepted.
 

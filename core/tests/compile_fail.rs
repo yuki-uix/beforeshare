@@ -1,21 +1,35 @@
-//! The compile-fail evidence for ADR 0001's first claim.
+//! Compile-fail evidence for path authorization and stage-binding ownership.
 //!
 //! Each file under `tests/compile-fail/` is a program that must NOT build. A
 //! test that only checks they fail would pass if they failed for a typo, so the
-//! expected error code is checked too - E0451 is "private field", which is the
-//! reason that matters. Anything else means the program broke for a reason
-//! nobody chose.
+//! expected error code is checked too: private fields, immutable borrows,
+//! stage-specific parameter types, and consumed ownership each have a distinct
+//! diagnostic. An unrelated build failure must not satisfy these assertions.
 use std::process::Command;
 
 #[test]
 fn forging_a_resolved_path_does_not_compile() {
-    for (file, expected) in [
+    assert_rejected(&[
         ("tests/compile-fail/forge-a-resolved-path.rs", "E0451"),
         (
             "tests/compile-fail/copy-a-read-path-into-a-write.rs",
             "E0451",
         ),
-    ] {
+    ]);
+}
+
+#[test]
+fn stage_binding_tokens_cannot_be_forged_mutated_or_reused() {
+    assert_rejected(&[
+        ("tests/compile-fail/forge-intake.rs", "E0451"),
+        ("tests/compile-fail/mutate-intake.rs", "E0594"),
+        ("tests/compile-fail/approve-unconfirmed.rs", "E0308"),
+        ("tests/compile-fail/reuse-sanitize-permit.rs", "E0382"),
+    ]);
+}
+
+fn assert_rejected(cases: &[(&str, &str)]) {
+    for &(file, expected) in cases {
         // rustc directly: cargo has no per-file build, and an example would be
         // a second place for this to go wrong.
         let status = Command::new("rustc")
@@ -51,7 +65,7 @@ fn forging_a_resolved_path_does_not_compile() {
         let stderr = String::from_utf8_lossy(&status.stderr);
         assert!(
             stderr.contains(expected),
-            "{file} failed, but not with {expected} - it must fail because the field is private, not because something else broke:\n{stderr}"
+            "{file} failed, but not with {expected} - it must fail for the intended type or ownership constraint:\n{stderr}"
         );
     }
 }
