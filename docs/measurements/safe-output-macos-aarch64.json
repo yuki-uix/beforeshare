@@ -1,0 +1,47 @@
+{
+  "arch": "aarch64",
+  "basis": "measured",
+  "measurements": [
+    {
+      "output_bytes": 0,
+      "publication": {
+        "median_ms": 12.6795625,
+        "p95_ms": 18.812625
+      },
+      "samples": 20,
+      "sync_barriers": {
+        "median_ms": 7.3579785,
+        "p95_ms": 15.536168
+      }
+    },
+    {
+      "output_bytes": 65536,
+      "publication": {
+        "median_ms": 14.8231045,
+        "p95_ms": 15.367375000000001
+      },
+      "samples": 20,
+      "sync_barriers": {
+        "median_ms": 8.050604,
+        "p95_ms": 8.898375
+      }
+    },
+    {
+      "output_bytes": 1048576,
+      "publication": {
+        "median_ms": 16.720437500000003,
+        "p95_ms": 18.683416
+      },
+      "samples": 20,
+      "sync_barriers": {
+        "median_ms": 8.3270205,
+        "p95_ms": 10.255583
+      }
+    }
+  ],
+  "os": "macos",
+  "profile": "debug",
+  "scope": "Synthetic writes on the repository filesystem; includes collisions from earlier samples. Not a power-cut experiment or a worst-case latency bound.",
+  "sync_metric": "File fsync, Apple full sync, destination directory fsync and final Apple device flush. The cleanup fsync is included only in publication time.",
+  "measured_at": "2026-10-19"
+}

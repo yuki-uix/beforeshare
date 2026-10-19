@@ -38,4 +38,5 @@ pub mod masking;
 pub mod path_gate;
 pub mod pdf;
 pub mod result;
+pub mod safe_output;
 pub mod stage_binding;
